@@ -264,6 +264,14 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                     event_question=event_question,
                 )
 
+                if sim_result.get("status") != "completed":
+                    console.print(
+                        f"    [yellow]Simulation {sim_result.get('status', 'unknown')} "
+                        f"— skipping[/yellow]"
+                    )
+                    continue
+
+                # Only log successful simulations (failed ones can be retried)
                 logger.log_simulation(
                     sim_id=sim_result.get("sim_id") or f"sim_{ticker}_{int(time.time())}",
                     market=market,
@@ -271,13 +279,6 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                     kalshi_price=market["yes_price"],
                     estimated_cost=sim_result.get("estimated_cost", 0),
                 )
-
-                if sim_result.get("status") != "completed":
-                    console.print(
-                        f"    [yellow]Simulation {sim_result.get('status', 'unknown')} "
-                        f"— skipping[/yellow]"
-                    )
-                    continue
 
                 mf_prob = sim_result["probability"]
                 # yes_price is already 0.0-1.0 (dollars) from SDK v3
