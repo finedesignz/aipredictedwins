@@ -37,7 +37,7 @@ MIN_MARKET_VOLUME = 10_000       # $10k minimum market volume
 MAX_CORRELATED_POSITIONS = 3     # max positions on same event
 DRAWDOWN_STOP_PCT = 0.20         # 20% drawdown kills the bot
 MIN_PAPER_TRADES = 50            # required before live mode
-CYCLE_SLEEP_SECONDS = 7200       # 2 hours between cycles
+CYCLE_SLEEP_SECONDS = 900        # 15 min between cycles (paper mode, increase for live)
 MAX_SIMS_PER_CYCLE = 10          # cap simulations per scan
 
 console = Console()
@@ -417,10 +417,18 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
             break
 
         # ── 4k. Sleep until next cycle ──────────────────────────────────
-        console.print(
-            f"  Sleeping {CYCLE_SLEEP_SECONDS // 60} minutes until next cycle...\n"
-        )
-        time.sleep(CYCLE_SLEEP_SECONDS)
+        # If no simulations succeeded, retry sooner (2 min) — likely a temporary issue
+        if trades_placed == 0 and len(markets) > 0 and len(ranked) == 0:
+            retry_seconds = 120
+            console.print(
+                f"  [yellow]No successful simulations. Retrying in {retry_seconds // 60} min...[/yellow]\n"
+            )
+            time.sleep(retry_seconds)
+        else:
+            console.print(
+                f"  Sleeping {CYCLE_SLEEP_SECONDS // 60} minutes until next cycle...\n"
+            )
+            time.sleep(CYCLE_SLEEP_SECONDS)
 
 
 # ---------------------------------------------------------------------------
