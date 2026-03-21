@@ -265,11 +265,11 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                 )
 
                 logger.log_simulation(
-                    ticker=ticker,
-                    sim_id=sim_result.get("sim_id"),
-                    status=sim_result.get("status"),
-                    probability=sim_result.get("probability"),
-                    cost=sim_result.get("estimated_cost", 0),
+                    sim_id=sim_result.get("sim_id") or f"sim_{ticker}_{int(time.time())}",
+                    market=market,
+                    mirofish_prob=sim_result.get("probability") or 0.0,
+                    kalshi_price=market["yes_price"],
+                    estimated_cost=sim_result.get("estimated_cost", 0),
                 )
 
                 if sim_result.get("status") != "completed":
