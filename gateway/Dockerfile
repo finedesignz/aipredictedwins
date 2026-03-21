@@ -1,6 +1,17 @@
 FROM python:3.13-slim
 
-RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+# Install curl (for Coolify healthcheck) and Node.js (for Claude CLI)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl gnupg && \
+    curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
+    apt-get install -y nodejs && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Install Claude CLI globally
+RUN npm install -g @anthropic-ai/claude-code
+
+# Accept Claude CLI terms of service non-interactively
+ENV CLAUDE_CODE_ACCEPT_TOS=true
 
 WORKDIR /app
 
@@ -14,6 +25,7 @@ RUN mkdir -p /app/projects
 ENV PORT=8000
 ENV PROJECTS_DIR=/app/projects
 ENV DEFAULT_PROJECT=mirofish
+ENV CLI_TIMEOUT=300
 
 EXPOSE 8000
 
