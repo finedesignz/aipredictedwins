@@ -15,6 +15,16 @@ from src.config import Config
 
 log = logging.getLogger(__name__)
 
+
+def _parse_dollar(val) -> float:
+    """Parse a dollar-string like '0.4500' or '56681.00' to float. Returns 0.0 on failure."""
+    if val is None:
+        return 0.0
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return 0.0
+
 # ---------------------------------------------------------------------------
 # Retry / rate-limit settings
 # ---------------------------------------------------------------------------
@@ -126,19 +136,18 @@ class KalshiClient:
         markets: list[dict] = []
         for event in events_resp.events or []:
             for mkt in event.markets or []:
-                vol = (
-                    getattr(mkt, "volume", 0)
-                    or getattr(mkt, "volume_24h", 0)
-                    or 0
-                )
+                # SDK v3 uses string dollar fields (e.g. "56681.00")
+                vol = _parse_dollar(getattr(mkt, "volume_fp", None)) \
+                    or _parse_dollar(getattr(mkt, "volume_24h_fp", None)) \
+                    or getattr(mkt, "volume", 0) or 0
                 if vol < min_volume:
                     continue
 
-                yes_price = (
-                    getattr(mkt, "yes_price", None)
-                    or getattr(mkt, "last_price", 0)
-                    or 0
-                )
+                # Price: prefer last_price_dollars (string "0.45"),
+                # fall back to yes_bid_dollars, then integer cents
+                yes_price = _parse_dollar(getattr(mkt, "last_price_dollars", None)) \
+                    or _parse_dollar(getattr(mkt, "yes_bid_dollars", None)) \
+                    or getattr(mkt, "yes_price", 0) or 0
 
                 markets.append({
                     "ticker": mkt.ticker,
@@ -168,10 +177,13 @@ class KalshiClient:
         """Return the current YES price as a probability (0.0 -- 1.0)."""
         resp = _retry(self.client.get_market, ticker=ticker)
         mkt = resp.market if hasattr(resp, "market") else resp
-        price_cents = (
-            getattr(mkt, "yes_price", None)
-            or getattr(mkt, "last_price", 50)
-        )
+        # SDK v3: last_price_dollars is a string like "0.4500"
+        price = _parse_dollar(getattr(mkt, "last_price_dollars", None)) \
+            or _parse_dollar(getattr(mkt, "yes_bid_dollars", None))
+        if price > 0:
+            return price
+        # Fallback to integer cents
+        price_cents = getattr(mkt, "yes_price", None) or getattr(mkt, "last_price", 50)
         return price_cents / 100.0
 
     def get_orderbook(self, ticker: str) -> dict:
