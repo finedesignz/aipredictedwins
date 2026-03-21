@@ -94,17 +94,19 @@ def score_market(market: dict) -> dict:
     uncertainty = 1.0 - abs(yes_price - 0.50) * 2  # 1.0 at 50%, 0.0 at 0% or 100%
     uncertainty_score = uncertainty * 25
 
-    # Time preference: 1-14 days ideal, penalize very long or very short
+    # Time preference: strongly favor near-term for faster capital realization
     if days is None:
-        time_score = 10
-    elif 1 <= days <= 14:
-        time_score = 20
+        time_score = 0
+    elif 1 <= days <= 7:
+        time_score = 40     # this week — best
+    elif 7 < days <= 14:
+        time_score = 35     # next week — great
     elif 14 < days <= 30:
-        time_score = 15
-    elif 30 < days <= 90:
-        time_score = 10
+        time_score = 25     # this month — good
+    elif 30 < days <= 60:
+        time_score = 10     # 1-2 months — acceptable
     else:
-        time_score = 5
+        time_score = -50    # 60+ days — heavily penalize, capital lockup
 
     total_score = tier_score + vol_score + uncertainty_score + time_score
 
@@ -150,9 +152,10 @@ def evaluate_markets(markets: list[dict], max_results: int = 20) -> list[dict]:
         if price < 0.05 or price > 0.95:
             continue
 
-        # Filter very short-term (< 12h)
+        # Filter by time horizon — skip < 6h only (no upper cap)
+        # Long-dated markets are fine — we can sell positions early when gaps narrow
         days = s.get("days_to_close")
-        if days is not None and days < 0.5:
+        if days is not None and days < 0.25:
             continue
 
         scored.append(s)
