@@ -160,8 +160,11 @@ def _resolve_open_positions(kalshi: KalshiClient, logger: TradeLogger) -> float:
 # Main loop
 # ---------------------------------------------------------------------------
 
-def main(mode: str = "paper") -> None:
-    """Run the scan-simulate-trade loop."""
+def main(mode: str = "paper", max_trades: int = 0) -> None:
+    """Run the scan-simulate-trade loop.
+
+    If max_trades > 0, stops after that many trades and prints a report.
+    """
     _setup_logging()
 
     # ── 1. Initialize ────────────────────────────────────────────────────
@@ -184,6 +187,7 @@ def main(mode: str = "paper") -> None:
 
     # ── 3. Tracking state ────────────────────────────────────────────────
     total_pnl = 0.0
+    total_trades = 0
     cycle_count = 0
 
     # ── 4. Main loop ─────────────────────────────────────────────────────
@@ -369,6 +373,7 @@ def main(mode: str = "paper") -> None:
                 )
 
                 trades_placed += 1
+                total_trades += 1
                 bankroll -= sizing["dollar_amount"]
 
                 console.print(
@@ -403,7 +408,15 @@ def main(mode: str = "paper") -> None:
             )
         )
 
-        # ── 4j. Sleep until next cycle ──────────────────────────────────
+        # ── 4j. Check max trades target ──────────────────────────────────
+        if max_trades > 0 and total_trades >= max_trades:
+            console.print(
+                f"\n  [bold green]Target reached: {total_trades} trades placed.[/bold green]"
+            )
+            _print_final_report(logger, total_trades, total_pnl, cycle_count)
+            break
+
+        # ── 4k. Sleep until next cycle ──────────────────────────────────
         console.print(
             f"  Sleeping {CYCLE_SLEEP_SECONDS // 60} minutes until next cycle...\n"
         )
@@ -413,6 +426,57 @@ def main(mode: str = "paper") -> None:
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+
+def _print_final_report(logger: TradeLogger, total_trades: int,
+                        total_pnl: float, cycles: int) -> None:
+    """Print a comprehensive final report after reaching trade target."""
+    accuracy = logger.get_accuracy()
+    wins = accuracy.get("wins", 0)
+    losses = accuracy.get("losses", 0)
+    resolved = accuracy.get("resolved", 0)
+    win_rate = accuracy.get("win_rate", 0)
+    avg_gap = accuracy.get("avg_gap", 0)
+
+    report = (
+        f"[bold cyan]PAPER TRADING REPORT[/bold cyan]\n"
+        f"\n"
+        f"  Cycles completed     : {cycles}\n"
+        f"  Total trades placed  : {total_trades}\n"
+        f"  Trades resolved      : {resolved}\n"
+        f"  Wins / Losses        : {wins} / {losses}\n"
+        f"  Win rate             : {win_rate:.1%}\n"
+        f"  Total P&L            : ${total_pnl:+,.2f}\n"
+        f"  Avg gap at entry     : {avg_gap:.1%}\n"
+        f"\n"
+        f"  [bold]Assessment:[/bold]\n"
+    )
+
+    if resolved < 10:
+        report += "  Not enough resolved trades for assessment. Keep running.\n"
+    elif win_rate >= 0.58:
+        report += "  [bold green]EXCELLENT[/bold green] — Strategy showing strong edge. Consider Phase 3.\n"
+    elif win_rate >= 0.54:
+        report += "  [bold green]GOOD[/bold green] — Strategy is profitable. Continue paper trading to confirm.\n"
+    elif win_rate >= 0.52:
+        report += "  [bold yellow]MARGINAL[/bold yellow] — Slight edge detected. Needs more data.\n"
+    else:
+        report += "  [bold red]BELOW THRESHOLD[/bold red] — Strategy not working. Reassess before live trading.\n"
+
+    report += (
+        f"\n"
+        f"  CSV export: data/trades_report.csv\n"
+        f"  Dashboard:  streamlit run dashboard/app.py"
+    )
+
+    console.print(Panel(report, title="Final Report", border_style="cyan"))
+
+    # Export CSV
+    try:
+        logger.export_csv("data/trades_report.csv")
+        console.print("  [green]Trade data exported to data/trades_report.csv[/green]")
+    except Exception as e:
+        console.print(f"  [yellow]CSV export failed: {e}[/yellow]")
+
 
 def evaluate(top_n: int = 30) -> None:
     """Evaluate mode: scan and rank markets without trading."""
@@ -459,9 +523,13 @@ if __name__ == "__main__":
         "--top", type=int, default=30,
         help="Number of markets to show in evaluate mode (default 30)",
     )
+    parser.add_argument(
+        "--max-trades", type=int, default=0,
+        help="Stop after N trades and print report (0 = run forever)",
+    )
     args = parser.parse_args()
 
     if args.mode == "evaluate":
         evaluate(top_n=args.top)
     else:
-        main(mode=args.mode)
+        main(mode=args.mode, max_trades=args.max_trades)
