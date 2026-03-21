@@ -1,7 +1,8 @@
 """
-SQLite trade logging module for the Kalshi prediction market trading bot.
+SQLite trade logging module for the Kalshi + Alpaca trading bot.
 
-Tracks trades, daily statistics, and simulation results with raw sqlite3.
+Tracks Kalshi trades, Alpaca trades (stocks/crypto), daily statistics,
+and simulation results with raw sqlite3.
 """
 
 import csv
@@ -81,6 +82,30 @@ class TradeLogger:
                 CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades(timestamp);
                 CREATE INDEX IF NOT EXISTS idx_simulations_ticker ON simulations(kalshi_ticker);
                 CREATE INDEX IF NOT EXISTS idx_simulations_timestamp ON simulations(timestamp);
+
+                CREATE TABLE IF NOT EXISTS alpaca_trades (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    asset_class TEXT NOT NULL,
+                    side TEXT NOT NULL,
+                    qty REAL NOT NULL,
+                    entry_price REAL NOT NULL,
+                    mirofish_prob REAL NOT NULL,
+                    market_sentiment TEXT,
+                    target_price REAL,
+                    stop_loss REAL,
+                    status TEXT DEFAULT 'open',
+                    exit_price REAL,
+                    pnl REAL,
+                    closed_at TEXT,
+                    simulation_id TEXT,
+                    notes TEXT
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_alpaca_status ON alpaca_trades(status);
+                CREATE INDEX IF NOT EXISTS idx_alpaca_symbol ON alpaca_trades(symbol);
+                CREATE INDEX IF NOT EXISTS idx_alpaca_timestamp ON alpaca_trades(timestamp);
             """)
             conn.commit()
         finally:
@@ -289,6 +314,128 @@ class TradeLogger:
                 (f"{today}%",),
             ).fetchall()
             return {row["kalshi_ticker"] for row in rows}
+        finally:
+            conn.close()
+
+    # ── Alpaca trades ────────────────────────────────────────────────────
+
+    def log_alpaca_trade(self, trade_data: dict) -> int:
+        """Insert a new Alpaca trade record. Returns the trade ID.
+
+        Expected keys in trade_data:
+            symbol, asset_class, side, qty, entry_price, mirofish_prob
+        Optional keys:
+            market_sentiment, target_price, stop_loss, simulation_id, notes
+        """
+        timestamp = datetime.now(timezone.utc).isoformat()
+        conn = self._get_conn()
+        try:
+            cursor = conn.execute(
+                """
+                INSERT INTO alpaca_trades (
+                    timestamp, symbol, asset_class, side, qty,
+                    entry_price, mirofish_prob, market_sentiment,
+                    target_price, stop_loss, simulation_id, notes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    timestamp,
+                    trade_data["symbol"],
+                    trade_data["asset_class"],
+                    trade_data["side"],
+                    trade_data["qty"],
+                    trade_data["entry_price"],
+                    trade_data["mirofish_prob"],
+                    trade_data.get("market_sentiment"),
+                    trade_data.get("target_price"),
+                    trade_data.get("stop_loss"),
+                    trade_data.get("simulation_id"),
+                    trade_data.get("notes"),
+                ),
+            )
+            conn.commit()
+            return cursor.lastrowid
+        finally:
+            conn.close()
+
+    def update_alpaca_trade(
+        self,
+        trade_id: int,
+        status: str,
+        exit_price: float = None,
+        pnl: float = None,
+    ):
+        """Update an Alpaca trade's status, exit price, and P&L."""
+        closed_at = (
+            datetime.now(timezone.utc).isoformat()
+            if status in ("closed", "stopped", "target_hit")
+            else None
+        )
+        conn = self._get_conn()
+        try:
+            conn.execute(
+                """
+                UPDATE alpaca_trades
+                SET status = ?, exit_price = ?, pnl = ?, closed_at = ?
+                WHERE id = ?
+                """,
+                (status, exit_price, pnl, closed_at, trade_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def get_open_alpaca_positions(self) -> list[dict]:
+        """Return all Alpaca trades with status 'open'."""
+        conn = self._get_conn()
+        try:
+            rows = conn.execute(
+                "SELECT * FROM alpaca_trades WHERE status = 'open' ORDER BY timestamp DESC"
+            ).fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            conn.close()
+
+    def get_alpaca_accuracy(self, last_n: int = None) -> dict:
+        """Return accuracy and P&L statistics for closed Alpaca trades."""
+        conn = self._get_conn()
+        try:
+            base_query = """
+                SELECT status, pnl, symbol, asset_class FROM alpaca_trades
+                WHERE status IN ('closed', 'stopped', 'target_hit')
+                ORDER BY closed_at DESC
+            """
+            if last_n:
+                rows = conn.execute(base_query + " LIMIT ?", (last_n,)).fetchall()
+            else:
+                rows = conn.execute(base_query).fetchall()
+
+            total_trades = conn.execute(
+                "SELECT COUNT(*) FROM alpaca_trades"
+            ).fetchone()[0]
+
+            resolved = len(rows)
+            wins = sum(1 for r in rows if (r["pnl"] or 0) > 0)
+            losses = sum(1 for r in rows if (r["pnl"] or 0) <= 0)
+            total_pnl = sum(r["pnl"] or 0.0 for r in rows)
+            win_rate = wins / resolved if resolved > 0 else 0.0
+            avg_pnl = total_pnl / resolved if resolved > 0 else 0.0
+
+            # Breakdown by asset class
+            crypto_pnl = sum(r["pnl"] or 0.0 for r in rows if r["asset_class"] == "crypto")
+            stock_pnl = sum(r["pnl"] or 0.0 for r in rows if r["asset_class"] == "us_equity")
+
+            return {
+                "total_trades": total_trades,
+                "resolved": resolved,
+                "wins": wins,
+                "losses": losses,
+                "win_rate": win_rate,
+                "total_pnl": total_pnl,
+                "avg_pnl": avg_pnl,
+                "crypto_pnl": crypto_pnl,
+                "stock_pnl": stock_pnl,
+            }
         finally:
             conn.close()
 

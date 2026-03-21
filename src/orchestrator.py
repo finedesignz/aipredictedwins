@@ -360,18 +360,19 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                     price_cents=sizing["price_cents"],
                 )
 
-                logger.log_trade(
-                    ticker=ticker,
-                    side=sizing["side"],
-                    contracts=sizing["contracts"],
-                    price_cents=sizing["price_cents"],
-                    order_id=order.get("order_id"),
-                    mirofish_prob=signal["mirofish_prob"],
-                    kalshi_price=signal["kalshi_price"],
-                    gap=signal["gap"],
-                    kelly_pct=sizing["adjusted_pct"],
-                    dollar_amount=sizing["dollar_amount"],
-                )
+                logger.log_trade({
+                    "kalshi_ticker": ticker,
+                    "event_title": market.get("title", ""),
+                    "side": sizing["side"],
+                    "contracts": sizing["contracts"],
+                    "entry_price_cents": sizing["price_cents"],
+                    "mirofish_prob": signal["mirofish_prob"],
+                    "kalshi_price_at_entry": signal["kalshi_price"],
+                    "gap": signal["gap"],
+                    "kelly_pct": sizing["adjusted_pct"],
+                    "dollar_amount": sizing["dollar_amount"],
+                    "simulation_id": opp.get("sim_result", {}).get("sim_id"),
+                })
 
                 trades_placed += 1
                 total_trades += 1

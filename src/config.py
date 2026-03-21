@@ -1,8 +1,11 @@
 """
-Configuration management for the Kalshi + MiroFish trading system.
+Configuration management for the Kalshi + MiroFish + Alpaca trading system.
 
 Loads environment variables from .env, validates required keys,
 and provides typed access via a Config dataclass.
+
+Alpaca fields are optional -- the system runs in Kalshi-only mode
+when ALPACA_API_KEY / ALPACA_SECRET_KEY are absent.
 """
 
 import os
@@ -16,6 +19,9 @@ from dotenv import load_dotenv
 # ---------------------------------------------------------------------------
 _DEMO_HOST = "https://demo-api.kalshi.co/trade-api/v2"
 _PROD_HOST = "https://api.elections.kalshi.com/trade-api/v2"
+
+_ALPACA_PAPER_HOST = "https://paper-api.alpaca.markets"
+_ALPACA_LIVE_HOST = "https://api.alpaca.markets"
 
 _REQUIRED_KEYS = [
     "KALSHI_API_KEY_ID",
@@ -62,12 +68,29 @@ class Config:
     mirofish_rounds: int = 30
     mirofish_backend_url: str = "http://localhost:5001"
 
+    # --- Alpaca (optional) ---
+    alpaca_api_key: str = ""
+    alpaca_secret_key: str = ""
+    alpaca_env: str = "paper"  # "paper" | "live"
+
     @property
     def kalshi_api_host(self) -> str:
         """Return the Kalshi API base URL for the configured environment."""
         if self.kalshi_env == "prod":
             return _PROD_HOST
         return _DEMO_HOST
+
+    @property
+    def alpaca_api_host(self) -> str:
+        """Return the Alpaca API base URL for the configured environment."""
+        if self.alpaca_env == "live":
+            return _ALPACA_LIVE_HOST
+        return _ALPACA_PAPER_HOST
+
+    @property
+    def alpaca_enabled(self) -> bool:
+        """Return True if Alpaca credentials are configured."""
+        return bool(self.alpaca_api_key and self.alpaca_secret_key)
 
 
 # ---------------------------------------------------------------------------
@@ -121,4 +144,7 @@ def load_config(env_path: str | Path | None = None) -> Config:
         mirofish_agent_count=int(_env("MIROFISH_AGENT_COUNT", "1000")),
         mirofish_rounds=int(_env("MIROFISH_ROUNDS", "30")),
         mirofish_backend_url=_env("MIROFISH_BACKEND_URL", "http://localhost:5001"),
+        alpaca_api_key=_env("ALPACA_API_KEY", ""),
+        alpaca_secret_key=_env("ALPACA_SECRET_KEY", ""),
+        alpaca_env=_env("ALPACA_ENV", "paper"),
     )
