@@ -71,7 +71,7 @@ class MiroFishClient:
             f"{self.base_url}/api/graph/ontology/generate",
             files=files,
             data=data,
-            timeout=120,
+            timeout=300,  # LLM call can take 2-3 min via Claude CLI gateway
         )
         resp.raise_for_status()
         result = resp.json()
