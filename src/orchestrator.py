@@ -26,6 +26,7 @@ from src.event_formatter import format_event, get_event_question
 from src.gap_detector import detect_gap, filter_opportunities
 from src.position_sizer import kelly_size
 from src.trade_logger import TradeLogger
+from src.market_evaluator import evaluate_markets, print_evaluation
 
 # ---------------------------------------------------------------------------
 # Constants — hardcoded risk management rules
@@ -205,10 +206,10 @@ def main(mode: str = "paper") -> None:
             )
             break
 
-        # ── 4b. Scan markets ────────────────────────────────────────────
+        # ── 4b. Scan and evaluate markets ──────────────────────────────
         console.print("[cyan]Scanning Kalshi markets...[/cyan]")
         try:
-            markets = kalshi.get_active_markets(
+            raw_markets = kalshi.get_active_markets(
                 min_volume=MIN_MARKET_VOLUME,
                 min_hours_to_close=24,
             )
@@ -218,12 +219,18 @@ def main(mode: str = "paper") -> None:
             time.sleep(CYCLE_SLEEP_SECONDS)
             continue
 
-        console.print(f"  Found {len(markets)} markets meeting filters")
+        console.print(f"  Found {len(raw_markets)} markets meeting volume/time filters")
+
+        # Evaluate and rank by MiroFish fit
+        evaluated = evaluate_markets(raw_markets, max_results=MAX_SIMS_PER_CYCLE * 2)
+        console.print(f"  {len(evaluated)} markets after tier evaluation (Tier 1 & 2 only)")
+        if evaluated:
+            print_evaluation(evaluated[:15])
 
         # ── 4c. Filter already simulated today ──────────────────────────
         simulated_today = logger.get_simulated_tickers_today()
         markets = [
-            m for m in markets
+            m for m in evaluated
             if m["ticker"] not in simulated_today
         ]
         console.print(f"  {len(markets)} after removing already-simulated tickers")
@@ -269,7 +276,8 @@ def main(mode: str = "paper") -> None:
                     continue
 
                 mf_prob = sim_result["probability"]
-                kalshi_price = market["yes_price"] / 100.0
+                # yes_price is already 0.0-1.0 (dollars) from SDK v3
+                kalshi_price = market["yes_price"]
 
                 signal = detect_gap(
                     mirofish_prob=mf_prob,
@@ -406,16 +414,54 @@ def main(mode: str = "paper") -> None:
 # Entry point
 # ---------------------------------------------------------------------------
 
+def evaluate(top_n: int = 30) -> None:
+    """Evaluate mode: scan and rank markets without trading."""
+    _setup_logging()
+    config = load_config()
+    kalshi = KalshiClient(config)
+
+    console.print(Panel("[bold cyan]Market Evaluation Mode[/bold cyan]\n\nScanning Kalshi and ranking markets by MiroFish simulation fit.", border_style="cyan"))
+
+    balance = kalshi.get_balance()
+    console.print(f"  Balance: ${balance:,.2f}")
+    console.print(f"  Environment: {config.kalshi_env.upper()}\n")
+
+    console.print("[cyan]Scanning markets...[/cyan]")
+    raw_markets = kalshi.get_active_markets(min_volume=500, min_hours_to_close=12)
+    console.print(f"  {len(raw_markets)} markets found")
+
+    evaluated = evaluate_markets(raw_markets, max_results=top_n)
+    console.print(f"  {len(evaluated)} markets after evaluation\n")
+
+    print_evaluation(evaluated)
+
+    # Print tier breakdown
+    t1 = sum(1 for m in evaluated if m["tier"] == 1)
+    t2 = sum(1 for m in evaluated if m["tier"] == 2)
+    console.print(f"\n  Tier 1 (Strong fit): {t1} markets")
+    console.print(f"  Tier 2 (Moderate fit): {t2} markets")
+    console.print(f"\n  Top pick: [bold green]{evaluated[0]['ticker']}[/bold green] — {evaluated[0]['evaluation']}" if evaluated else "")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Kalshi + MiroFish trading bot orchestrator",
     )
     parser.add_argument(
         "--mode",
-        choices=["paper", "live"],
+        choices=["paper", "live", "evaluate"],
         default="paper",
-        help="Trading mode: 'paper' (default) logs everything, "
+        help="'evaluate' ranks markets without trading, "
+             "'paper' runs full simulation loop, "
              "'live' requires confirmation and 50+ paper trades.",
     )
+    parser.add_argument(
+        "--top", type=int, default=30,
+        help="Number of markets to show in evaluate mode (default 30)",
+    )
     args = parser.parse_args()
-    main(mode=args.mode)
+
+    if args.mode == "evaluate":
+        evaluate(top_n=args.top)
+    else:
+        main(mode=args.mode)
