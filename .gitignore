@@ -1,0 +1,25 @@
+# Environment
+.env
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Kalshi private key
+*.pem
+private_key.pem
+
+# Data
+data/trades.db
+data/simulations/
+
+# MiroFish clone
+mirofish/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
