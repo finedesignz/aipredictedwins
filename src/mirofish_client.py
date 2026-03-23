@@ -330,13 +330,21 @@ class MiroFishClient:
         report_text = report.get("markdown_content") or _flatten_report(report)
 
         prompt = (
-            "You are a calibrated probability estimator. "
-            "Given the simulation report below, estimate the probability "
-            "that the following event occurs.\n\n"
+            "You are extracting the crowd consensus probability from a multi-agent "
+            "social simulation report. The simulation ran 1000+ AI agents who debated "
+            "and discussed this event from diverse perspectives.\n\n"
             f"EVENT QUESTION: {event_question}\n\n"
             f"SIMULATION REPORT:\n{report_text[:8000]}\n\n"
-            "Respond with ONLY a single decimal number between 0.00 and 1.00. "
-            "Nothing else."
+            "Based ONLY on what the simulated agents concluded — their posts, "
+            "discussions, sentiment trends, and any voting or consensus data in "
+            "the report — what percentage of agents believed the answer is YES?\n\n"
+            "Important:\n"
+            "- Extract the AGENTS' consensus, not your own opinion\n"
+            "- If 60% of agent posts were supportive/bullish, output 0.60\n"
+            "- If agents were evenly split, output near 0.50\n"
+            "- If the report lacks clear sentiment data, output 0.50\n"
+            "- Do NOT default to low probabilities just because an event seems unlikely\n\n"
+            "Respond with ONLY a single decimal number between 0.05 and 0.95. Nothing else."
         )
 
         response = self._llm.chat.completions.create(
