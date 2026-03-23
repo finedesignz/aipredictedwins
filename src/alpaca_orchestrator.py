@@ -484,7 +484,8 @@ def _generate_signals(
             continue
 
         try:
-            seed_text = format_asset_seed(asset)
+            bars = alpaca.get_bars(asset["symbol"], timeframe="1Hour", limit=24)
+            seed_text = format_asset_seed(asset, bars)
             event_question = get_asset_question(asset)
 
             sim_result = run_full_simulation(
