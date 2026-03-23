@@ -68,6 +68,15 @@ class Config:
     mirofish_rounds: int = 30
     mirofish_backend_url: str = "http://localhost:5001"
 
+    # --- TradingAgents Gate (optional) ---
+    tradingagents_enabled: bool = False
+    tradingagents_veto_is_final: bool = True
+
+    # --- Quick Screening (optional) ---
+    quick_sim_enabled: bool = False
+    quick_sim_min_gap: float = 0.10
+    max_quick_screen: int = 50
+
     # --- Alpaca (optional) ---
     alpaca_api_key: str = ""
     alpaca_secret_key: str = ""
@@ -144,6 +153,11 @@ def load_config(env_path: str | Path | None = None) -> Config:
         mirofish_agent_count=int(_env("MIROFISH_AGENT_COUNT", "1000")),
         mirofish_rounds=int(_env("MIROFISH_ROUNDS", "30")),
         mirofish_backend_url=_env("MIROFISH_BACKEND_URL", "http://localhost:5001"),
+        tradingagents_enabled=_env("TRADINGAGENTS_ENABLED", "false").lower() in ("true", "1", "yes"),
+        tradingagents_veto_is_final=_env("TRADINGAGENTS_VETO_IS_FINAL", "true").lower() in ("true", "1", "yes"),
+        quick_sim_enabled=_env("QUICK_SIM_ENABLED", "false").lower() in ("true", "1", "yes"),
+        quick_sim_min_gap=float(_env("QUICK_SIM_MIN_GAP", "0.10")),
+        max_quick_screen=int(_env("MAX_QUICK_SCREEN", "50")),
         alpaca_api_key=_env("ALPACA_API_KEY", ""),
         alpaca_secret_key=_env("ALPACA_SECRET_KEY", ""),
         alpaca_env=_env("ALPACA_ENV", "paper"),

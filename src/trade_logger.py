@@ -106,6 +106,46 @@ class TradeLogger:
                 CREATE INDEX IF NOT EXISTS idx_alpaca_status ON alpaca_trades(status);
                 CREATE INDEX IF NOT EXISTS idx_alpaca_symbol ON alpaca_trades(symbol);
                 CREATE INDEX IF NOT EXISTS idx_alpaca_timestamp ON alpaca_trades(timestamp);
+
+                CREATE TABLE IF NOT EXISTS validations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL,
+                    kalshi_ticker TEXT NOT NULL,
+                    event_title TEXT NOT NULL,
+                    mirofish_prob REAL NOT NULL,
+                    kalshi_price REAL NOT NULL,
+                    gap REAL NOT NULL,
+                    proposed_side TEXT NOT NULL,
+                    decision TEXT NOT NULL,
+                    confidence REAL,
+                    adjusted_probability REAL,
+                    size_multiplier REAL DEFAULT 1.0,
+                    sentiment_report TEXT,
+                    news_report TEXT,
+                    contrarian_report TEXT,
+                    risk_assessment TEXT,
+                    veto_reason TEXT,
+                    trade_id INTEGER
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_validations_ticker ON validations(kalshi_ticker);
+                CREATE INDEX IF NOT EXISTS idx_validations_decision ON validations(decision);
+                CREATE INDEX IF NOT EXISTS idx_validations_timestamp ON validations(timestamp);
+
+                CREATE TABLE IF NOT EXISTS screenings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL,
+                    kalshi_ticker TEXT NOT NULL,
+                    event_title TEXT NOT NULL,
+                    quick_probability REAL NOT NULL,
+                    quick_confidence TEXT,
+                    kalshi_price REAL NOT NULL,
+                    gap REAL NOT NULL,
+                    promoted_to_full_sim BOOLEAN DEFAULT FALSE
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_screenings_ticker ON screenings(kalshi_ticker);
+                CREATE INDEX IF NOT EXISTS idx_screenings_timestamp ON screenings(timestamp);
             """)
             conn.commit()
         finally:
@@ -436,6 +476,131 @@ class TradeLogger:
                 "crypto_pnl": crypto_pnl,
                 "stock_pnl": stock_pnl,
             }
+        finally:
+            conn.close()
+
+    # ── Validations (TradingAgents Gate) ─────────────────────────────
+
+    def log_validation(self, data: dict) -> int:
+        """Log a TradingAgents Gate validation result. Returns the validation ID.
+
+        Expected keys in data:
+            kalshi_ticker, event_title, mirofish_prob, kalshi_price, gap,
+            proposed_side, decision
+        Optional keys:
+            confidence, adjusted_probability, size_multiplier,
+            sentiment_report, news_report, contrarian_report,
+            risk_assessment, veto_reason, trade_id
+        """
+        timestamp = datetime.now(timezone.utc).isoformat()
+        conn = self._get_conn()
+        try:
+            cursor = conn.execute(
+                """
+                INSERT INTO validations (
+                    timestamp, kalshi_ticker, event_title, mirofish_prob,
+                    kalshi_price, gap, proposed_side, decision, confidence,
+                    adjusted_probability, size_multiplier, sentiment_report,
+                    news_report, contrarian_report, risk_assessment,
+                    veto_reason, trade_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    timestamp,
+                    data["kalshi_ticker"],
+                    data["event_title"],
+                    data["mirofish_prob"],
+                    data["kalshi_price"],
+                    data["gap"],
+                    data["proposed_side"],
+                    data["decision"],
+                    data.get("confidence"),
+                    data.get("adjusted_probability"),
+                    data.get("size_multiplier", 1.0),
+                    data.get("sentiment_report"),
+                    data.get("news_report"),
+                    data.get("contrarian_report"),
+                    data.get("risk_assessment"),
+                    data.get("veto_reason"),
+                    data.get("trade_id"),
+                ),
+            )
+            conn.commit()
+            return cursor.lastrowid
+        finally:
+            conn.close()
+
+    def log_screening(self, data: dict) -> int:
+        """Log a quick screening result. Returns the screening ID.
+
+        Expected keys in data:
+            kalshi_ticker, event_title, quick_probability, kalshi_price, gap
+        Optional keys:
+            quick_confidence, promoted_to_full_sim
+        """
+        timestamp = datetime.now(timezone.utc).isoformat()
+        conn = self._get_conn()
+        try:
+            cursor = conn.execute(
+                """
+                INSERT INTO screenings (
+                    timestamp, kalshi_ticker, event_title, quick_probability,
+                    quick_confidence, kalshi_price, gap, promoted_to_full_sim
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    timestamp,
+                    data["kalshi_ticker"],
+                    data["event_title"],
+                    data["quick_probability"],
+                    data.get("quick_confidence"),
+                    data["kalshi_price"],
+                    data["gap"],
+                    data.get("promoted_to_full_sim", False),
+                ),
+            )
+            conn.commit()
+            return cursor.lastrowid
+        finally:
+            conn.close()
+
+    def log_veto(self, market: dict, signal: dict, validation: dict) -> int:
+        """Log a vetoed trade for audit trail. Returns the validation ID.
+
+        Convenience wrapper around log_validation for VETO decisions.
+        """
+        return self.log_validation({
+            "kalshi_ticker": market.get("ticker", ""),
+            "event_title": market.get("title", market.get("event_title", "")),
+            "mirofish_prob": signal.get("mirofish_prob", 0.0),
+            "kalshi_price": signal.get("kalshi_price", 0.0),
+            "gap": signal.get("gap", signal.get("abs_gap", 0.0)),
+            "proposed_side": signal.get("direction", signal.get("side", "unknown")),
+            "decision": "VETO",
+            "confidence": validation.get("confidence"),
+            "adjusted_probability": validation.get("adjusted_probability"),
+            "size_multiplier": validation.get("size_multiplier", 0.0),
+            "sentiment_report": validation.get("sentiment_report"),
+            "news_report": validation.get("news_report"),
+            "contrarian_report": validation.get("contrarian_report"),
+            "risk_assessment": validation.get("risk_assessment", validation.get("risk_assessment_report")),
+            "veto_reason": validation.get("veto_reason", validation.get("reasoning", "")),
+        })
+
+    def get_veto_history(self, last_n: int = 20) -> list[dict]:
+        """Return the most recent VETO decisions for review."""
+        conn = self._get_conn()
+        try:
+            rows = conn.execute(
+                """
+                SELECT * FROM validations
+                WHERE decision = 'VETO'
+                ORDER BY timestamp DESC
+                LIMIT ?
+                """,
+                (last_n,),
+            ).fetchall()
+            return [dict(row) for row in rows]
         finally:
             conn.close()
 

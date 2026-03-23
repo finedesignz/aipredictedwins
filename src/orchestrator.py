@@ -27,6 +27,8 @@ from src.gap_detector import detect_gap, filter_opportunities
 from src.position_sizer import kelly_size
 from src.trade_logger import TradeLogger
 from src.market_evaluator import evaluate_markets, print_evaluation
+from src.tradingagents_gate import TradingAgentsGate
+from src.quick_simulator import QuickSimulator
 
 # ---------------------------------------------------------------------------
 # Constants — hardcoded risk management rules
@@ -172,6 +174,8 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
     kalshi = KalshiClient(config)
     mirofish = MiroFishClient(config)
     logger = TradeLogger()
+    gate = TradingAgentsGate(config) if config.tradingagents_enabled else None
+    quick_sim = QuickSimulator(config) if config.quick_sim_enabled else None
 
     balance = kalshi.get_balance()
     starting_bankroll = max(balance, config.starting_bankroll)
@@ -210,7 +214,20 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
             )
             break
 
-        # ── 4b. Scan and evaluate markets ──────────────────────────────
+        # ── 4b. Portfolio health check ────────────────────────────────
+        health = {}
+        if gate:
+            console.print("[cyan]Running portfolio health check...[/cyan]")
+            health = gate.check_portfolio_bias(logger.get_open_positions())
+            for warning in health.get("warnings", []):
+                console.print(f"  [yellow]Portfolio warning: {warning}[/yellow]")
+            if health.get("force_side"):
+                console.print(
+                    f"  [bold yellow]Portfolio constraint: only {health['force_side'].upper()} "
+                    f"trades allowed this cycle[/bold yellow]"
+                )
+
+        # ── 4c. Scan and evaluate markets ──────────────────────────────
         console.print("[cyan]Scanning Kalshi markets...[/cyan]")
         try:
             raw_markets = kalshi.get_active_markets(
@@ -231,7 +248,32 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
         if evaluated:
             print_evaluation(evaluated[:15])
 
-        # ── 4c. Filter already simulated today ──────────────────────────
+        # ── 4d. Quick screening (optional) ────────────────────────────
+        if quick_sim and evaluated:
+            console.print("[cyan]Running quick screening...[/cyan]")
+            screen_candidates = evaluated[:config.max_quick_screen]
+            screenings = quick_sim.screen_markets(screen_candidates)
+
+            # Log screenings and filter by minimum gap
+            passed = []
+            for scr in screenings:
+                logger.log_simulation(
+                    sim_id=scr.get("sim_id", f"qs_{scr['ticker']}_{int(time.time())}"),
+                    market=scr["market"],
+                    mirofish_prob=scr.get("quick_prob", 0.0),
+                    kalshi_price=scr["market"]["yes_price"],
+                    estimated_cost=scr.get("estimated_cost", 0),
+                )
+                if scr.get("gap", 0) >= config.quick_sim_min_gap:
+                    passed.append(scr["market"])
+
+            console.print(
+                f"  Quick screened {len(screenings)} markets, "
+                f"{len(passed)} passed min gap >= {config.quick_sim_min_gap:.0%}"
+            )
+            evaluated = passed
+
+        # ── 4e. Filter already simulated today ──────────────────────────
         simulated_today = logger.get_simulated_tickers_today()
         markets = [
             m for m in evaluated
@@ -239,10 +281,10 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
         ]
         console.print(f"  {len(markets)} after removing already-simulated tickers")
 
-        # ── 4d. Cap at MAX_SIMS_PER_CYCLE ───────────────────────────────
+        # ── 4f. Cap at MAX_SIMS_PER_CYCLE ───────────────────────────────
         markets = markets[:MAX_SIMS_PER_CYCLE]
 
-        # ── 4e. Simulate each market ────────────────────────────────────
+        # ── 4g. Full MiroFish simulation (on pre-screened candidates) ─────
         opportunities: list[dict] = []
 
         for i, market in enumerate(markets, 1):
@@ -310,7 +352,7 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                 log.exception("Simulation failed for %s", ticker)
                 continue
 
-        # ── 4f. Rank opportunities ──────────────────────────────────────
+        # ── 4h. Rank opportunities ──────────────────────────────────────
         open_positions = logger.get_open_positions()
         ranked = filter_opportunities(
             markets_with_signals=opportunities,
@@ -319,7 +361,7 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
         )
         console.print(f"\n  [bold]{len(ranked)}[/bold] tradeable opportunities after filtering")
 
-        # ── 4g. Size and place orders ───────────────────────────────────
+        # ── 4i. Size and place orders ───────────────────────────────────
         trades_placed = 0
         bankroll = kalshi.get_balance()
 
@@ -328,6 +370,66 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
             signal = opp["signal"]
             ticker = market["ticker"]
 
+            # ── Portfolio constraint: enforce forced side ──────────────
+            force_side = health.get("force_side")
+            if force_side and signal["direction"] != force_side:
+                console.print(
+                    f"  Skipping [cyan]{ticker}[/cyan] — portfolio bias constraint "
+                    f"requires {force_side.upper()} only, signal is {signal['direction'].upper()}"
+                )
+                continue
+
+            # ── TradingAgents gate validation ──────────────────────────
+            gate_decision = None
+            if gate and signal.get("tradeable"):
+                context = {
+                    "ticker": ticker,
+                    "title": market.get("title", ""),
+                    "subtitle": market.get("subtitle", ""),
+                    "direction": signal["direction"],
+                    "mirofish_prob": signal["mirofish_prob"],
+                    "kalshi_price": signal["kalshi_price"],
+                    "gap": signal["gap"],
+                    "abs_gap": signal["abs_gap"],
+                    "confidence": signal["confidence"],
+                    "sim_result": opp.get("sim_result", {}),
+                }
+                gate_decision = gate.validate_trade(context)
+
+                logger.log_trade({
+                    "kalshi_ticker": ticker,
+                    "event_title": market.get("title", ""),
+                    "side": signal["direction"],
+                    "contracts": 0,
+                    "entry_price_cents": 0,
+                    "mirofish_prob": signal["mirofish_prob"],
+                    "kalshi_price_at_entry": signal["kalshi_price"],
+                    "gap": signal["gap"],
+                    "kelly_pct": 0.0,
+                    "dollar_amount": 0.0,
+                    "simulation_id": opp.get("sim_result", {}).get("sim_id"),
+                    "gate_decision": gate_decision.get("decision", "UNKNOWN"),
+                    "gate_reasoning": gate_decision.get("reasoning", ""),
+                    "status": "gate_review",
+                }) if gate_decision.get("decision") != "APPROVE" else None
+
+                decision = gate_decision.get("decision", "UNKNOWN")
+                console.print(
+                    f"  TradingAgents gate: [bold]{decision}[/bold] "
+                    f"for [cyan]{ticker}[/cyan] — {gate_decision.get('reasoning', '')[:80]}"
+                )
+
+                if decision == "VETO":
+                    if config.tradingagents_veto_is_final:
+                        console.print(
+                            f"  [red]Skipping [cyan]{ticker}[/cyan] — TradingAgents VETO (final)[/red]"
+                        )
+                        continue
+                    else:
+                        console.print(
+                            f"  [yellow]TradingAgents VETO (non-final) — proceeding anyway[/yellow]"
+                        )
+
             sizing = kelly_size(
                 win_prob=signal["mirofish_prob"],
                 kalshi_price=signal["kalshi_price"],
@@ -335,6 +437,17 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                 kelly_fraction=config.kelly_fraction,
                 max_position_pct=MAX_POSITION_PCT,
             )
+
+            # ── Apply ADJUST sizing from gate ─────────────────────────
+            if gate_decision and gate_decision.get("decision") == "ADJUST":
+                multiplier = gate_decision.get("size_multiplier", 1.0)
+                original_contracts = sizing["contracts"]
+                sizing["contracts"] = max(1, int(sizing["contracts"] * multiplier))
+                sizing["dollar_amount"] = sizing["dollar_amount"] * multiplier
+                console.print(
+                    f"  TradingAgents ADJUST: {original_contracts} -> "
+                    f"{sizing['contracts']} contracts (x{multiplier:.2f})"
+                )
 
             if sizing["contracts"] < 1:
                 console.print(
@@ -388,12 +501,12 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                 log.exception("Order placement failed for %s", ticker)
                 continue
 
-        # ── 4h. Check resolved trades ───────────────────────────────────
+        # ── 4j. Check resolved trades ───────────────────────────────────
         console.print("\n  [cyan]Checking settlements...[/cyan]")
         resolved_pnl = _resolve_open_positions(kalshi, logger)
         total_pnl += resolved_pnl
 
-        # ── 4i. Cycle summary ───────────────────────────────────────────
+        # ── 4k. Cycle summary ───────────────────────────────────────────
         accuracy = logger.get_accuracy()
         console.print(
             Panel(
@@ -410,7 +523,7 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
             )
         )
 
-        # ── 4j. Check max trades target ──────────────────────────────────
+        # ── 4l. Check max trades target ──────────────────────────────────
         if max_trades > 0 and total_trades >= max_trades:
             console.print(
                 f"\n  [bold green]Target reached: {total_trades} trades placed.[/bold green]"
@@ -418,7 +531,7 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
             _print_final_report(logger, total_trades, total_pnl, cycle_count)
             break
 
-        # ── 4k. Sleep until next cycle ──────────────────────────────────
+        # ── 4m. Sleep until next cycle ──────────────────────────────────
         # If no simulations succeeded, retry sooner (2 min) — likely a temporary issue
         if trades_placed == 0 and len(markets) > 0 and len(ranked) == 0:
             retry_seconds = 120
@@ -493,6 +606,7 @@ def evaluate(top_n: int = 30) -> None:
     _setup_logging()
     config = load_config()
     kalshi = KalshiClient(config)
+    quick_sim = QuickSimulator(config) if config.quick_sim_enabled else None
 
     console.print(Panel("[bold cyan]Market Evaluation Mode[/bold cyan]\n\nScanning Kalshi and ranking markets by MiroFish simulation fit.", border_style="cyan"))
 
@@ -507,14 +621,32 @@ def evaluate(top_n: int = 30) -> None:
     evaluated = evaluate_markets(raw_markets, max_results=top_n)
     console.print(f"  {len(evaluated)} markets after evaluation\n")
 
+    # Quick screening overlay
+    if quick_sim and evaluated:
+        console.print("[cyan]Running quick screening on evaluated markets...[/cyan]")
+        screen_candidates = evaluated[:config.max_quick_screen]
+        screenings = quick_sim.screen_markets(screen_candidates)
+        passed = [
+            scr["market"] for scr in screenings
+            if scr.get("gap", 0) >= config.quick_sim_min_gap
+        ]
+        console.print(
+            f"  Quick screened {len(screenings)} markets, "
+            f"{len(passed)} passed min gap >= {config.quick_sim_min_gap:.0%}\n"
+        )
+        # Show quick-screened results first, then remaining
+        quick_tickers = {m["ticker"] for m in passed}
+        remaining = [m for m in evaluated if m["ticker"] not in quick_tickers]
+        evaluated = passed + remaining
+
     print_evaluation(evaluated)
 
     # Print tier breakdown
-    t1 = sum(1 for m in evaluated if m["tier"] == 1)
-    t2 = sum(1 for m in evaluated if m["tier"] == 2)
+    t1 = sum(1 for m in evaluated if m.get("tier") == 1)
+    t2 = sum(1 for m in evaluated if m.get("tier") == 2)
     console.print(f"\n  Tier 1 (Strong fit): {t1} markets")
     console.print(f"  Tier 2 (Moderate fit): {t2} markets")
-    console.print(f"\n  Top pick: [bold green]{evaluated[0]['ticker']}[/bold green] — {evaluated[0]['evaluation']}" if evaluated else "")
+    console.print(f"\n  Top pick: [bold green]{evaluated[0]['ticker']}[/bold green] — {evaluated[0].get('evaluation', 'N/A')}" if evaluated else "")
 
 
 if __name__ == "__main__":
