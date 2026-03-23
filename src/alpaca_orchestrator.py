@@ -458,6 +458,7 @@ def _scan_candidates(
 def _generate_signals(
     candidates: list[dict],
     mirofish: MiroFishClient,
+    alpaca: AlpacaClient,
     logger: TradeLogger,
     open_positions: list[dict],
 ) -> list[dict]:
@@ -660,7 +661,7 @@ def main(mode: str = "paper", asset_class: str = "crypto", max_trades: int = 0) 
 
             # -- 4f. Run simulations and generate signals ----------------------
             if candidates:
-                signals = _generate_signals(candidates, mirofish, logger, open_positions)
+                signals = _generate_signals(candidates, mirofish, alpaca, logger, open_positions)
                 console.print(
                     f"\n  [bold]{len(signals)}[/bold] actionable signals generated"
                 )
