@@ -263,7 +263,9 @@ class AlpacaClient:
             bar_set = _retry(self._stock_data_client.get_stock_bars, request)
 
         bars = []
-        raw_bars = bar_set[symbol] if symbol in bar_set else []
+        # BarSet uses .data dict, not direct indexing
+        data = bar_set.data if hasattr(bar_set, "data") else bar_set
+        raw_bars = data.get(symbol, []) if isinstance(data, dict) else (bar_set[symbol] if symbol in bar_set else [])
         for bar in raw_bars:
             bars.append({
                 "timestamp": bar.timestamp.isoformat() if hasattr(bar.timestamp, "isoformat") else str(bar.timestamp),

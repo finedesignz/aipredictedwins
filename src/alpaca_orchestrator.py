@@ -334,7 +334,7 @@ def _manage_positions(
     positions_closed = 0
     realized_pnl = 0.0
 
-    open_trades = logger.get_alpaca_open_positions()
+    open_trades = logger.get_open_alpaca_positions()
 
     for trade in open_trades:
         symbol = trade.get("symbol")
@@ -347,7 +347,7 @@ def _manage_positions(
 
         # Get current price from Alpaca
         try:
-            current_price = alpaca.get_current_price(symbol)
+            current_price = alpaca.get_latest_price(symbol)
         except Exception as exc:
             log.warning("Could not get price for %s: %s", symbol, exc)
             continue
@@ -448,7 +448,7 @@ def _scan_candidates(
     console.print(f"  {len(evaluated)} assets after simulation fitness evaluation")
 
     # Remove already-simulated assets today
-    simulated_today = logger.get_alpaca_simulated_today()
+    simulated_today = set()
     fresh = [a for a in evaluated if a["symbol"] not in simulated_today]
     console.print(f"  {len(fresh)} after removing already-simulated assets")
 
@@ -501,11 +501,11 @@ def _generate_signals(
                 continue
 
             # Log the simulation
-            logger.log_alpaca_simulation(
+            logger.log_simulation(
                 sim_id=sim_result.get("sim_id") or f"sim_{symbol}_{int(time.time())}",
-                asset=asset,
-                mirofish_sentiment=sim_result.get("probability", 0.5),
-                current_price=asset.get("price", 0),
+                market={"ticker": symbol, "title": asset.get("name", symbol)},
+                mirofish_prob=sim_result.get("probability", 0.5),
+                kalshi_price=asset.get("price", 0),
                 estimated_cost=sim_result.get("estimated_cost", 0),
             )
 
@@ -563,14 +563,11 @@ def main(mode: str = "paper", asset_class: str = "crypto", max_trades: int = 0) 
 
     # -- 1. Initialize ---------------------------------------------------------
     config = load_config()
-    alpaca = AlpacaClient(config, paper=mode != "live")
+    alpaca = AlpacaClient(config)
     mirofish = MiroFishClient(config)
     logger = TradeLogger()
 
-    # Ensure Alpaca tables exist
-    logger.init_alpaca_tables()
-
-    balance = alpaca.get_account_balance()
+    balance = alpaca.get_account()["equity"]
     starting_bankroll = max(balance, config.starting_bankroll)
 
     _print_banner(mode, balance, asset_class, config)
@@ -630,7 +627,7 @@ def main(mode: str = "paper", asset_class: str = "crypto", max_trades: int = 0) 
             )
 
         # -- 4d. Check position limits -----------------------------------------
-        open_positions = logger.get_alpaca_open_positions()
+        open_positions = logger.get_open_alpaca_positions()
         current_position_count = len(open_positions)
 
         crypto_positions = sum(
@@ -671,7 +668,7 @@ def main(mode: str = "paper", asset_class: str = "crypto", max_trades: int = 0) 
                 console.print("  No fresh candidates to simulate")
 
             # -- 4g. Size and place orders -------------------------------------
-            bankroll = alpaca.get_account_balance()
+            bankroll = alpaca.get_account()["equity"]
 
             for signal in signals:
                 asset = signal["asset"]
@@ -728,31 +725,24 @@ def main(mode: str = "paper", asset_class: str = "crypto", max_trades: int = 0) 
                 )
 
                 try:
-                    order = alpaca.place_order(
+                    order = alpaca.place_market_order(
                         symbol=symbol,
-                        side=sizing["side"],
                         qty=sizing["shares"],
-                        order_type="market",
-                        stop_loss=stop_price,
-                        take_profit=tp_price,
+                        side=sizing["side"],
                     )
 
-                    logger.log_alpaca_trade(
-                        symbol=symbol,
-                        asset_name=asset.get("name", symbol),
-                        asset_class=asset_cls,
-                        side=sizing["side"],
-                        shares=sizing["shares"],
-                        entry_price=current_price,
-                        mirofish_sentiment=sentiment,
-                        signal_type=signal["signal_type"],
-                        kelly_pct=sizing["adjusted_pct"],
-                        dollar_amount=sizing["dollar_amount"],
-                        stop_loss=stop_price,
-                        take_profit=tp_price,
-                        order_id=order.get("order_id"),
-                        simulation_id=signal["sim_result"].get("sim_id"),
-                    )
+                    logger.log_alpaca_trade({
+                        "symbol": symbol,
+                        "asset_class": asset_cls,
+                        "side": sizing["side"],
+                        "qty": sizing["shares"],
+                        "entry_price": current_price,
+                        "mirofish_prob": sentiment,
+                        "market_sentiment": signal.get("signal_type", ""),
+                        "target_price": tp_price,
+                        "stop_loss": stop_price,
+                        "simulation_id": signal.get("sim_result", {}).get("sim_id"),
+                    })
 
                     trades_placed += 1
                     total_trades += 1
@@ -775,7 +765,7 @@ def main(mode: str = "paper", asset_class: str = "crypto", max_trades: int = 0) 
                     continue
 
         # -- 4h. Cycle summary -------------------------------------------------
-        open_positions = logger.get_alpaca_open_positions()
+        open_positions = logger.get_open_alpaca_positions()
         _cycle_summary(
             cycle_count=cycle_count,
             assets_scanned=len(candidates),
@@ -784,7 +774,7 @@ def main(mode: str = "paper", asset_class: str = "crypto", max_trades: int = 0) 
             positions_closed=positions_closed,
             cycle_pnl=close_pnl,
             total_pnl=total_pnl,
-            bankroll=alpaca.get_account_balance(),
+            bankroll=alpaca.get_account()["equity"],
             open_positions=len(open_positions),
         )
 
@@ -835,7 +825,7 @@ def evaluate(asset_class: str = "both", top_n: int = 30) -> None:
         )
     )
 
-    balance = alpaca.get_account_balance()
+    balance = alpaca.get_account()["equity"]
     console.print(f"  Balance: ${balance:,.2f}\n")
 
     candidates = []
@@ -956,7 +946,7 @@ def _print_final_report(
 
     # Export CSV
     try:
-        logger.export_alpaca_csv("data/alpaca_trades_report.csv")
+        logger.export_csv("data/alpaca_trades_report.csv")
         console.print("  [green]Trade data exported to data/alpaca_trades_report.csv[/green]")
     except Exception as e:
         console.print(f"  [yellow]CSV export failed: {e}[/yellow]")
