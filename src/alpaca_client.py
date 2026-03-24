@@ -368,7 +368,9 @@ class AlpacaClient:
 
     def close_position(self, symbol: str) -> dict:
         """Close the entire position for a symbol."""
-        resp = _retry(self._trading_client.close_position, symbol_or_asset_id=symbol)
+        # Alpaca position endpoint uses symbol without slash (PEPEUSD not PEPE/USD)
+        close_symbol = symbol.replace("/", "")
+        resp = _retry(self._trading_client.close_position, symbol_or_asset_id=close_symbol)
         result = self._parse_order(resp)
         log.info("Position closed: %s -> %s", symbol, result["status"])
         return result
