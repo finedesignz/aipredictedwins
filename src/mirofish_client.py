@@ -134,7 +134,7 @@ class MiroFishClient:
         payload = {
             "project_id": project_id,
             "enable_twitter": True,
-            "enable_reddit": True,
+            "enable_reddit": False,  # twitter-only for speed
         }
         if graph_id:
             payload["graph_id"] = graph_id
@@ -210,7 +210,7 @@ class MiroFishClient:
         """Launch the OASIS simulation."""
         payload = {
             "simulation_id": sim_id,
-            "platform": "parallel",
+            "platform": "twitter",  # twitter-only is 2x faster than parallel, sufficient for binary predictions
         }
         if max_rounds:
             payload["max_rounds"] = max_rounds
