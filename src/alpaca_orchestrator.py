@@ -24,6 +24,7 @@ Usage:
 import argparse
 import logging
 import sys
+import threading
 import time
 from datetime import datetime, timezone
 
@@ -61,6 +62,113 @@ MAX_SIMS_PER_CYCLE = 8            # cap simulations per scan cycle
 CYCLE_SLEEP_CRYPTO = 1800         # 30 min between crypto cycles
 CYCLE_SLEEP_STOCKS = 900          # 15 min between stock cycles
 RETRY_SLEEP = 120                 # 2 min retry on failures
+POSITION_CHECK_INTERVAL = 60      # check positions every 60 seconds
+
+# ---------------------------------------------------------------------------
+# Position Monitor — background thread checking stop-loss/take-profit
+# ---------------------------------------------------------------------------
+
+class PositionMonitor(threading.Thread):
+    """Background thread that checks open positions every 60 seconds.
+
+    Closes positions when stop-loss (-3%) or take-profit (+8%) is hit.
+    Runs as a daemon thread — dies when the main process exits.
+    """
+
+    def __init__(self, alpaca: AlpacaClient, logger: TradeLogger):
+        super().__init__(daemon=True, name="position-monitor")
+        self.alpaca = alpaca
+        self.logger = logger
+        self._stop_event = threading.Event()
+        self._lock = threading.Lock()  # prevents concurrent close attempts
+        self.checks = 0
+        self.closes = 0
+        self.total_pnl = 0.0
+
+    def stop(self):
+        self._stop_event.set()
+
+    def run(self):
+        log.info("Position monitor started (checking every %ds)", POSITION_CHECK_INTERVAL)
+        while not self._stop_event.is_set():
+            try:
+                self._check_all_positions()
+            except Exception as exc:
+                log.error("Position monitor error: %s", exc)
+            self._stop_event.wait(POSITION_CHECK_INTERVAL)
+        log.info("Position monitor stopped (checks=%d, closes=%d, pnl=$%.2f)",
+                 self.checks, self.closes, self.total_pnl)
+
+    def _check_all_positions(self):
+        self.checks += 1
+        open_trades = self.logger.get_open_alpaca_positions()
+        if not open_trades:
+            return
+
+        for trade in open_trades:
+            symbol = trade.get("symbol")
+            entry_price = trade.get("entry_price", 0)
+            side = trade.get("side", "buy")
+            trade_id = trade.get("id")
+            qty = trade.get("qty", 0)
+
+            if not symbol or not entry_price:
+                continue
+
+            try:
+                current_price = self.alpaca.get_latest_price(symbol)
+            except Exception:
+                continue
+
+            if not current_price or current_price <= 0:
+                continue
+
+            trigger = _check_stop_loss_take_profit(entry_price, current_price, side)
+            if not trigger:
+                continue
+
+            # Calculate P&L
+            if side == "buy":
+                pnl_per_unit = current_price - entry_price
+            else:
+                pnl_per_unit = entry_price - current_price
+            trade_pnl = pnl_per_unit * qty
+
+            pnl_pct = ((current_price - entry_price) / entry_price) * 100
+            trigger_label = "STOP LOSS" if trigger == "stop_loss" else "TAKE PROFIT"
+            color = "red" if trade_pnl < 0 else "green"
+
+            log.info(
+                "[MONITOR] %s triggered for %s: entry=$%.6f current=$%.6f (%.1f%%) P&L=$%.2f",
+                trigger_label, symbol, entry_price, current_price, pnl_pct, trade_pnl,
+            )
+            console.print(
+                f"  [bold {color}][MONITOR] {trigger_label}[/bold {color}] "
+                f"{symbol} {side.upper()} | entry=${entry_price:.6f} → ${current_price:.6f} "
+                f"({pnl_pct:+.1f}%) | P&L: ${trade_pnl:+,.2f}"
+            )
+
+            with self._lock:
+                try:
+                    self.alpaca.close_position(symbol)
+                    self.logger.update_alpaca_trade(
+                        trade_id=trade_id,
+                        status="closed",
+                        exit_price=current_price,
+                        pnl=trade_pnl,
+                    )
+                    self.closes += 1
+                    self.total_pnl += trade_pnl
+                except Exception as exc:
+                    log.error("[MONITOR] Failed to close %s: %s", symbol, exc)
+
+    def get_stats(self) -> dict:
+        return {
+            "checks": self.checks,
+            "closes": self.closes,
+            "total_pnl": self.total_pnl,
+        }
+
 
 # NYSE/NASDAQ market hours (ET)
 MARKET_OPEN_HOUR = 9              # 9:30 AM ET
@@ -121,18 +229,28 @@ def _cycle_summary(
     total_pnl: float,
     bankroll: float,
     open_positions: int,
+    monitor_stats: dict | None = None,
 ) -> None:
     """Print a summary panel at the end of each cycle."""
+    lines = (
+        f"  Assets scanned      : {assets_scanned}\n"
+        f"  Simulations run     : {sims_run}\n"
+        f"  Trades placed       : {trades_placed}\n"
+        f"  Positions closed    : {positions_closed}\n"
+        f"  Cycle P&L           : ${cycle_pnl:+,.2f}\n"
+        f"  Total P&L           : ${total_pnl:+,.2f}\n"
+        f"  Bankroll            : ${bankroll:,.2f}\n"
+        f"  Open positions      : {open_positions}"
+    )
+    if monitor_stats:
+        lines += (
+            f"\n  Monitor checks      : {monitor_stats['checks']}"
+            f"\n  Monitor closes      : {monitor_stats['closes']}"
+            f"\n  Monitor P&L         : ${monitor_stats['total_pnl']:+,.2f}"
+        )
     console.print(
         Panel(
-            f"  Assets scanned      : {assets_scanned}\n"
-            f"  Simulations run     : {sims_run}\n"
-            f"  Trades placed       : {trades_placed}\n"
-            f"  Positions closed    : {positions_closed}\n"
-            f"  Cycle P&L           : ${cycle_pnl:+,.2f}\n"
-            f"  Total P&L           : ${total_pnl:+,.2f}\n"
-            f"  Bankroll            : ${bankroll:,.2f}\n"
-            f"  Open positions      : {open_positions}",
+            lines,
             title=f"Cycle {cycle_count} Summary",
             border_style="green" if cycle_pnl >= 0 else "red",
         )
@@ -574,6 +692,12 @@ def main(mode: str = "paper", asset_class: str = "crypto", max_trades: int = 0) 
 
     _print_banner(mode, balance, asset_class, config)
 
+    # -- 1b. Start position monitor thread ------------------------------------
+    monitor = PositionMonitor(alpaca, logger)
+    monitor.start()
+    console.print(f"  [green]Position monitor started[/green] (checking every {POSITION_CHECK_INTERVAL}s)")
+
+
     # -- 2. Live-mode gates ----------------------------------------------------
     if mode == "live":
         if not _check_paper_trade_minimum(logger):
@@ -778,6 +902,7 @@ def main(mode: str = "paper", asset_class: str = "crypto", max_trades: int = 0) 
             total_pnl=total_pnl,
             bankroll=alpaca.get_account()["equity"],
             open_positions=len(open_positions),
+            monitor_stats=monitor.get_stats(),
         )
 
         # -- 4i. Check max trades target ---------------------------------------
