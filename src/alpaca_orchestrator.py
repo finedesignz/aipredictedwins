@@ -42,6 +42,7 @@ from src.alpaca_evaluator import (
     get_asset_question,
 )
 from src.mirofish_client import MiroFishClient, run_full_simulation
+from src.quick_simulator import QuickSimulator
 from src.position_sizer import kelly_size
 from src.trade_logger import TradeLogger
 
@@ -668,6 +669,128 @@ def _generate_signals(
 
 
 # ---------------------------------------------------------------------------
+# Fast signal generation (quick sim primary, MiroFish for confirmation only)
+# ---------------------------------------------------------------------------
+
+FULL_SIM_GAP_THRESHOLD = 0.25  # Only run full MiroFish when quick sim gap > 25%
+MAX_FULL_SIMS_PER_DAY = 2      # Cap expensive MiroFish sims
+
+_full_sims_today = 0
+_full_sims_date = None
+
+
+def _generate_signals_fast(
+    candidates: list[dict],
+    mirofish: MiroFishClient,
+    alpaca: AlpacaClient,
+    logger: TradeLogger,
+    open_positions: list[dict],
+    config,
+) -> list[dict]:
+    """Generate trade signals using quick sim as primary signal.
+
+    ~2K tokens per asset instead of ~67K. Full MiroFish only for top 1-2 picks.
+    Budget: ~12K tokens per candidate vs ~540K with full sim.
+    """
+    global _full_sims_today, _full_sims_date
+
+    # Reset daily counter
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    if _full_sims_date != today:
+        _full_sims_today = 0
+        _full_sims_date = today
+
+    quick_sim = QuickSimulator(config)
+    open_symbols = {p.get("symbol") for p in open_positions}
+    signals = []
+
+    for i, asset in enumerate(candidates, 1):
+        symbol = asset["symbol"]
+        asset_cls = asset.get("asset_class", "crypto")
+
+        console.print(
+            f"\n  [{i}/{len(candidates)}] Quick sim [bold]{symbol}[/bold]"
+        )
+
+        if symbol in open_symbols:
+            console.print(f"    [yellow]Already have open position -- skipping[/yellow]")
+            continue
+
+        try:
+            # Quick sim: 1 LLM call, ~2K tokens, ~30 seconds
+            market_data = {
+                "ticker": symbol,
+                "title": f"{symbol} price prediction",
+                "subtitle": f"Will {symbol} go up in the next 24 hours?",
+                "yes_price": 0.5,  # neutral starting point
+                "volume": asset.get("volume_24h", 0),
+            }
+            result = quick_sim.simulate(market_data)
+
+            sentiment = result.get("consensus_probability", 50) / 100.0
+            confidence = result.get("confidence", "weak")
+            trajectory = result.get("trajectory", "stable")
+            change_pct = asset.get("change_pct_24h", asset.get("change_pct", 0))
+
+            # Detect divergence signal
+            signal_type = None
+            if sentiment >= BULLISH_THRESHOLD and change_pct <= 0:
+                signal_type = "bullish_divergence"
+            elif sentiment <= BEARISH_THRESHOLD and change_pct >= 0:
+                signal_type = "bearish_divergence"
+
+            direction = "BULL" if sentiment > 0.5 else "BEAR"
+            console.print(
+                f"    Sentiment: {sentiment:.0%} ({direction}, {confidence})  |  "
+                f"Price: {change_pct:+.1f}%  |  "
+                f"Signal: {signal_type or 'none'}  |  "
+                f"Trajectory: {trajectory}"
+            )
+
+            if signal_type:
+                # For very large divergences, optionally confirm with full MiroFish
+                gap = abs(sentiment - 0.5)
+                use_full_sim = (
+                    gap >= FULL_SIM_GAP_THRESHOLD
+                    and _full_sims_today < MAX_FULL_SIMS_PER_DAY
+                    and confidence != "weak"
+                )
+
+                if use_full_sim:
+                    console.print(f"    [cyan]High conviction ({gap:.0%} gap) — running full MiroFish confirmation...[/cyan]")
+                    bars = alpaca.get_bars(symbol, timeframe="1Hour", limit=24)
+                    seed_text = format_asset_seed(asset, bars)
+                    event_question = get_asset_question(asset)
+                    sim_result = run_full_simulation(
+                        client=mirofish,
+                        seed_text=seed_text,
+                        event_question=event_question,
+                    )
+                    _full_sims_today += 1
+                    if sim_result.get("status") == "completed":
+                        full_sentiment = sim_result["probability"]
+                        console.print(f"    Full sim confirms: {full_sentiment:.0%}")
+                        sentiment = (sentiment + full_sentiment) / 2  # average both
+                else:
+                    sim_result = {"sim_id": f"quick_{symbol}_{int(time.time())}", "status": "quick_sim"}
+
+                signals.append({
+                    "asset": asset,
+                    "sentiment": sentiment,
+                    "signal_type": signal_type,
+                    "sim_result": sim_result,
+                    "confidence": confidence,
+                })
+
+        except Exception as exc:
+            console.print(f"    [red]Error: {exc}[/red]")
+            log.exception("Quick sim failed for %s", symbol)
+            continue
+
+    return signals
+
+
+# ---------------------------------------------------------------------------
 # Main loop
 # ---------------------------------------------------------------------------
 
@@ -783,9 +906,9 @@ def main(mode: str = "paper", asset_class: str = "crypto", max_trades: int = 0) 
                 _sleep_for_cycle(asset_class)
                 continue
 
-            # -- 4f. Run simulations and generate signals ----------------------
+            # -- 4f. Generate signals (quick sim primary, full MiroFish only for top pick)
             if candidates:
-                signals = _generate_signals(candidates, mirofish, alpaca, logger, open_positions)
+                signals = _generate_signals_fast(candidates, mirofish, alpaca, logger, open_positions, config)
                 console.print(
                     f"\n  [bold]{len(signals)}[/bold] actionable signals generated"
                 )
