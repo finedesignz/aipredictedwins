@@ -46,6 +46,13 @@ from src.quick_simulator import QuickSimulator
 from src.position_sizer import kelly_size
 from src.trade_logger import TradeLogger
 
+try:
+    from src.trade_memory import TradeMemory
+    from src.learning_loop import LearningLoop
+    _HAS_LEARNING = True
+except ImportError:
+    _HAS_LEARNING = False
+
 # ---------------------------------------------------------------------------
 # Constants — hardcoded risk management rules
 # ---------------------------------------------------------------------------
@@ -686,6 +693,7 @@ def _generate_signals_fast(
     logger: TradeLogger,
     open_positions: list[dict],
     config,
+    memory=None,
 ) -> list[dict]:
     """Generate trade signals using quick sim as primary signal.
 
@@ -789,6 +797,18 @@ def _generate_signals_fast(
                 else:
                     sim_result = {"sim_id": f"quick_{symbol}_{int(time.time())}", "status": "quick_sim"}
 
+                # Look up similar past trades from memory
+                if memory is not None:
+                    try:
+                        similar = memory.find_similar_trades(symbol, signal_type, effective_sentiment, change_pct)
+                        if similar:
+                            closed = [t for t in similar if t.get("outcome") in ("win", "loss")]
+                            if closed:
+                                wr = sum(1 for t in closed if t["outcome"] == "win") / len(closed)
+                                console.print(f"    [dim]Memory: {len(closed)} similar trades, {wr:.0%} win rate[/dim]")
+                    except Exception as exc:
+                        log.warning("Memory lookup failed for %s: %s", symbol, exc)
+
                 signals.append({
                     "asset": asset,
                     "sentiment": effective_sentiment,
@@ -824,6 +844,19 @@ def main(mode: str = "paper", asset_class: str = "crypto", max_trades: int = 0) 
     alpaca = AlpacaClient(config)
     mirofish = MiroFishClient(config)
     logger = TradeLogger()
+
+    # -- 1a. Initialize trade learning system ---------------------------------
+    memory = None
+    learner = None
+    if _HAS_LEARNING:
+        try:
+            memory = TradeMemory()
+            learner = LearningLoop(memory, logger)
+            log.info("Trade learning system initialized")
+        except Exception as exc:
+            log.warning("Trade learning system failed to initialize: %s", exc)
+            memory = None
+            learner = None
 
     balance = alpaca.get_account()["equity"]
     starting_bankroll = max(balance, config.starting_bankroll)
@@ -923,7 +956,7 @@ def main(mode: str = "paper", asset_class: str = "crypto", max_trades: int = 0) 
 
             # -- 4f. Generate signals (quick sim primary, full MiroFish only for top pick)
             if candidates:
-                signals = _generate_signals_fast(candidates, mirofish, alpaca, logger, open_positions, config)
+                signals = _generate_signals_fast(candidates, mirofish, alpaca, logger, open_positions, config, memory=memory)
                 console.print(
                     f"\n  [bold]{len(signals)}[/bold] actionable signals generated"
                 )
@@ -969,6 +1002,34 @@ def main(mode: str = "paper", asset_class: str = "crypto", max_trades: int = 0) 
                         f"  Skipping [cyan]{symbol}[/cyan] -- no edge or position too small"
                     )
                     continue
+
+                # Consult trade memory before placing order
+                change_pct = asset.get("change_pct_24h", asset.get("change_pct", 0))
+                if memory is not None:
+                    try:
+                        advice = memory.get_advice(
+                            symbol=symbol,
+                            signal_type=signal.get("signal_type", ""),
+                            sentiment=sentiment,
+                            price_change=change_pct,
+                        )
+
+                        if not advice["should_trade"]:
+                            console.print(
+                                f"  [yellow]MEMORY BLOCKED[/yellow] {symbol}: {advice['reasoning']}"
+                            )
+                            continue
+
+                        # Adjust position size based on past performance
+                        if advice["confidence_adjustment"] != 1.0:
+                            sizing["dollar_amount"] *= advice["confidence_adjustment"]
+                            sizing["shares"] = sizing["dollar_amount"] / current_price if current_price > 0 else 0
+                            console.print(
+                                f"  [cyan]Memory adjusted position: {advice['confidence_adjustment']:.0%}x[/cyan] "
+                                f"({advice['reasoning']})"
+                            )
+                    except Exception as exc:
+                        log.warning("Trade memory consultation failed for %s: %s", symbol, exc)
 
                 # Calculate stop-loss and take-profit prices
                 if sizing["side"] == "buy":
@@ -1023,6 +1084,24 @@ def main(mode: str = "paper", asset_class: str = "crypto", max_trades: int = 0) 
                         f"-- status: {order.get('status', 'submitted')}"
                     )
 
+                    # Record trade context for learning system
+                    if memory is not None:
+                        try:
+                            memory.record_trade_context({
+                                "symbol": symbol,
+                                "signal_type": signal.get("signal_type", ""),
+                                "sentiment": sentiment,
+                                "confidence": signal.get("confidence", "weak"),
+                                "price_at_entry": current_price,
+                                "price_change_24h": change_pct,
+                                "volume_24h": asset.get("volume_24h", 0),
+                                "trajectory": signal.get("trajectory", ""),
+                                "bull_arguments": signal.get("bull_arguments", []),
+                                "bear_arguments": signal.get("bear_arguments", []),
+                            })
+                        except Exception as exc_mem:
+                            log.warning("Failed to record trade context for %s: %s", symbol, exc_mem)
+
                 except Exception as exc:
                     console.print(f"    [red]Order failed: {exc}[/red]")
                     log.exception("Order placement failed for %s", symbol)
@@ -1042,6 +1121,24 @@ def main(mode: str = "paper", asset_class: str = "crypto", max_trades: int = 0) 
             open_positions=len(open_positions),
             monitor_stats=monitor.get_stats(),
         )
+
+        # -- 4h-b. Run learning cycle ------------------------------------------
+        if learner is not None:
+            try:
+                learn_result = learner.run_cycle()
+                if learn_result.get("new_lessons"):
+                    console.print(f"  [cyan]Learning: {len(learn_result['new_lessons'])} new lessons learned[/cyan]")
+                    for lesson in learn_result["new_lessons"]:
+                        console.print(f"    {lesson}")
+            except Exception as exc:
+                log.warning("Learning cycle failed: %s", exc)
+
+        # Print learning report every 5 cycles
+        if learner is not None and cycle_count % 5 == 0:
+            try:
+                learner.print_report()
+            except Exception as exc:
+                log.warning("Learning report failed: %s", exc)
 
         # -- 4i. Check max trades target ---------------------------------------
         if max_trades > 0 and total_trades >= max_trades:
