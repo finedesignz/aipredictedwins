@@ -56,8 +56,8 @@ MAX_SIMULTANEOUS_POSITIONS = 5    # max open positions at once
 MAX_SAME_CLASS_POSITIONS = 3      # max positions in same asset class
 DRAWDOWN_STOP_PCT = 0.10          # 10% daily drawdown kills the bot
 MIN_PAPER_TRADES = 30             # required before live mode
-BULLISH_THRESHOLD = 0.58          # MiroFish sentiment > 58% = bullish signal
-BEARISH_THRESHOLD = 0.42          # MiroFish sentiment < 42% = bearish signal
+BULLISH_THRESHOLD = 0.54          # MiroFish sentiment > 54% = bullish signal
+BEARISH_THRESHOLD = 0.46          # MiroFish sentiment < 46% = bearish signal
 MAX_SIMS_PER_CYCLE = 8            # cap simulations per scan cycle
 
 CYCLE_SLEEP_CRYPTO = 1800         # 30 min between crypto cycles
