@@ -737,15 +737,15 @@ def _generate_signals_fast(
             confidence = result.get("confidence", "weak")
             trajectory = result.get("trajectory", "stable")
 
-            # Detect divergence signal
-            # Bullish sentiment + flat/down price = buy opportunity
-            # Bearish sentiment + flat/up price = short opportunity
-            # Allow small same-direction moves (< 2%) — still tradeable
+            # Detect BUY signals only (no crypto shorting on Alpaca paper)
+            # Two buy triggers:
+            # 1. Bullish sentiment + any price = momentum buy
+            # 2. Neutral/mild sentiment + price dip > 1% = buy the dip
             signal_type = None
-            if sentiment >= BULLISH_THRESHOLD and change_pct <= 2.0:
+            if sentiment >= BULLISH_THRESHOLD:
                 signal_type = "bullish_divergence"
-            elif sentiment <= BEARISH_THRESHOLD and change_pct >= -2.0:
-                signal_type = "bearish_divergence"
+            elif sentiment >= 0.48 and change_pct <= -1.0:
+                signal_type = "buy_the_dip"  # crowd thinks it'll recover
 
             direction = "BULL" if sentiment > 0.5 else "BEAR"
             console.print(
@@ -756,8 +756,13 @@ def _generate_signals_fast(
             )
 
             if signal_type:
+                # For buy_the_dip, boost sentiment to trigger Kelly buy-side
+                effective_sentiment = sentiment
+                if signal_type == "buy_the_dip":
+                    effective_sentiment = max(sentiment, BULLISH_THRESHOLD + 0.01)
+
                 # For very large divergences, optionally confirm with full MiroFish
-                gap = abs(sentiment - 0.5)
+                gap = abs(effective_sentiment - 0.5)
                 use_full_sim = (
                     gap >= FULL_SIM_GAP_THRESHOLD
                     and _full_sims_today < MAX_FULL_SIMS_PER_DAY
@@ -784,7 +789,7 @@ def _generate_signals_fast(
 
                 signals.append({
                     "asset": asset,
-                    "sentiment": sentiment,
+                    "sentiment": effective_sentiment,
                     "signal_type": signal_type,
                     "sim_result": sim_result,
                     "confidence": confidence,
