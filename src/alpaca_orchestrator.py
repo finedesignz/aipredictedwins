@@ -346,12 +346,12 @@ def _kelly_directional(
                    shares, capped.
     """
     # Determine direction and edge magnitude
-    if sentiment > BULLISH_THRESHOLD:
+    if sentiment >= BULLISH_THRESHOLD:
         side = "buy"
         # Edge: how far above the threshold we are
         edge = (sentiment - 0.50)  # distance from neutral
         win_prob = sentiment
-    elif sentiment < BEARISH_THRESHOLD:
+    elif sentiment <= BEARISH_THRESHOLD:
         side = "sell"
         edge = (0.50 - sentiment)
         win_prob = 1.0 - sentiment  # probability of downward move
@@ -384,9 +384,9 @@ def _kelly_directional(
 
     # Calculate share count
     if current_price > 0:
-        shares = int(dollar_amount / current_price)
+        shares = dollar_amount / current_price  # float — Alpaca supports fractional crypto
     else:
-        shares = 0
+        shares = 0.0
 
     return {
         "side": side,
@@ -957,7 +957,7 @@ def main(mode: str = "paper", asset_class: str = "crypto", max_trades: int = 0) 
                     max_position_pct=MAX_POSITION_PCT,
                 )
 
-                if sizing["side"] == "none" or sizing["shares"] < 1:
+                if sizing["side"] == "none" or sizing["shares"] <= 0 or sizing["dollar_amount"] < 10:
                     console.print(
                         f"  Skipping [cyan]{symbol}[/cyan] -- no edge or position too small"
                     )
