@@ -56,8 +56,8 @@ MAX_SIMULTANEOUS_POSITIONS = 5    # max open positions at once
 MAX_SAME_CLASS_POSITIONS = 3      # max positions in same asset class
 DRAWDOWN_STOP_PCT = 0.10          # 10% daily drawdown kills the bot
 MIN_PAPER_TRADES = 30             # required before live mode
-BULLISH_THRESHOLD = 0.54          # MiroFish sentiment > 54% = bullish signal
-BEARISH_THRESHOLD = 0.46          # MiroFish sentiment < 46% = bearish signal
+BULLISH_THRESHOLD = 0.53          # MiroFish sentiment >= 53% = bullish signal
+BEARISH_THRESHOLD = 0.47          # MiroFish sentiment <= 47% = bearish signal
 MAX_SIMS_PER_CYCLE = 8            # cap simulations per scan cycle
 
 CYCLE_SLEEP_CRYPTO = 1800         # 30 min between crypto cycles
@@ -745,13 +745,15 @@ def _generate_signals_fast(
             if sentiment >= BULLISH_THRESHOLD:
                 signal_type = "bullish_divergence"
             elif sentiment >= 0.48 and change_pct <= -1.0:
-                signal_type = "buy_the_dip"  # crowd thinks it'll recover
+                signal_type = "buy_the_dip"
 
             direction = "BULL" if sentiment > 0.5 else "BEAR"
             console.print(
-                f"    Sentiment: {sentiment:.0%} ({direction}, {confidence})  |  "
+                f"    Sentiment: {sentiment:.2f} ({direction}, {confidence})  |  "
                 f"Price: {change_pct:+.1f}%  |  "
-                f"Signal: {signal_type or 'none'}  |  "
+                f"Signal: [bold green]{signal_type}[/bold green]" if signal_type else
+                f"    Sentiment: {sentiment:.2f} ({direction}, {confidence})  |  "
+                f"Price: {change_pct:+.1f}%  |  Signal: none  |  "
                 f"Trajectory: {trajectory}"
             )
 
