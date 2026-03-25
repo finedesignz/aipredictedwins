@@ -718,19 +718,24 @@ def _generate_signals_fast(
 
         try:
             # Quick sim: 1 LLM call, ~2K tokens, ~30 seconds
+            price = asset.get("price", 0)
+            change_pct = asset.get("change_pct_24h", asset.get("change_pct", 0))
+            high = asset.get("high_24h", price * 1.02)
+            low = asset.get("low_24h", price * 0.98)
+            vol = asset.get("volume_24h", 0)
+
             market_data = {
                 "ticker": symbol,
-                "title": f"{symbol} price prediction",
-                "subtitle": f"Will {symbol} go up in the next 24 hours?",
-                "yes_price": 0.5,  # neutral starting point
-                "volume": asset.get("volume_24h", 0),
+                "title": f"{symbol} — Current: ${price:.6f}, 24h change: {change_pct:+.1f}%, High: ${high:.6f}, Low: ${low:.6f}",
+                "subtitle": f"Will {symbol} close higher than ${price:.6f} in the next 24 hours? It moved {change_pct:+.1f}% today with volume {vol:,.0f}.",
+                "yes_price": 0.5,
+                "volume": vol,
             }
             result = quick_sim.simulate(market_data)
 
             sentiment = result.get("consensus_probability", 50) / 100.0
             confidence = result.get("confidence", "weak")
             trajectory = result.get("trajectory", "stable")
-            change_pct = asset.get("change_pct_24h", asset.get("change_pct", 0))
 
             # Detect divergence signal
             # Bullish sentiment + flat/down price = buy opportunity
