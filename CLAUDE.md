@@ -2,12 +2,17 @@
 
 ## Project Overview
 
-Automated trading system using MiroFish swarm intelligence (1,000+ AI agents) to find mispriced prediction markets on Kalshi and directional opportunities on Alpaca (stocks/crypto).
+Automated trading system for crypto swing trading on Alpaca. Uses technical indicators (EMA, ADX, RSI, Volume, VWAP) as the primary signal engine, with MiroFish swarm intelligence as a risk gate and exit advisor.
 
-## Architecture
+**Kalshi prediction markets are PAUSED** — do not run the Kalshi orchestrator.
 
-- **Kalshi orchestrator** (`src/orchestrator.py`) — scans prediction markets, runs MiroFish simulations, trades gaps > 15%
-- **Alpaca orchestrator** (`src/alpaca_orchestrator.py`) — scans crypto/stocks, runs sentiment simulations, trades divergences
+## Architecture (v2 — Technical-First, MiroFish-as-Guardian)
+
+- **Alpaca orchestrator** (`src/alpaca_orchestrator.py`) — three-layer pipeline: technical signals → risk gate → trade
+- **Technical Signal Engine** (`src/technical_signals.py`) — EMA(9/21), ADX(14), RSI(14), Volume spike, VWAP confluence scoring (0-5)
+- **MiroFish Risk Gate** (`src/risk_gate.py`) — LLM risk panel (5 analysts) vetoes bad trades before entry
+- **MiroFish Exit Advisor** (`src/exit_advisor.py`) — smart stop-loss/take-profit (HOLD/TIGHTEN/EXIT)
+- **Kalshi orchestrator** (`src/orchestrator.py`) — PAUSED. Scans prediction markets, runs MiroFish simulations, trades gaps > 15%
 - **MiroFish client** (`src/mirofish_client.py`) — 7-step pipeline: project → graph → simulation → prepare → start → report → extract probability
 - **Gateway** (`gateway/`) — Claude Code CLI bridge on Coolify, OpenAI-compatible API backed by Claude Max plan
 - **Trade logger** (`src/trade_logger.py`) — SQLite at `data/trades.db`
@@ -31,18 +36,41 @@ Automated trading system using MiroFish swarm intelligence (1,000+ AI agents) to
 ## Running
 
 ```bash
-# Kalshi prediction markets
-python -m src.orchestrator --mode paper --max-trades 200
+# Alpaca crypto (v2 — technical + MiroFish guardian)
+python -m src.alpaca_orchestrator --mode paper --max-trades 50
 
-# Alpaca crypto (when keys are set)
-python -m src.alpaca_orchestrator --mode paper --asset-class crypto
+# Evaluate signals only (no trading)
+python -m src.alpaca_orchestrator --mode evaluate
 
 # Dashboard
 streamlit run dashboard/app.py
 
-# Evaluate markets only
-python -m src.orchestrator --mode evaluate --top 30
+# Kalshi — PAUSED (do not run)
+# python -m src.orchestrator --mode paper --max-trades 200
 ```
+
+## Paper-Only Gate
+
+Live trading is BLOCKED until:
+1. 50+ paper trades completed
+2. Win rate > 40%
+3. Equity reaches $100,000 breakeven target
+
+## Trading Pipeline (v2)
+
+1. **Technical Scan** — fetch 1-hour bars for 8 crypto assets, compute 5 indicators
+2. **Confluence Filter** — only assets with 3+ bullish indicators become candidates
+3. **Deduplication** — skip symbols already in open positions
+4. **Risk Gate** — MiroFish 5-analyst panel brainstorms risk scenarios, vetoes if needed
+5. **Kelly Sizing** — quarter-Kelly based on confluence score (3/5=55%, 4/5=60%, 5/5=65%)
+6. **Position Monitor** — background thread checks every 60s:
+   - Soft thresholds (-2%, +5%) → MiroFish exit advisor (HOLD/TIGHTEN/EXIT)
+   - Hard thresholds (-4%, +10%) → immediate exit (no override)
+
+## Asset Universe
+
+Top 8 crypto by market cap: BTC, ETH, SOL, XRP, ADA, AVAX, DOT, LINK.
+No meme coins (DOGE, SHIB, PEPE removed).
 
 ## Risk Rules (HARDCODED — never override)
 

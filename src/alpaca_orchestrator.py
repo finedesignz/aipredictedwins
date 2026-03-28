@@ -1,24 +1,15 @@
 """
-Alpaca trading orchestrator for the AI Predicted Wins project.
+Alpaca trading orchestrator — Technical-First, MiroFish-as-Guardian.
 
-Runs alongside the Kalshi orchestrator. Scans crypto/stock markets,
-runs MiroFish swarm simulations to predict price direction, and
-executes trades on Alpaca.
+Three-layer architecture:
+  1. Technical Signal Engine — EMA, ADX, RSI, Volume, VWAP confluence scoring
+  2. MiroFish Risk Gate — LLM risk panel vetoes bad trades before entry
+  3. MiroFish Exit Advisor — smart stop-loss/take-profit for open positions
 
-Flow:
-  1. Scan trending crypto (BTC, ETH, SOL, etc.) and volatile stocks
-  2. Format seed material with recent price action + news context
-  3. Run MiroFish simulation: 1000 AI agents simulate social media
-     discussion about whether the asset will go up or down
-  4. Extract crowd sentiment (% bullish vs bearish) from report
-  5. Compare MiroFish sentiment to current price momentum
-  6. If strongly bullish (>65%) but price flat/down -> BUY
-  7. If strongly bearish (<35%) but price flat/up -> SHORT/SELL
-  8. Position size with Kelly Criterion (adapted for directional bets)
-  9. Set stop-loss at 3% and take-profit at 8%
+Only trades crypto (top 8 by market cap). Paper-only until $100k breakeven.
 
 Usage:
-  python -m src.alpaca_orchestrator --mode paper --asset-class crypto --max-trades 50
+  python -m src.alpaca_orchestrator --mode paper --max-trades 50
 """
 
 import argparse
@@ -34,16 +25,10 @@ from rich.table import Table
 
 from src.config import load_config
 from src.alpaca_client import AlpacaClient
-from src.alpaca_evaluator import (
-    get_trending_crypto,
-    get_trending_stocks,
-    evaluate_for_simulation,
-    format_asset_seed,
-    get_asset_question,
-)
-from src.mirofish_client import MiroFishClient, run_full_simulation
-from src.quick_simulator import QuickSimulator
-from src.position_sizer import kelly_size
+from src.alpaca_evaluator import get_trending_crypto, TOP_CRYPTO_TICKERS
+from src.technical_signals import scan_assets, analyze
+from src.risk_gate import RiskGate
+from src.exit_advisor import ExitAdvisor, check_position_thresholds, HARD_STOP_PCT, HARD_TAKE_PROFIT_PCT
 from src.trade_logger import TradeLogger
 
 try:
@@ -57,41 +42,40 @@ except ImportError:
 # Constants — hardcoded risk management rules
 # ---------------------------------------------------------------------------
 MAX_POSITION_PCT = 0.05           # 5% bankroll per position
-STOP_LOSS_PCT = 0.03              # 3% stop-loss per trade
-TAKE_PROFIT_PCT = 0.08            # 8% take-profit per trade
 MAX_SIMULTANEOUS_POSITIONS = 5    # max open positions at once
-MAX_SAME_CLASS_POSITIONS = 3      # max positions in same asset class
 DRAWDOWN_STOP_PCT = 0.10          # 10% daily drawdown kills the bot
-MIN_PAPER_TRADES = 30             # required before live mode
-BULLISH_THRESHOLD = 0.53          # MiroFish sentiment >= 53% = bullish signal
-BEARISH_THRESHOLD = 0.47          # MiroFish sentiment <= 47% = bearish signal
-MAX_SIMS_PER_CYCLE = 8            # cap simulations per scan cycle
-
-CYCLE_SLEEP_CRYPTO = 1800         # 30 min between crypto cycles
-CYCLE_SLEEP_STOCKS = 900          # 15 min between stock cycles
-RETRY_SLEEP = 120                 # 2 min retry on failures
+MIN_PAPER_TRADES = 50             # required before live mode
+BREAKEVEN_TARGET = 100_000.0      # paper-only until equity reaches $100k
+MIN_CONFLUENCE = 3                # minimum technical score (out of 5) to trade
+CYCLE_SLEEP_SECONDS = 1800        # 30 min between cycles
 POSITION_CHECK_INTERVAL = 60      # check positions every 60 seconds
 
+console = Console()
+log = logging.getLogger(__name__)
+
+
 # ---------------------------------------------------------------------------
-# Position Monitor — background thread checking stop-loss/take-profit
+# Position Monitor — background thread with MiroFish exit intelligence
 # ---------------------------------------------------------------------------
 
 class PositionMonitor(threading.Thread):
     """Background thread that checks open positions every 60 seconds.
 
-    Closes positions when stop-loss (-3%) or take-profit (+8%) is hit.
-    Runs as a daemon thread — dies when the main process exits.
+    Uses MiroFish Exit Advisor for soft thresholds (-2%, +5%).
+    Immediately exits on hard thresholds (-4%, +10%).
     """
 
-    def __init__(self, alpaca: AlpacaClient, logger: TradeLogger):
+    def __init__(self, alpaca: AlpacaClient, logger: TradeLogger, exit_advisor: ExitAdvisor):
         super().__init__(daemon=True, name="position-monitor")
         self.alpaca = alpaca
         self.logger = logger
+        self.exit_advisor = exit_advisor
         self._stop_event = threading.Event()
-        self._lock = threading.Lock()  # prevents concurrent close attempts
+        self._lock = threading.Lock()
         self.checks = 0
         self.closes = 0
         self.total_pnl = 0.0
+        self._tightened: set[int] = set()  # trade IDs with tightened stops
 
     def stop(self):
         self._stop_event.set()
@@ -131,44 +115,90 @@ class PositionMonitor(threading.Thread):
             if not current_price or current_price <= 0:
                 continue
 
-            trigger = _check_stop_loss_take_profit(entry_price, current_price, side)
-            if not trigger:
+            pnl_pct = (current_price - entry_price) / entry_price
+            trade_pnl = (current_price - entry_price) * qty
+
+            # Check threshold crossings
+            threshold = check_position_thresholds(entry_price, current_price)
+
+            # If tightened to breakeven, exit if below entry
+            if trade_id in self._tightened and current_price < entry_price:
+                threshold = "tightened_stop"
+
+            if not threshold:
                 continue
 
-            # Calculate P&L
-            if side == "buy":
-                pnl_per_unit = current_price - entry_price
-            else:
-                pnl_per_unit = entry_price - current_price
-            trade_pnl = pnl_per_unit * qty
+            should_close = False
+            close_reason = threshold
 
-            pnl_pct = ((current_price - entry_price) / entry_price) * 100
-            trigger_label = "STOP LOSS" if trigger == "stop_loss" else "TAKE PROFIT"
-            color = "red" if trade_pnl < 0 else "green"
-
-            log.info(
-                "[MONITOR] %s triggered for %s: entry=$%.6f current=$%.6f (%.1f%%) P&L=$%.2f",
-                trigger_label, symbol, entry_price, current_price, pnl_pct, trade_pnl,
-            )
-            console.print(
-                f"  [bold {color}][MONITOR] {trigger_label}[/bold {color}] "
-                f"{symbol} {side.upper()} | entry=${entry_price:.6f} → ${current_price:.6f} "
-                f"({pnl_pct:+.1f}%) | P&L: ${trade_pnl:+,.2f}"
-            )
-
-            with self._lock:
+            if threshold in ("hard_stop", "hard_take_profit", "tightened_stop"):
+                should_close = True
+            elif threshold in ("soft_stop", "soft_take_profit"):
+                # Consult MiroFish Exit Advisor
                 try:
-                    self.alpaca.close_position(symbol)
-                    self.logger.update_alpaca_trade(
-                        trade_id=trade_id,
-                        status="closed",
-                        exit_price=current_price,
-                        pnl=trade_pnl,
+                    ts = trade.get("timestamp", "")
+                    hours_held = 0.0
+                    if ts:
+                        entry_dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                        hours_held = (datetime.now(timezone.utc) - entry_dt).total_seconds() / 3600
+
+                    bars = self.alpaca.get_bars(symbol, timeframe="1Hour", limit=10)
+                    advice = self.exit_advisor.should_exit(
+                        symbol=symbol,
+                        entry_price=entry_price,
+                        current_price=current_price,
+                        side=side,
+                        hours_held=hours_held,
+                        bars=bars,
                     )
-                    self.closes += 1
-                    self.total_pnl += trade_pnl
+
+                    if advice and advice.decision == "EXIT":
+                        should_close = True
+                        close_reason = f"exit_advisor_{threshold}"
+                    elif advice and advice.decision == "TIGHTEN":
+                        self._tightened.add(trade_id)
+                        log.info("TIGHTENED stop for %s (trade %d) to breakeven", symbol, trade_id)
+                        console.print(
+                            f"  [yellow][MONITOR] TIGHTENED[/yellow] {symbol} — "
+                            f"stop moved to breakeven (${entry_price:.2f})"
+                        )
+                        continue
+                    else:
+                        # HOLD — do nothing
+                        continue
                 except Exception as exc:
-                    log.error("[MONITOR] Failed to close %s: %s", symbol, exc)
+                    log.warning("Exit advisor failed for %s, holding: %s", symbol, exc)
+                    continue
+
+            if should_close:
+                pnl_display = f"${trade_pnl:+,.2f}"
+                trigger_label = close_reason.upper().replace("_", " ")
+                color = "red" if trade_pnl < 0 else "green"
+
+                log.info(
+                    "[MONITOR] %s triggered for %s: entry=$%.2f current=$%.2f (%.1f%%) P&L=$%.2f",
+                    trigger_label, symbol, entry_price, current_price, pnl_pct * 100, trade_pnl,
+                )
+                console.print(
+                    f"  [bold {color}][MONITOR] {trigger_label}[/bold {color}] "
+                    f"{symbol} {side.upper()} | entry=${entry_price:.2f} -> ${current_price:.2f} "
+                    f"({pnl_pct * 100:+.1f}%) | P&L: {pnl_display}"
+                )
+
+                with self._lock:
+                    try:
+                        self.alpaca.close_position(symbol)
+                        self.logger.update_alpaca_trade(
+                            trade_id=trade_id,
+                            status="closed",
+                            exit_price=current_price,
+                            pnl=trade_pnl,
+                        )
+                        self.closes += 1
+                        self.total_pnl += trade_pnl
+                        self._tightened.discard(trade_id)
+                    except Exception as exc:
+                        log.error("[MONITOR] Failed to close %s: %s", symbol, exc)
 
     def get_stats(self) -> dict:
         return {
@@ -178,22 +208,11 @@ class PositionMonitor(threading.Thread):
         }
 
 
-# NYSE/NASDAQ market hours (ET)
-MARKET_OPEN_HOUR = 9              # 9:30 AM ET
-MARKET_OPEN_MINUTE = 30
-MARKET_CLOSE_HOUR = 16            # 4:00 PM ET
-MARKET_CLOSE_MINUTE = 0
-
-console = Console()
-log = logging.getLogger(__name__)
-
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 def _setup_logging() -> None:
-    """Configure structured logging to stdout."""
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s -- %(message)s",
@@ -202,35 +221,32 @@ def _setup_logging() -> None:
     )
 
 
-def _print_banner(mode: str, balance: float, asset_class: str, config) -> None:
-    """Print a startup banner with current mode and config summary."""
+def _print_banner(mode: str, balance: float, config) -> None:
     banner = (
-        f"[bold cyan]Alpaca + MiroFish Directional Trading Bot[/bold cyan]\n"
+        f"[bold cyan]Alpaca Technical + MiroFish Guardian Bot[/bold cyan]\n"
         f"\n"
         f"  Mode            : [bold {'red' if mode == 'live' else 'yellow'}]{mode.upper()}[/]\n"
-        f"  Asset class     : [bold]{asset_class.upper()}[/]\n"
+        f"  Signal          : Technical indicators (EMA/ADX/RSI/Volume/VWAP)\n"
+        f"  Guardian        : MiroFish risk gate + exit advisor\n"
         f"  Balance         : ${balance:,.2f}\n"
-        f"  Bankroll target : ${config.starting_bankroll:,.2f}\n"
-        f"  Kelly fraction  : {config.kelly_fraction:.0%}\n"
+        f"  Breakeven target: ${BREAKEVEN_TARGET:,.2f}\n"
+        f"  Min confluence  : {MIN_CONFLUENCE}/5 indicators\n"
         f"  Max position    : {MAX_POSITION_PCT:.0%} of bankroll\n"
-        f"  Stop-loss       : {STOP_LOSS_PCT:.0%} per trade\n"
-        f"  Take-profit     : {TAKE_PROFIT_PCT:.0%} per trade\n"
-        f"  Max positions   : {MAX_SIMULTANEOUS_POSITIONS} total / {MAX_SAME_CLASS_POSITIONS} per class\n"
+        f"  Hard stop-loss  : {abs(HARD_STOP_PCT):.0%}\n"
+        f"  Hard take-profit: {HARD_TAKE_PROFIT_PCT:.0%}\n"
+        f"  Max positions   : {MAX_SIMULTANEOUS_POSITIONS}\n"
         f"  Drawdown stop   : {DRAWDOWN_STOP_PCT:.0%} daily\n"
-        f"  Bullish thresh  : {BULLISH_THRESHOLD:.0%}\n"
-        f"  Bearish thresh  : {BEARISH_THRESHOLD:.0%}\n"
-        f"  Crypto cycle    : {CYCLE_SLEEP_CRYPTO // 60} min\n"
-        f"  Stock cycle     : {CYCLE_SLEEP_STOCKS // 60} min\n"
-        f"  Agents/sim      : {config.mirofish_agent_count}\n"
-        f"  Rounds/sim      : {config.mirofish_rounds}"
+        f"  Cycle interval  : {CYCLE_SLEEP_SECONDS // 60} min\n"
+        f"  Assets          : {', '.join(s.replace('/USD','') for s in TOP_CRYPTO_TICKERS)}"
     )
-    console.print(Panel(banner, title="Alpaca Orchestrator Startup", border_style="cyan"))
+    console.print(Panel(banner, title="Alpaca Orchestrator v2 Startup", border_style="cyan"))
 
 
 def _cycle_summary(
     cycle_count: int,
     assets_scanned: int,
-    sims_run: int,
+    signals_found: int,
+    risk_gate_passed: int,
     trades_placed: int,
     positions_closed: int,
     cycle_pnl: float,
@@ -239,10 +255,10 @@ def _cycle_summary(
     open_positions: int,
     monitor_stats: dict | None = None,
 ) -> None:
-    """Print a summary panel at the end of each cycle."""
     lines = (
         f"  Assets scanned      : {assets_scanned}\n"
-        f"  Simulations run     : {sims_run}\n"
+        f"  Technical signals   : {signals_found}\n"
+        f"  Risk gate passed    : {risk_gate_passed}\n"
         f"  Trades placed       : {trades_placed}\n"
         f"  Positions closed    : {positions_closed}\n"
         f"  Cycle P&L           : ${cycle_pnl:+,.2f}\n"
@@ -257,126 +273,37 @@ def _cycle_summary(
             f"\n  Monitor P&L         : ${monitor_stats['total_pnl']:+,.2f}"
         )
     console.print(
-        Panel(
-            lines,
-            title=f"Cycle {cycle_count} Summary",
-            border_style="green" if cycle_pnl >= 0 else "red",
-        )
+        Panel(lines, title=f"Cycle {cycle_count} Summary",
+              border_style="green" if cycle_pnl >= 0 else "red")
     )
 
 
-def _confirm_live_mode(balance: float) -> bool:
-    """Require explicit confirmation before live trading."""
-    console.print(
-        Panel(
-            f"[bold red]LIVE MODE -- REAL MONEY[/bold red]\n\n"
-            f"  Account balance: ${balance:,.2f}\n\n"
-            f"  Real money will be used for Alpaca trades.\n"
-            f"  Type [bold]CONFIRM[/bold] to proceed.",
-            title="Warning",
-            border_style="red",
-        )
-    )
-    response = input(">>> ").strip()
-    if response != "CONFIRM":
-        console.print("[yellow]Aborted. Live mode requires typing CONFIRM exactly.[/yellow]")
-        return False
-    return True
-
-
-def _check_paper_trade_minimum(logger: TradeLogger) -> bool:
-    """Return True if enough paper trades have been logged for Alpaca."""
-    accuracy = logger.get_alpaca_accuracy()
-    total = accuracy.get("total_trades", 0)
-    if total < MIN_PAPER_TRADES:
-        console.print(
-            f"[bold red]Blocked:[/bold red] Only {total} Alpaca paper trades logged. "
-            f"Need at least {MIN_PAPER_TRADES} before live mode."
-        )
-        return False
-    console.print(
-        f"[green]Paper trade gate passed: {total} trades "
-        f"({accuracy.get('win_rate', 0):.1%} win rate)[/green]"
-    )
-    return True
-
-
-def _is_stock_market_open() -> bool:
-    """Check if NYSE/NASDAQ is currently open (Mon-Fri, 9:30 AM - 4:00 PM ET).
-
-    Uses a simple UTC-5 offset for ET. Does not account for holidays or DST
-    edge cases -- a proper implementation would use pytz or zoneinfo.
-    """
-    try:
-        from zoneinfo import ZoneInfo
-        now_et = datetime.now(ZoneInfo("America/New_York"))
-    except ImportError:
-        # Fallback: approximate ET as UTC-5
-        from datetime import timedelta
-        now_utc = datetime.now(timezone.utc)
-        now_et = now_utc - timedelta(hours=5)
-
-    # Weekend check (Monday=0, Sunday=6)
-    if now_et.weekday() >= 5:
-        return False
-
-    market_open = now_et.replace(
-        hour=MARKET_OPEN_HOUR, minute=MARKET_OPEN_MINUTE, second=0, microsecond=0,
-    )
-    market_close = now_et.replace(
-        hour=MARKET_CLOSE_HOUR, minute=MARKET_CLOSE_MINUTE, second=0, microsecond=0,
-    )
-    return market_open <= now_et <= market_close
-
-
-def _kelly_directional(
-    sentiment: float,
+def _kelly_technical(
+    confluence: int,
     current_price: float,
     bankroll: float,
     kelly_fraction: float = 0.25,
     max_position_pct: float = 0.05,
 ) -> dict:
-    """Adapt Kelly Criterion for directional price bets.
+    """Kelly sizing adapted for technical confluence signals.
 
-    Instead of event contracts, we're estimating edge from the
-    divergence between MiroFish crowd sentiment and current momentum.
-
-    Args:
-        sentiment: MiroFish bullish probability (0.0-1.0).
-        current_price: Current asset price (used for position sizing).
-        bankroll: Available cash balance.
-        kelly_fraction: Fraction of full Kelly to use (default quarter Kelly).
-        max_position_pct: Maximum position as fraction of bankroll.
-
-    Returns:
-        dict with: side, kelly_pct, adjusted_pct, dollar_amount,
-                   shares, capped.
+    Uses confluence score normalized to a win probability estimate.
+    Higher confluence = higher estimated edge = bigger position.
     """
-    # Determine direction and edge magnitude
-    if sentiment >= BULLISH_THRESHOLD:
-        side = "buy"
-        # Edge: how far above the threshold we are
-        edge = (sentiment - 0.50)  # distance from neutral
-        win_prob = sentiment
-    elif sentiment <= BEARISH_THRESHOLD:
-        side = "sell"
-        edge = (0.50 - sentiment)
-        win_prob = 1.0 - sentiment  # probability of downward move
-    else:
-        # Sentiment in no-trade zone
+    if confluence < MIN_CONFLUENCE:
         return {
-            "side": "none",
-            "kelly_pct": 0.0,
-            "adjusted_pct": 0.0,
-            "dollar_amount": 0.0,
-            "shares": 0,
-            "capped": False,
+            "side": "none", "kelly_pct": 0.0, "adjusted_pct": 0.0,
+            "dollar_amount": 0.0, "shares": 0.0, "capped": False,
         }
 
-    # Kelly formula adapted for directional bets:
-    # Assume risk/reward based on stop-loss and take-profit
-    # b = take_profit / stop_loss (payout odds)
-    b = TAKE_PROFIT_PCT / STOP_LOSS_PCT  # 8% / 3% = 2.67
+    # Map confluence to estimated win probability
+    # 3/5 = 55%, 4/5 = 60%, 5/5 = 65%
+    win_prob_map = {3: 0.55, 4: 0.60, 5: 0.65}
+    win_prob = win_prob_map.get(confluence, 0.55)
+
+    # Risk/reward: soft take-profit at 5%, hard stop at 4%
+    # b = reward / risk = 5% / 4% = 1.25
+    b = 0.05 / 0.04
     p = win_prob
     q = 1.0 - p
 
@@ -388,15 +315,10 @@ def _kelly_directional(
         adjusted_pct = max_position_pct
 
     dollar_amount = bankroll * adjusted_pct
-
-    # Calculate share count
-    if current_price > 0:
-        shares = dollar_amount / current_price  # float — Alpaca supports fractional crypto
-    else:
-        shares = 0.0
+    shares = dollar_amount / current_price if current_price > 0 else 0.0
 
     return {
-        "side": side,
+        "side": "buy",
         "kelly_pct": kelly_pct,
         "adjusted_pct": adjusted_pct,
         "dollar_amount": dollar_amount,
@@ -405,447 +327,56 @@ def _kelly_directional(
     }
 
 
-def _check_stop_loss_take_profit(
-    entry_price: float,
-    current_price: float,
-    side: str,
-) -> str | None:
-    """Check if a position has hit stop-loss or take-profit.
-
-    Returns:
-        'stop_loss', 'take_profit', or None.
-    """
-    if side == "buy":
-        pnl_pct = (current_price - entry_price) / entry_price
-    else:  # short / sell
-        pnl_pct = (entry_price - current_price) / entry_price
-
-    if pnl_pct <= -STOP_LOSS_PCT:
-        return "stop_loss"
-    if pnl_pct >= TAKE_PROFIT_PCT:
-        return "take_profit"
-    return None
-
-
-def _check_sentiment_reversal(
-    original_sentiment: float,
-    current_sentiment: float,
-    side: str,
-) -> bool:
-    """Check if MiroFish sentiment has reversed from the original trade thesis.
-
-    A reversal means a bullish trade is now seeing bearish sentiment, or vice versa.
-    """
-    if side == "buy" and current_sentiment < 0.50:
-        return True
-    if side == "sell" and current_sentiment > 0.50:
-        return True
-    return False
-
-
-# ---------------------------------------------------------------------------
-# Position management
-# ---------------------------------------------------------------------------
-
-def _manage_positions(
-    alpaca: AlpacaClient,
-    logger: TradeLogger,
-    mirofish: MiroFishClient,
-) -> tuple[int, float]:
-    """Check existing positions: close if stop-loss/take-profit hit or sentiment reversed.
-
-    Returns:
-        (positions_closed, realized_pnl)
-    """
-    positions_closed = 0
-    realized_pnl = 0.0
-
-    open_trades = logger.get_open_alpaca_positions()
-
-    for trade in open_trades:
-        symbol = trade.get("symbol")
-        entry_price = trade.get("entry_price", 0)
-        side = trade.get("side", "buy")
-        trade_id = trade.get("id")
-
-        if not symbol or not entry_price:
-            continue
-
-        # Get current price from Alpaca
-        try:
-            current_price = alpaca.get_latest_price(symbol)
-        except Exception as exc:
-            log.warning("Could not get price for %s: %s", symbol, exc)
-            continue
-
-        if current_price is None or current_price <= 0:
-            continue
-
-        # Check stop-loss / take-profit
-        trigger = _check_stop_loss_take_profit(entry_price, current_price, side)
-        close_reason = None
-
-        if trigger:
-            close_reason = trigger
-        else:
-            # Check if MiroFish sentiment has reversed
-            original_sentiment = trade.get("mirofish_sentiment", 0.5)
-            if _check_sentiment_reversal(original_sentiment, original_sentiment, side):
-                # For a full reversal check, we'd re-run a simulation.
-                # For efficiency, we only close on price triggers here.
-                # Sentiment reversal is checked via periodic re-simulation
-                # in the main loop when the asset comes up again.
-                pass
-
-        if close_reason:
-            # Calculate P&L
-            if side == "buy":
-                pnl_per_share = current_price - entry_price
-            else:
-                pnl_per_share = entry_price - current_price
-
-            shares = trade.get("shares", 0)
-            trade_pnl = pnl_per_share * shares
-
-            console.print(
-                f"  Closing [cyan]{symbol}[/cyan] ({side.upper()}) -- "
-                f"{'[green]' if trade_pnl >= 0 else '[red]'}"
-                f"{close_reason.upper().replace('_', ' ')}[/] "
-                f"${trade_pnl:+,.2f}"
-            )
-
-            try:
-                alpaca.close_position(symbol)
-                logger.update_alpaca_trade(
-                    trade_id=trade_id,
-                    status="closed",
-                    exit_price=current_price,
-                    pnl=trade_pnl,
-                    close_reason=close_reason,
-                )
-                positions_closed += 1
-                realized_pnl += trade_pnl
-            except Exception as exc:
-                console.print(f"    [red]Close failed: {exc}[/red]")
-                log.exception("Failed to close position %s", symbol)
-
-    return positions_closed, realized_pnl
-
-
-# ---------------------------------------------------------------------------
-# Asset scanning and signal generation
-# ---------------------------------------------------------------------------
-
-def _scan_candidates(
-    asset_class: str,
-    alpaca: AlpacaClient,
-    logger: TradeLogger,
-) -> list[dict]:
-    """Scan for trading candidates based on asset class.
-
-    Returns a list of asset dicts with keys: symbol, name, price, change_pct,
-    volume, asset_class, momentum, etc.
-    """
-    candidates = []
-
-    if asset_class in ("crypto", "both"):
-        try:
-            crypto = get_trending_crypto(alpaca)
-            console.print(f"  Found {len(crypto)} trending crypto assets")
-            candidates.extend(crypto)
-        except Exception as exc:
-            console.print(f"  [red]Crypto scan failed: {exc}[/red]")
-            log.exception("Crypto scan failed")
-
-    if asset_class in ("stocks", "both"):
-        if not _is_stock_market_open():
-            console.print("  [yellow]Stock market closed -- skipping stock scan[/yellow]")
-        else:
-            try:
-                stocks = get_trending_stocks(alpaca)
-                console.print(f"  Found {len(stocks)} trending stock assets")
-                candidates.extend(stocks)
-            except Exception as exc:
-                console.print(f"  [red]Stock scan failed: {exc}[/red]")
-                log.exception("Stock scan failed")
-
-    # Evaluate and rank by MiroFish simulation fitness
-    evaluated = evaluate_for_simulation(candidates)
-    console.print(f"  {len(evaluated)} assets after simulation fitness evaluation")
-
-    # Remove already-simulated assets today
-    simulated_today = set()
-    fresh = [a for a in evaluated if a["symbol"] not in simulated_today]
-    console.print(f"  {len(fresh)} after removing already-simulated assets")
-
-    return fresh[:MAX_SIMS_PER_CYCLE]
-
-
-def _generate_signals(
-    candidates: list[dict],
-    mirofish: MiroFishClient,
-    alpaca: AlpacaClient,
-    logger: TradeLogger,
-    open_positions: list[dict],
-) -> list[dict]:
-    """Run MiroFish simulations on candidates and generate trade signals.
-
-    Returns a list of signal dicts with keys: asset, sentiment, side,
-    kelly_sizing, sim_result.
-    """
-    signals = []
-    open_symbols = {p.get("symbol") for p in open_positions}
-
-    for i, asset in enumerate(candidates, 1):
-        symbol = asset["symbol"]
-        name = asset.get("name", symbol)
-        asset_cls = asset.get("asset_class", "unknown")
-
-        console.print(
-            f"\n  [{i}/{len(candidates)}] Simulating [bold]{symbol}[/bold]: {name}"
+def _confirm_live_mode(balance: float) -> bool:
+    console.print(
+        Panel(
+            f"[bold red]LIVE MODE -- REAL MONEY[/bold red]\n\n"
+            f"  Account balance: ${balance:,.2f}\n\n"
+            f"  Type [bold]CONFIRM[/bold] to proceed.",
+            title="Warning", border_style="red",
         )
-
-        # Skip if we already have a position
-        if symbol in open_symbols:
-            console.print(f"    [yellow]Already have open position -- skipping[/yellow]")
-            continue
-
-        try:
-            bars = alpaca.get_bars(asset["symbol"], timeframe="1Hour", limit=24)
-            seed_text = format_asset_seed(asset, bars)
-            event_question = get_asset_question(asset)
-
-            sim_result = run_full_simulation(
-                client=mirofish,
-                seed_text=seed_text,
-                event_question=event_question,
-            )
-
-            if sim_result.get("status") != "completed":
-                console.print(
-                    f"    [yellow]Simulation {sim_result.get('status', 'unknown')} "
-                    f"-- skipping[/yellow]"
-                )
-                continue
-
-            # Log the simulation
-            logger.log_simulation(
-                sim_id=sim_result.get("sim_id") or f"sim_{symbol}_{int(time.time())}",
-                market={"ticker": symbol, "title": asset.get("name", symbol)},
-                mirofish_prob=sim_result.get("probability", 0.5),
-                kalshi_price=asset.get("price", 0),
-                estimated_cost=sim_result.get("estimated_cost", 0),
-            )
-
-            sentiment = sim_result["probability"]
-            price = asset.get("price", 0)
-            change_pct = asset.get("change_pct", 0)
-
-            # Determine if there's a divergence signal
-            # Bullish sentiment + flat/down price = BUY opportunity
-            # Bearish sentiment + flat/up price = SHORT opportunity
-            signal_type = None
-            if sentiment > BULLISH_THRESHOLD and change_pct <= 2.0:
-                signal_type = "bullish_divergence"
-            elif sentiment < BEARISH_THRESHOLD and change_pct >= -2.0:
-                signal_type = "bearish_divergence"
-
-            direction = "BULL" if sentiment > 0.5 else "BEAR"
-            icon = "+" if sentiment > 0.5 else "-"
-            console.print(
-                f"    Sentiment: {sentiment:.1%} ({direction})  |  "
-                f"Price chg: {change_pct:+.1f}%  |  "
-                f"Signal: {signal_type or 'none'}  |  "
-                f"Asset: {asset_cls}"
-            )
-
-            if signal_type:
-                signals.append({
-                    "asset": asset,
-                    "sentiment": sentiment,
-                    "signal_type": signal_type,
-                    "sim_result": sim_result,
-                })
-
-        except Exception as exc:
-            console.print(f"    [red]Error: {exc}[/red]")
-            log.exception("Simulation failed for %s", symbol)
-            continue
-
-    return signals
+    )
+    response = input(">>> ").strip()
+    return response == "CONFIRM"
 
 
-# ---------------------------------------------------------------------------
-# Fast signal generation (quick sim primary, MiroFish for confirmation only)
-# ---------------------------------------------------------------------------
+def _check_paper_requirements(logger: TradeLogger, equity: float) -> tuple[bool, str]:
+    """Check if live trading requirements are met.
 
-FULL_SIM_GAP_THRESHOLD = 0.25  # Only run full MiroFish when quick sim gap > 25%
-MAX_FULL_SIMS_PER_DAY = 2      # Cap expensive MiroFish sims
-
-_full_sims_today = 0
-_full_sims_date = None
-
-
-def _generate_signals_fast(
-    candidates: list[dict],
-    mirofish: MiroFishClient,
-    alpaca: AlpacaClient,
-    logger: TradeLogger,
-    open_positions: list[dict],
-    config,
-    memory=None,
-) -> list[dict]:
-    """Generate trade signals using quick sim as primary signal.
-
-    ~2K tokens per asset instead of ~67K. Full MiroFish only for top 1-2 picks.
-    Budget: ~12K tokens per candidate vs ~540K with full sim.
+    Returns (can_go_live, reason).
     """
-    global _full_sims_today, _full_sims_date
+    accuracy = logger.get_alpaca_accuracy()
+    total = accuracy.get("total_trades", 0)
 
-    # Reset daily counter
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    if _full_sims_date != today:
-        _full_sims_today = 0
-        _full_sims_date = today
+    if total < MIN_PAPER_TRADES:
+        return False, f"Only {total}/{MIN_PAPER_TRADES} paper trades completed"
 
-    quick_sim = QuickSimulator(config)
-    open_symbols = {p.get("symbol") for p in open_positions}
-    signals = []
+    win_rate = accuracy.get("win_rate", 0)
+    if win_rate < 0.40:
+        return False, f"Win rate {win_rate:.1%} < 40% minimum"
 
-    for i, asset in enumerate(candidates, 1):
-        symbol = asset["symbol"]
-        asset_cls = asset.get("asset_class", "crypto")
+    if equity < BREAKEVEN_TARGET:
+        return False, f"Equity ${equity:,.2f} < ${BREAKEVEN_TARGET:,.2f} breakeven target"
 
-        console.print(
-            f"\n  [{i}/{len(candidates)}] Quick sim [bold]{symbol}[/bold]"
-        )
-
-        if symbol in open_symbols:
-            console.print(f"    [yellow]Already have open position -- skipping[/yellow]")
-            continue
-
-        try:
-            # Quick sim: 1 LLM call, ~2K tokens, ~30 seconds
-            price = asset.get("price", 0)
-            change_pct = asset.get("change_pct_24h", asset.get("change_pct", 0))
-            high = asset.get("high_24h", price * 1.02)
-            low = asset.get("low_24h", price * 0.98)
-            vol = asset.get("volume_24h", 0)
-
-            market_data = {
-                "ticker": symbol,
-                "title": f"{symbol} — Current: ${price:.6f}, 24h change: {change_pct:+.1f}%, High: ${high:.6f}, Low: ${low:.6f}",
-                "subtitle": f"Will {symbol} close higher than ${price:.6f} in the next 24 hours? It moved {change_pct:+.1f}% today with volume {vol:,.0f}.",
-                "yes_price": 0.5,
-                "volume": vol,
-            }
-            result = quick_sim.simulate(market_data)
-
-            sentiment = result.get("consensus_probability", 50) / 100.0
-            confidence = result.get("confidence", "weak")
-            trajectory = result.get("trajectory", "stable")
-
-            # Detect BUY signals only (no crypto shorting on Alpaca paper)
-            # Two buy triggers:
-            # 1. Bullish sentiment + any price = momentum buy
-            # 2. Neutral/mild sentiment + price dip > 1% = buy the dip
-            signal_type = None
-            if sentiment >= BULLISH_THRESHOLD:
-                signal_type = "bullish_divergence"
-            elif sentiment >= 0.48 and change_pct <= -1.0:
-                signal_type = "buy_the_dip"
-
-            direction = "BULL" if sentiment > 0.5 else "BEAR"
-            console.print(
-                f"    Sentiment: {sentiment:.2f} ({direction}, {confidence})  |  "
-                f"Price: {change_pct:+.1f}%  |  "
-                f"Signal: [bold green]{signal_type}[/bold green]" if signal_type else
-                f"    Sentiment: {sentiment:.2f} ({direction}, {confidence})  |  "
-                f"Price: {change_pct:+.1f}%  |  Signal: none  |  "
-                f"Trajectory: {trajectory}"
-            )
-
-            if signal_type:
-                # For buy_the_dip, boost sentiment to trigger Kelly buy-side
-                effective_sentiment = sentiment
-                if signal_type == "buy_the_dip":
-                    effective_sentiment = max(sentiment, BULLISH_THRESHOLD + 0.01)
-
-                # For very large divergences, optionally confirm with full MiroFish
-                gap = abs(effective_sentiment - 0.5)
-                use_full_sim = (
-                    gap >= FULL_SIM_GAP_THRESHOLD
-                    and _full_sims_today < MAX_FULL_SIMS_PER_DAY
-                    and confidence != "weak"
-                )
-
-                if use_full_sim:
-                    console.print(f"    [cyan]High conviction ({gap:.0%} gap) — running full MiroFish confirmation...[/cyan]")
-                    bars = alpaca.get_bars(symbol, timeframe="1Hour", limit=24)
-                    seed_text = format_asset_seed(asset, bars)
-                    event_question = get_asset_question(asset)
-                    sim_result = run_full_simulation(
-                        client=mirofish,
-                        seed_text=seed_text,
-                        event_question=event_question,
-                    )
-                    _full_sims_today += 1
-                    if sim_result.get("status") == "completed":
-                        full_sentiment = sim_result["probability"]
-                        console.print(f"    Full sim confirms: {full_sentiment:.0%}")
-                        sentiment = (sentiment + full_sentiment) / 2  # average both
-                else:
-                    sim_result = {"sim_id": f"quick_{symbol}_{int(time.time())}", "status": "quick_sim"}
-
-                # Look up similar past trades from memory
-                if memory is not None:
-                    try:
-                        similar = memory.find_similar_trades(symbol, signal_type, effective_sentiment, change_pct)
-                        if similar:
-                            closed = [t for t in similar if t.get("outcome") in ("win", "loss")]
-                            if closed:
-                                wr = sum(1 for t in closed if t["outcome"] == "win") / len(closed)
-                                console.print(f"    [dim]Memory: {len(closed)} similar trades, {wr:.0%} win rate[/dim]")
-                    except Exception as exc:
-                        log.warning("Memory lookup failed for %s: %s", symbol, exc)
-
-                signals.append({
-                    "asset": asset,
-                    "sentiment": effective_sentiment,
-                    "signal_type": signal_type,
-                    "sim_result": sim_result,
-                    "confidence": confidence,
-                })
-
-        except Exception as exc:
-            console.print(f"    [red]Error: {exc}[/red]")
-            log.exception("Quick sim failed for %s", symbol)
-            continue
-
-    return signals
+    return True, "All requirements met"
 
 
 # ---------------------------------------------------------------------------
 # Main loop
 # ---------------------------------------------------------------------------
 
-def main(mode: str = "paper", asset_class: str = "crypto", max_trades: int = 0) -> None:
-    """Run the scan-simulate-trade loop for Alpaca.
-
-    Args:
-        mode: 'paper', 'live', or 'evaluate'.
-        asset_class: 'crypto', 'stocks', or 'both'.
-        max_trades: Stop after N trades (0 = run forever).
-    """
+def main(mode: str = "paper", max_trades: int = 0) -> None:
+    """Run the technical-signal → risk-gate → trade loop."""
     _setup_logging()
 
-    # -- 1. Initialize ---------------------------------------------------------
+    # -- 1. Initialize --------------------------------------------------------
     config = load_config()
     alpaca = AlpacaClient(config)
-    mirofish = MiroFishClient(config)
     logger = TradeLogger()
+    risk_gate = RiskGate(config, logger)
+    exit_advisor = ExitAdvisor(config)
 
-    # -- 1a. Initialize trade learning system ---------------------------------
+    # Learning system (optional)
     memory = None
     learner = None
     if _HAS_LEARNING:
@@ -855,419 +386,287 @@ def main(mode: str = "paper", asset_class: str = "crypto", max_trades: int = 0) 
             log.info("Trade learning system initialized")
         except Exception as exc:
             log.warning("Trade learning system failed to initialize: %s", exc)
-            memory = None
-            learner = None
 
-    balance = alpaca.get_account()["equity"]
+    account = alpaca.get_account()
+    balance = account["equity"]
     starting_bankroll = max(balance, config.starting_bankroll)
 
-    _print_banner(mode, balance, asset_class, config)
+    _print_banner(mode, balance, config)
 
-    # -- 1b. Start position monitor thread ------------------------------------
-    monitor = PositionMonitor(alpaca, logger)
+    # -- 1b. Start position monitor with exit advisor -------------------------
+    monitor = PositionMonitor(alpaca, logger, exit_advisor)
     monitor.start()
-    console.print(f"  [green]Position monitor started[/green] (checking every {POSITION_CHECK_INTERVAL}s)")
+    console.print(f"  [green]Position monitor started[/green] (MiroFish exit advisor active)")
 
-
-    # -- 2. Live-mode gates ----------------------------------------------------
+    # -- 2. Live-mode gates ---------------------------------------------------
     if mode == "live":
-        if not _check_paper_trade_minimum(logger):
+        can_live, reason = _check_paper_requirements(logger, balance)
+        if not can_live:
+            console.print(f"[bold red]Blocked:[/bold red] {reason}")
             sys.exit(1)
         if not _confirm_live_mode(balance):
             sys.exit(0)
 
-    # -- 3. Tracking state -----------------------------------------------------
+    # -- 3. Tracking state ----------------------------------------------------
     total_pnl = 0.0
     daily_pnl = 0.0
     total_trades = 0
     cycle_count = 0
     daily_start = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
-    # -- 4. Main loop ----------------------------------------------------------
+    # -- 4. Main loop ---------------------------------------------------------
     while True:
         cycle_count += 1
         console.rule(f"[bold]Cycle {cycle_count}[/bold]")
 
-        # -- 4a. Reset daily P&L tracking at midnight --------------------------
+        # Reset daily P&L at midnight
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         if today != daily_start:
             console.print(f"  [cyan]New trading day: {today}[/cyan]")
             daily_pnl = 0.0
             daily_start = today
 
-        # -- 4b. Daily drawdown stop -------------------------------------------
+        # Daily drawdown stop
         if daily_pnl < -(starting_bankroll * DRAWDOWN_STOP_PCT):
             console.print(
                 Panel(
                     f"[bold red]DAILY DRAWDOWN STOP[/bold red]\n\n"
                     f"  Daily P&L: ${daily_pnl:+,.2f}\n"
-                    f"  Limit:     -${starting_bankroll * DRAWDOWN_STOP_PCT:,.2f} "
-                    f"({DRAWDOWN_STOP_PCT:.0%} of ${starting_bankroll:,.2f})\n\n"
-                    f"  Bot halted to protect capital. Will resume tomorrow.",
-                    title="Risk Management",
-                    border_style="red",
+                    f"  Limit: -${starting_bankroll * DRAWDOWN_STOP_PCT:,.2f}",
+                    title="Risk Management", border_style="red",
                 )
             )
-            # Sleep until next day (approximate -- wait 1 hour and re-check)
             time.sleep(3600)
             continue
 
-        # -- 4c. Manage existing positions -------------------------------------
-        console.print("[cyan]Checking existing positions...[/cyan]")
-        positions_closed, close_pnl = _manage_positions(alpaca, logger, mirofish)
-        total_pnl += close_pnl
-        daily_pnl += close_pnl
-
-        if positions_closed > 0:
-            console.print(
-                f"  Closed {positions_closed} positions for ${close_pnl:+,.2f}"
-            )
-
-        # -- 4d. Check position limits -----------------------------------------
+        # -- 4a. Check position limits ----------------------------------------
         open_positions = logger.get_open_alpaca_positions()
+        open_symbols = {p.get("symbol") for p in open_positions}
         current_position_count = len(open_positions)
 
-        crypto_positions = sum(
-            1 for p in open_positions if p.get("asset_class") == "crypto"
-        )
-        stock_positions = sum(
-            1 for p in open_positions if p.get("asset_class") == "stocks"
-        )
-
-        can_open_new = current_position_count < MAX_SIMULTANEOUS_POSITIONS
-        candidates = []
+        signals_found = 0
+        risk_gate_passed = 0
         trades_placed = 0
+        cycle_pnl = 0.0
 
-        if not can_open_new:
+        if current_position_count >= MAX_SIMULTANEOUS_POSITIONS:
             console.print(
                 f"  [yellow]At max positions ({current_position_count}/"
                 f"{MAX_SIMULTANEOUS_POSITIONS}) -- skipping scan[/yellow]"
             )
         else:
-            # -- 4e. Scan for new candidates -----------------------------------
-            console.print(f"[cyan]Scanning {asset_class} markets...[/cyan]")
+            # -- 4b. Layer 1: Technical Signal Engine --------------------------
+            console.print("[cyan]Layer 1: Technical signal scan...[/cyan]")
             try:
-                candidates = _scan_candidates(asset_class, alpaca, logger)
+                signals = scan_assets(alpaca, TOP_CRYPTO_TICKERS, timeframe="1Hour", bar_count=50)
             except Exception as exc:
-                console.print(f"[red]Market scan failed: {exc}[/red]")
-                log.exception("Market scan failed")
-                _sleep_for_cycle(asset_class)
+                console.print(f"  [red]Technical scan failed: {exc}[/red]")
+                log.exception("Technical scan failed")
+                time.sleep(CYCLE_SLEEP_SECONDS)
                 continue
 
-            # -- 4f. Generate signals (quick sim primary, full MiroFish only for top pick)
+            # Filter by minimum confluence and dedup against open positions
+            candidates = [
+                s for s in signals
+                if s.confluence_score >= MIN_CONFLUENCE and s.symbol not in open_symbols
+            ]
+            signals_found = len(candidates)
+
             if candidates:
-                signals = _generate_signals_fast(candidates, mirofish, alpaca, logger, open_positions, config, memory=memory)
-                console.print(
-                    f"\n  [bold]{len(signals)}[/bold] actionable signals generated"
-                )
+                console.print(f"  [bold]{signals_found}[/bold] candidates with confluence >= {MIN_CONFLUENCE}")
+                for c in candidates:
+                    console.print(
+                        f"    {c.symbol}: score={c.confluence_score} "
+                        f"ema={'UP' if c.ema_bullish else 'DN'} "
+                        f"adx={c.adx_value:.0f} rsi={c.rsi_value:.0f} "
+                        f"vol_spike={c.volume_spike} vwap={'UP' if c.vwap_bullish else 'DN'}"
+                    )
             else:
-                signals = []
-                console.print("  No fresh candidates to simulate")
+                console.print("  No assets meet confluence threshold")
 
-            # -- 4g. Size and place orders -------------------------------------
+            # -- 4c. Layer 2: MiroFish Risk Gate ------------------------------
             bankroll = alpaca.get_account()["equity"]
+            approved = []
 
-            for signal in signals:
-                asset = signal["asset"]
-                sentiment = signal["sentiment"]
-                symbol = asset["symbol"]
-                asset_cls = asset.get("asset_class", "unknown")
-                current_price = asset.get("price", 0)
+            for signal in candidates:
+                symbol = signal.symbol
+                console.print(f"\n  [cyan]Layer 2: Risk gate for {symbol}...[/cyan]")
 
-                # Enforce per-class position limits
-                if asset_cls == "crypto" and crypto_positions >= MAX_SAME_CLASS_POSITIONS:
-                    console.print(
-                        f"  Skipping [cyan]{symbol}[/cyan] -- max crypto positions "
-                        f"({crypto_positions}/{MAX_SAME_CLASS_POSITIONS})"
+                try:
+                    # Get fresh price data for risk gate context
+                    price = alpaca.get_latest_price(symbol)
+                    bars = alpaca.get_bars(symbol, timeframe="1Hour", limit=24)
+
+                    # Calculate 24h change
+                    if bars and len(bars) >= 2:
+                        open_24h = bars[0]["open"]
+                        change_pct = ((price - open_24h) / open_24h * 100) if open_24h > 0 else 0.0
+                    else:
+                        change_pct = 0.0
+
+                    volume_24h = sum(b["volume"] for b in bars) if bars else 0
+
+                    verdict = risk_gate.evaluate(
+                        symbol=symbol,
+                        price=price,
+                        change_pct=change_pct,
+                        volume=volume_24h,
+                        confluence=signal.confluence_score,
+                        bars=bars,
                     )
-                    continue
-                if asset_cls == "stocks" and stock_positions >= MAX_SAME_CLASS_POSITIONS:
-                    console.print(
-                        f"  Skipping [cyan]{symbol}[/cyan] -- max stock positions "
-                        f"({stock_positions}/{MAX_SAME_CLASS_POSITIONS})"
-                    )
-                    continue
 
-                # Kelly sizing for directional bet
-                sizing = _kelly_directional(
-                    sentiment=sentiment,
-                    current_price=current_price,
+                    if verdict.decision == "PROCEED":
+                        risk_gate_passed += 1
+                        console.print(f"    [green]PROCEED[/green] — {verdict.reasoning[:80]}")
+                        approved.append({
+                            "signal": signal,
+                            "price": price,
+                            "change_pct": change_pct,
+                            "volume_24h": volume_24h,
+                            "bars": bars,
+                        })
+                    else:
+                        veto_count = sum(1 for v in verdict.votes.values() if str(v).upper() == "VETO")
+                        console.print(
+                            f"    [red]VETO[/red] ({veto_count}/5 analysts) — {verdict.reasoning[:80]}"
+                        )
+
+                except Exception as exc:
+                    console.print(f"    [red]Risk gate error: {exc}[/red]")
+                    log.exception("Risk gate failed for %s", symbol)
+
+            # -- 4d. Layer 3: Size and place orders ---------------------------
+            for entry in approved:
+                signal = entry["signal"]
+                symbol = signal.symbol
+                price = entry["price"]
+
+                sizing = _kelly_technical(
+                    confluence=signal.confluence_score,
+                    current_price=price,
                     bankroll=bankroll,
                     kelly_fraction=config.kelly_fraction,
                     max_position_pct=MAX_POSITION_PCT,
                 )
 
                 if sizing["side"] == "none" or sizing["shares"] <= 0 or sizing["dollar_amount"] < 10:
-                    console.print(
-                        f"  Skipping [cyan]{symbol}[/cyan] -- no edge or position too small"
-                    )
+                    console.print(f"  Skipping {symbol} -- position too small")
                     continue
 
-                # Consult trade memory before placing order
-                change_pct = asset.get("change_pct_24h", asset.get("change_pct", 0))
-                if memory is not None:
-                    try:
-                        advice = memory.get_advice(
-                            symbol=symbol,
-                            signal_type=signal.get("signal_type", ""),
-                            sentiment=sentiment,
-                            price_change=change_pct,
-                        )
-
-                        if not advice["should_trade"]:
-                            console.print(
-                                f"  [yellow]MEMORY BLOCKED[/yellow] {symbol}: {advice['reasoning']}"
-                            )
-                            continue
-
-                        # Adjust position size based on past performance
-                        if advice["confidence_adjustment"] != 1.0:
-                            sizing["dollar_amount"] *= advice["confidence_adjustment"]
-                            sizing["shares"] = sizing["dollar_amount"] / current_price if current_price > 0 else 0
-                            console.print(
-                                f"  [cyan]Memory adjusted position: {advice['confidence_adjustment']:.0%}x[/cyan] "
-                                f"({advice['reasoning']})"
-                            )
-                    except Exception as exc:
-                        log.warning("Trade memory consultation failed for %s: %s", symbol, exc)
-
-                # Calculate stop-loss and take-profit prices
-                if sizing["side"] == "buy":
-                    stop_price = current_price * (1 - STOP_LOSS_PCT)
-                    tp_price = current_price * (1 + TAKE_PROFIT_PCT)
-                else:
-                    stop_price = current_price * (1 + STOP_LOSS_PCT)
-                    tp_price = current_price * (1 - TAKE_PROFIT_PCT)
-
                 console.print(
-                    f"  Placing: [bold]{sizing['side'].upper()}[/bold] "
-                    f"{sizing['shares']} shares of [cyan]{symbol}[/cyan] "
-                    f"@ ${current_price:,.2f} "
-                    f"(${sizing['dollar_amount']:.2f}, "
-                    f"kelly={sizing['adjusted_pct']:.2%}"
-                    f"{'  CAPPED' if sizing['capped'] else ''})\n"
-                    f"    SL: ${stop_price:,.2f}  |  TP: ${tp_price:,.2f}"
+                    f"\n  Placing: [bold]BUY[/bold] {sizing['shares']:.4f} of [cyan]{symbol}[/cyan] "
+                    f"@ ${price:,.2f} (${sizing['dollar_amount']:.2f}, "
+                    f"kelly={sizing['adjusted_pct']:.2%}, confluence={signal.confluence_score}/5"
+                    f"{'  CAPPED' if sizing['capped'] else ''})"
                 )
 
                 try:
                     order = alpaca.place_market_order(
                         symbol=symbol,
                         qty=sizing["shares"],
-                        side=sizing["side"],
+                        side="buy",
                     )
 
                     logger.log_alpaca_trade({
                         "symbol": symbol,
-                        "asset_class": asset_cls,
-                        "side": sizing["side"],
+                        "asset_class": "crypto",
+                        "side": "buy",
                         "qty": sizing["shares"],
-                        "entry_price": current_price,
-                        "mirofish_prob": sentiment,
-                        "market_sentiment": signal.get("signal_type", ""),
-                        "target_price": tp_price,
-                        "stop_loss": stop_price,
-                        "simulation_id": signal.get("sim_result", {}).get("sim_id"),
+                        "entry_price": price,
+                        "mirofish_prob": signal.confluence_score / 5.0,
+                        "market_sentiment": f"technical_confluence_{signal.confluence_score}",
+                        "target_price": price * (1 + HARD_TAKE_PROFIT_PCT),
+                        "stop_loss": price * (1 + HARD_STOP_PCT),
+                        "simulation_id": f"tech_{symbol}_{int(time.time())}",
+                        "notes": (
+                            f"EMA={'bull' if signal.ema_bullish else 'bear'} "
+                            f"ADX={signal.adx_value:.0f} RSI={signal.rsi_value:.0f} "
+                            f"VolSpike={signal.volume_spike} VWAP={'bull' if signal.vwap_bullish else 'bear'}"
+                        ),
                     })
 
                     trades_placed += 1
                     total_trades += 1
                     bankroll -= sizing["dollar_amount"]
 
-                    # Track per-class counts
-                    if asset_cls == "crypto":
-                        crypto_positions += 1
-                    else:
-                        stock_positions += 1
-
                     console.print(
                         f"    [green]Order placed:[/green] {order.get('order_id', 'N/A')} "
                         f"-- status: {order.get('status', 'submitted')}"
                     )
 
-                    # Record trade context for learning system
+                    # Record to learning system
                     if memory is not None:
                         try:
                             memory.record_trade_context({
                                 "symbol": symbol,
-                                "signal_type": signal.get("signal_type", ""),
-                                "sentiment": sentiment,
-                                "confidence": signal.get("confidence", "weak"),
-                                "price_at_entry": current_price,
-                                "price_change_24h": change_pct,
-                                "volume_24h": asset.get("volume_24h", 0),
-                                "trajectory": signal.get("trajectory", ""),
-                                "bull_arguments": signal.get("bull_arguments", []),
-                                "bear_arguments": signal.get("bear_arguments", []),
+                                "signal_type": f"technical_confluence_{signal.confluence_score}",
+                                "sentiment": signal.confluence_score / 5.0,
+                                "confidence": "strong" if signal.confluence_score >= 4 else "moderate",
+                                "price_at_entry": price,
+                                "price_change_24h": entry["change_pct"],
+                                "volume_24h": entry["volume_24h"],
                             })
-                        except Exception as exc_mem:
-                            log.warning("Failed to record trade context for %s: %s", symbol, exc_mem)
+                        except Exception:
+                            pass
 
                 except Exception as exc:
                     console.print(f"    [red]Order failed: {exc}[/red]")
-                    log.exception("Order placement failed for %s", symbol)
-                    continue
+                    log.exception("Order failed for %s", symbol)
 
-        # -- 4h. Cycle summary -------------------------------------------------
+        # -- 4e. Cycle summary ------------------------------------------------
         open_positions = logger.get_open_alpaca_positions()
+        equity = alpaca.get_account()["equity"]
         _cycle_summary(
             cycle_count=cycle_count,
-            assets_scanned=len(candidates),
-            sims_run=len(candidates),
+            assets_scanned=len(TOP_CRYPTO_TICKERS),
+            signals_found=signals_found,
+            risk_gate_passed=risk_gate_passed,
             trades_placed=trades_placed,
-            positions_closed=positions_closed,
-            cycle_pnl=close_pnl,
-            total_pnl=total_pnl,
-            bankroll=alpaca.get_account()["equity"],
+            positions_closed=monitor.closes,
+            cycle_pnl=cycle_pnl,
+            total_pnl=total_pnl + monitor.total_pnl,
+            bankroll=equity,
             open_positions=len(open_positions),
             monitor_stats=monitor.get_stats(),
         )
 
-        # -- 4h-b. Run learning cycle ------------------------------------------
+        # Breakeven check
+        if equity >= BREAKEVEN_TARGET:
+            console.print(
+                Panel(
+                    f"[bold green]BREAKEVEN TARGET REACHED![/bold green]\n"
+                    f"Equity: ${equity:,.2f} >= ${BREAKEVEN_TARGET:,.2f}\n"
+                    f"You may now consider live trading.",
+                    border_style="green",
+                )
+            )
+
+        # Learning cycle
         if learner is not None:
             try:
                 learn_result = learner.run_cycle()
                 if learn_result.get("new_lessons"):
-                    console.print(f"  [cyan]Learning: {len(learn_result['new_lessons'])} new lessons learned[/cyan]")
                     for lesson in learn_result["new_lessons"]:
-                        console.print(f"    {lesson}")
-            except Exception as exc:
-                log.warning("Learning cycle failed: %s", exc)
+                        console.print(f"  [cyan]Learned: {lesson}[/cyan]")
+            except Exception:
+                pass
 
-        # Print learning report every 5 cycles
-        if learner is not None and cycle_count % 5 == 0:
-            try:
-                learner.print_report()
-            except Exception as exc:
-                log.warning("Learning report failed: %s", exc)
-
-        # -- 4i. Check max trades target ---------------------------------------
+        # Max trades check
         if max_trades > 0 and total_trades >= max_trades:
-            console.print(
-                f"\n  [bold green]Target reached: {total_trades} trades placed.[/bold green]"
-            )
-            _print_final_report(logger, total_trades, total_pnl, cycle_count)
+            console.print(f"\n  [bold green]Target: {total_trades} trades placed.[/bold green]")
+            _print_final_report(logger, total_trades, total_pnl + monitor.total_pnl, cycle_count)
             break
 
-        # -- 4j. Sleep until next cycle ----------------------------------------
-        _sleep_for_cycle(asset_class)
-
-
-def _sleep_for_cycle(asset_class: str) -> None:
-    """Sleep for the appropriate interval based on asset class."""
-    if asset_class == "stocks":
-        sleep_time = CYCLE_SLEEP_STOCKS
-    elif asset_class == "crypto":
-        sleep_time = CYCLE_SLEEP_CRYPTO
-    else:
-        # "both" -- use the shorter interval
-        sleep_time = CYCLE_SLEEP_STOCKS
-
-    console.print(
-        f"  Sleeping {sleep_time // 60} minutes until next cycle...\n"
-    )
-    time.sleep(sleep_time)
-
-
-# ---------------------------------------------------------------------------
-# Evaluate mode
-# ---------------------------------------------------------------------------
-
-def evaluate(asset_class: str = "both", top_n: int = 30) -> None:
-    """Evaluate mode: scan and rank assets without trading."""
-    _setup_logging()
-    config = load_config()
-    alpaca = AlpacaClient(config, paper=True)
-
-    console.print(
-        Panel(
-            "[bold cyan]Alpaca Asset Evaluation Mode[/bold cyan]\n\n"
-            f"Scanning {asset_class} markets and ranking by MiroFish simulation fit.\n"
-            "No trades will be placed.",
-            border_style="cyan",
-        )
-    )
-
-    balance = alpaca.get_account()["equity"]
-    console.print(f"  Balance: ${balance:,.2f}\n")
-
-    candidates = []
-
-    if asset_class in ("crypto", "both"):
-        console.print("[cyan]Scanning crypto...[/cyan]")
-        try:
-            crypto = get_trending_crypto(alpaca)
-            console.print(f"  {len(crypto)} trending crypto assets")
-            candidates.extend(crypto)
-        except Exception as exc:
-            console.print(f"  [red]Crypto scan failed: {exc}[/red]")
-
-    if asset_class in ("stocks", "both"):
-        console.print("[cyan]Scanning stocks...[/cyan]")
-        try:
-            stocks = get_trending_stocks(alpaca)
-            console.print(f"  {len(stocks)} trending stocks")
-            candidates.extend(stocks)
-        except Exception as exc:
-            console.print(f"  [red]Stock scan failed: {exc}[/red]")
-
-    if not candidates:
-        console.print("[yellow]No candidates found.[/yellow]")
-        return
-
-    evaluated = evaluate_for_simulation(candidates)
-    console.print(f"\n  {len(evaluated)} assets after evaluation")
-
-    # Display results table
-    table = Table(title=f"Top {min(top_n, len(evaluated))} Assets for MiroFish Simulation")
-    table.add_column("#", style="dim", width=4)
-    table.add_column("Symbol", style="cyan bold")
-    table.add_column("Name", width=30)
-    table.add_column("Class", style="magenta")
-    table.add_column("Price", justify="right")
-    table.add_column("Change %", justify="right")
-    table.add_column("Volume", justify="right")
-    table.add_column("Score", justify="right", style="green")
-
-    for i, asset in enumerate(evaluated[:top_n], 1):
-        change_pct = asset.get("change_pct", 0)
-        change_style = "green" if change_pct >= 0 else "red"
-
-        table.add_row(
-            str(i),
-            asset.get("symbol", "?"),
-            (asset.get("name", "")[:28]),
-            asset.get("asset_class", "?"),
-            f"${asset.get('price', 0):,.2f}",
-            f"[{change_style}]{change_pct:+.1f}%[/]",
-            f"{asset.get('volume', 0):,.0f}",
-            f"{asset.get('sim_score', 0):.2f}",
-        )
-
-    console.print(table)
-
-    # Class breakdown
-    crypto_count = sum(1 for a in evaluated if a.get("asset_class") == "crypto")
-    stock_count = sum(1 for a in evaluated if a.get("asset_class") == "stocks")
-    console.print(f"\n  Crypto: {crypto_count}  |  Stocks: {stock_count}")
-    if evaluated:
-        top = evaluated[0]
-        console.print(
-            f"  Top pick: [bold green]{top['symbol']}[/bold green] "
-            f"({top.get('name', '')}) -- score {top.get('sim_score', 0):.2f}"
-        )
+        # Sleep
+        console.print(f"  Sleeping {CYCLE_SLEEP_SECONDS // 60} minutes...\n")
+        time.sleep(CYCLE_SLEEP_SECONDS)
 
 
 # ---------------------------------------------------------------------------
 # Final report
 # ---------------------------------------------------------------------------
 
-def _print_final_report(
-    logger: TradeLogger,
-    total_trades: int,
-    total_pnl: float,
-    cycles: int,
-) -> None:
-    """Print a comprehensive final report after reaching trade target."""
+def _print_final_report(logger: TradeLogger, total_trades: int, total_pnl: float, cycles: int) -> None:
     accuracy = logger.get_alpaca_accuracy()
     wins = accuracy.get("wins", 0)
     losses = accuracy.get("losses", 0)
@@ -1275,7 +674,7 @@ def _print_final_report(
     win_rate = accuracy.get("win_rate", 0)
 
     report = (
-        f"[bold cyan]ALPACA PAPER TRADING REPORT[/bold cyan]\n"
+        f"[bold cyan]ALPACA PAPER TRADING REPORT (v2 — Technical + MiroFish Guardian)[/bold cyan]\n"
         f"\n"
         f"  Cycles completed     : {cycles}\n"
         f"  Total trades placed  : {total_trades}\n"
@@ -1283,35 +682,69 @@ def _print_final_report(
         f"  Wins / Losses        : {wins} / {losses}\n"
         f"  Win rate             : {win_rate:.1%}\n"
         f"  Total P&L            : ${total_pnl:+,.2f}\n"
-        f"\n"
-        f"  [bold]Assessment:[/bold]\n"
     )
 
-    if resolved < 10:
-        report += "  Not enough resolved trades for assessment. Keep running.\n"
-    elif win_rate >= 0.58:
-        report += "  [bold green]EXCELLENT[/bold green] -- Strategy showing strong edge. Consider live trading.\n"
-    elif win_rate >= 0.54:
-        report += "  [bold green]GOOD[/bold green] -- Strategy is profitable. Continue paper trading to confirm.\n"
-    elif win_rate >= 0.52:
-        report += "  [bold yellow]MARGINAL[/bold yellow] -- Slight edge detected. Needs more data.\n"
-    else:
-        report += "  [bold red]BELOW THRESHOLD[/bold red] -- Strategy not working. Reassess before live trading.\n"
+    if resolved >= 10:
+        if win_rate >= 0.55:
+            report += "  [bold green]STRONG EDGE[/bold green] — Strategy working well.\n"
+        elif win_rate >= 0.45:
+            report += "  [bold yellow]MARGINAL[/bold yellow] — Edge exists but thin.\n"
+        else:
+            report += "  [bold red]NO EDGE[/bold red] — Strategy needs work.\n"
 
-    report += (
-        f"\n"
-        f"  CSV export: data/alpaca_trades_report.csv\n"
-        f"  Dashboard:  streamlit run dashboard/app.py"
+    console.print(Panel(report, title="Final Report", border_style="cyan"))
+
+
+# ---------------------------------------------------------------------------
+# Evaluate mode — scan and display signals without trading
+# ---------------------------------------------------------------------------
+
+def evaluate() -> None:
+    _setup_logging()
+    config = load_config()
+    alpaca = AlpacaClient(config)
+
+    console.print(
+        Panel(
+            "[bold cyan]Technical Signal Evaluation Mode[/bold cyan]\n"
+            "Scanning crypto assets with technical indicators. No trades.",
+            border_style="cyan",
+        )
     )
 
-    console.print(Panel(report, title="Alpaca Final Report", border_style="cyan"))
+    balance = alpaca.get_account()["equity"]
+    console.print(f"  Balance: ${balance:,.2f}\n")
 
-    # Export CSV
-    try:
-        logger.export_csv("data/alpaca_trades_report.csv")
-        console.print("  [green]Trade data exported to data/alpaca_trades_report.csv[/green]")
-    except Exception as e:
-        console.print(f"  [yellow]CSV export failed: {e}[/yellow]")
+    console.print("[cyan]Running technical analysis on all assets...[/cyan]")
+    signals = scan_assets(alpaca, TOP_CRYPTO_TICKERS, timeframe="1Hour", bar_count=50)
+
+    table = Table(title="Technical Signal Scan")
+    table.add_column("Symbol", style="cyan bold")
+    table.add_column("Score", justify="center")
+    table.add_column("EMA(9/21)", justify="center")
+    table.add_column("ADX", justify="right")
+    table.add_column("RSI", justify="right")
+    table.add_column("Vol Spike", justify="center")
+    table.add_column("VWAP", justify="center")
+    table.add_column("Action", justify="center")
+
+    for s in signals:
+        action = "[green]BUY CANDIDATE[/green]" if s.confluence_score >= MIN_CONFLUENCE else "[dim]wait[/dim]"
+        table.add_row(
+            s.symbol,
+            f"[{'green' if s.confluence_score >= MIN_CONFLUENCE else 'yellow'}]{s.confluence_score}/5[/]",
+            "[green]BULL[/green]" if s.ema_bullish else "[red]BEAR[/red]",
+            f"{s.adx_value:.0f}",
+            f"{s.rsi_value:.0f}",
+            "[green]YES[/green]" if s.volume_spike else "[dim]no[/dim]",
+            "[green]ABOVE[/green]" if s.vwap_bullish else "[red]BELOW[/red]",
+            action,
+        )
+
+    console.print(table)
+
+    buy_count = sum(1 for s in signals if s.confluence_score >= MIN_CONFLUENCE)
+    console.print(f"\n  {buy_count} buy candidates out of {len(signals)} analyzed")
 
 
 # ---------------------------------------------------------------------------
@@ -1320,25 +753,12 @@ def _print_final_report(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Alpaca + MiroFish directional trading bot orchestrator",
+        description="Alpaca Technical + MiroFish Guardian trading bot",
     )
     parser.add_argument(
-        "--mode",
-        choices=["paper", "live", "evaluate"],
-        default="paper",
-        help="'evaluate' ranks assets without trading, "
-             "'paper' runs full simulation loop, "
-             "'live' requires confirmation and 30+ paper trades.",
-    )
-    parser.add_argument(
-        "--asset-class",
-        choices=["crypto", "stocks", "both"],
-        default="crypto",
-        help="Which asset classes to scan (default: crypto)",
-    )
-    parser.add_argument(
-        "--top", type=int, default=30,
-        help="Number of assets to show in evaluate mode (default 30)",
+        "--mode", choices=["paper", "live", "evaluate"], default="paper",
+        help="'evaluate' shows signals without trading, "
+             "'paper' runs full loop, 'live' requires confirmation",
     )
     parser.add_argument(
         "--max-trades", type=int, default=0,
@@ -1347,6 +767,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.mode == "evaluate":
-        evaluate(asset_class=args.asset_class, top_n=args.top)
+        evaluate()
     else:
-        main(mode=args.mode, asset_class=args.asset_class, max_trades=args.max_trades)
+        main(mode=args.mode, max_trades=args.max_trades)

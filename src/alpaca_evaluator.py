@@ -22,8 +22,8 @@ TOP_STOCK_TICKERS = [
 ]
 
 TOP_CRYPTO_TICKERS = [
-    "BTC/USD", "ETH/USD", "SOL/USD", "DOGE/USD", "AVAX/USD",
-    "LINK/USD", "DOT/USD", "SHIB/USD", "PEPE/USD", "XRP/USD",
+    "BTC/USD", "ETH/USD", "SOL/USD", "XRP/USD",
+    "ADA/USD", "AVAX/USD", "DOT/USD", "LINK/USD",
 ]
 
 # ---------------------------------------------------------------------------
