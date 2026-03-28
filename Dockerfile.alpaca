@@ -8,9 +8,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy source
 COPY src/ src/
-COPY data/ data/ 2>/dev/null || true
-
-# Create data dir for SQLite
+# Create data dir for SQLite (populated at runtime via persistent volume)
 RUN mkdir -p /app/data
 
 # Run the Alpaca orchestrator in paper mode
