@@ -6,7 +6,9 @@ Three-layer architecture:
   2. MiroFish Risk Gate — LLM risk panel vetoes bad trades before entry
   3. MiroFish Exit Advisor — smart stop-loss/take-profit for open positions
 
-Only trades crypto (top 8 by market cap). Paper-only until $100k breakeven.
+Only trades crypto (top 8 by market cap). Paper-only until user-defined
+equity target is reached (default $100k). Set LIVE_TRADING_THRESHOLD env
+var to control when the bot auto-promotes to live (e.g. "120000").
 
 Usage:
   python -m src.alpaca_orchestrator --mode paper --max-trades 50
@@ -41,14 +43,19 @@ except ImportError:
 # ---------------------------------------------------------------------------
 # Constants — hardcoded risk management rules
 # ---------------------------------------------------------------------------
+import os as _os
+
 MAX_POSITION_PCT = 0.05           # 5% bankroll per position
 MAX_SIMULTANEOUS_POSITIONS = 5    # max open positions at once
 DRAWDOWN_STOP_PCT = 0.10          # 10% daily drawdown kills the bot
 MIN_PAPER_TRADES = 50             # required before live mode
-BREAKEVEN_TARGET = 100_000.0      # paper-only until equity reaches $100k
+MIN_WIN_RATE = 0.40               # required before live mode
 MIN_CONFLUENCE = 3                # minimum technical score (out of 5) to trade
 CYCLE_SLEEP_SECONDS = 1800        # 30 min between cycles
 POSITION_CHECK_INTERVAL = 60      # check positions every 60 seconds
+
+# User-configurable live trading threshold (set via env var)
+LIVE_TRADING_THRESHOLD = float(_os.environ.get("LIVE_TRADING_THRESHOLD", "100000"))
 
 console = Console()
 log = logging.getLogger(__name__)
@@ -229,7 +236,7 @@ def _print_banner(mode: str, balance: float, config) -> None:
         f"  Signal          : Technical indicators (EMA/ADX/RSI/Volume/VWAP)\n"
         f"  Guardian        : MiroFish risk gate + exit advisor\n"
         f"  Balance         : ${balance:,.2f}\n"
-        f"  Breakeven target: ${BREAKEVEN_TARGET:,.2f}\n"
+        f"  Live threshold  : ${LIVE_TRADING_THRESHOLD:,.2f} (set LIVE_TRADING_THRESHOLD env to change)\n"
         f"  Min confluence  : {MIN_CONFLUENCE}/5 indicators\n"
         f"  Max position    : {MAX_POSITION_PCT:.0%} of bankroll\n"
         f"  Hard stop-loss  : {abs(HARD_STOP_PCT):.0%}\n"
@@ -352,11 +359,11 @@ def _check_paper_requirements(logger: TradeLogger, equity: float) -> tuple[bool,
         return False, f"Only {total}/{MIN_PAPER_TRADES} paper trades completed"
 
     win_rate = accuracy.get("win_rate", 0)
-    if win_rate < 0.40:
-        return False, f"Win rate {win_rate:.1%} < 40% minimum"
+    if win_rate < MIN_WIN_RATE:
+        return False, f"Win rate {win_rate:.1%} < {MIN_WIN_RATE:.0%} minimum"
 
-    if equity < BREAKEVEN_TARGET:
-        return False, f"Equity ${equity:,.2f} < ${BREAKEVEN_TARGET:,.2f} breakeven target"
+    if equity < LIVE_TRADING_THRESHOLD:
+        return False, f"Equity ${equity:,.2f} < ${LIVE_TRADING_THRESHOLD:,.2f} breakeven target"
 
     return True, "All requirements met"
 
@@ -631,12 +638,15 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
         )
 
         # Breakeven check
-        if equity >= BREAKEVEN_TARGET:
+        if equity >= LIVE_TRADING_THRESHOLD:
+            can_live, reason = _check_paper_requirements(logger, equity)
             console.print(
                 Panel(
-                    f"[bold green]BREAKEVEN TARGET REACHED![/bold green]\n"
-                    f"Equity: ${equity:,.2f} >= ${BREAKEVEN_TARGET:,.2f}\n"
-                    f"You may now consider live trading.",
+                    f"[bold green]LIVE TRADING THRESHOLD REACHED![/bold green]\n"
+                    f"Equity: ${equity:,.2f} >= ${LIVE_TRADING_THRESHOLD:,.2f}\n"
+                    f"Paper requirements: {'MET' if can_live else 'NOT MET — ' + reason}\n\n"
+                    f"To go live: python -m src.alpaca_orchestrator --mode live\n"
+                    f"To raise the bar: set LIVE_TRADING_THRESHOLD env var higher",
                     border_style="green",
                 )
             )
