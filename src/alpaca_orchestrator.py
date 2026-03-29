@@ -30,7 +30,7 @@ from src.alpaca_client import AlpacaClient
 from src.alpaca_evaluator import get_trending_crypto, TOP_CRYPTO_TICKERS
 from src.technical_signals import scan_assets, analyze
 from src.risk_gate import RiskGate
-from src.exit_advisor import ExitAdvisor, check_position_thresholds, HARD_STOP_PCT, HARD_TAKE_PROFIT_PCT
+from src.exit_advisor import ExitAdvisor, TrailingStop, check_position_thresholds, HARD_STOP_PCT, HARD_TAKE_PROFIT_PCT
 from src.trade_logger import TradeLogger
 
 try:
@@ -83,6 +83,7 @@ class PositionMonitor(threading.Thread):
         self.closes = 0
         self.total_pnl = 0.0
         self._tightened: set[int] = set()  # trade IDs with tightened stops
+        self._trailing = TrailingStop()    # trailing stop tracker
 
     def stop(self):
         self._stop_event.set()
@@ -125,11 +126,16 @@ class PositionMonitor(threading.Thread):
             pnl_pct = (current_price - entry_price) / entry_price
             trade_pnl = (current_price - entry_price) * qty
 
-            # Check threshold crossings
-            threshold = check_position_thresholds(entry_price, current_price)
+            # Check trailing stop first (it tracks high-water marks every tick)
+            trail_trigger = self._trailing.update(trade_id, entry_price, current_price)
+            if trail_trigger:
+                threshold = trail_trigger
+            else:
+                # Check fixed threshold crossings
+                threshold = check_position_thresholds(entry_price, current_price)
 
             # If tightened to breakeven, exit if below entry
-            if trade_id in self._tightened and current_price < entry_price:
+            if not threshold and trade_id in self._tightened and current_price < entry_price:
                 threshold = "tightened_stop"
 
             if not threshold:
@@ -204,6 +210,7 @@ class PositionMonitor(threading.Thread):
                         self.closes += 1
                         self.total_pnl += trade_pnl
                         self._tightened.discard(trade_id)
+                        self._trailing.remove(trade_id)
                     except Exception as exc:
                         log.error("[MONITOR] Failed to close %s: %s", symbol, exc)
 

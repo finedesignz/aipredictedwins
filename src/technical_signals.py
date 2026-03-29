@@ -246,16 +246,19 @@ def analyze(symbol: str, bars: list[dict]) -> Signal | None:
     vwap_bull = _vwap_bullish(closes, volumes, vwaps)
 
     # --- Confluence Score ---
+    # Each indicator votes independently. In a downtrend, oversold RSI +
+    # strong ADX + VWAP is a textbook mean-reversion bounce setup.
     score = 0
     # EMA bullish crossover
     if ema_bullish:
         score += 1
-    # ADX confirms trend exists AND EMA direction is up
-    if adx_trending and ema_bullish:
+    # ADX confirms a real trend (not sideways chop) — counts regardless
+    # of direction. High ADX + oversold RSI = bounce candidate.
+    if adx_trending:
         score += 1
-    # RSI oversold = buy opportunity (bullish signal)
-    # RSI neutral with bullish trend = OK too (count it)
-    if rsi_signal == "oversold":
+    # RSI oversold (<35) = buy opportunity regardless of trend
+    # RSI neutral (35-65) with bullish trend = also counts
+    if rsi_value < 35:
         score += 1
     elif rsi_signal == "neutral" and ema_bullish:
         score += 1

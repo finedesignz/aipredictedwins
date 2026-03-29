@@ -176,8 +176,9 @@ class TestAnalyze:
         signal = analyze("ETH/USD", bars)
         assert signal is not None
         assert signal.ema_bullish is False
-        # Downtrend should have low confluence
-        assert signal.confluence_score <= 2
+        # Downtrend can still score on ADX (trend strength), RSI (oversold), VWAP
+        # EMA won't fire in a downtrend, but other indicators can
+        assert signal.confluence_score <= 4
 
     def test_insufficient_bars(self):
         bars = _make_bars([100.0] * 10)
@@ -277,6 +278,47 @@ class TestExitAdvisorParsing:
 # ---------------------------------------------------------------------------
 # Exit threshold check tests
 # ---------------------------------------------------------------------------
+
+class TestTrailingStop:
+    def test_no_trigger_below_activation(self):
+        from src.exit_advisor import TrailingStop
+        ts = TrailingStop()
+        # Position up 2% — below 3% activation
+        assert ts.update(1, 100.0, 102.0) is None
+
+    def test_activates_and_holds(self):
+        from src.exit_advisor import TrailingStop
+        ts = TrailingStop()
+        # Position up 5% — above 3% activation, not trailing yet
+        assert ts.update(1, 100.0, 105.0) is None
+
+    def test_triggers_on_pullback(self):
+        from src.exit_advisor import TrailingStop
+        ts = TrailingStop()
+        # Build up to peak
+        ts.update(1, 100.0, 105.0)  # peak at 105
+        ts.update(1, 100.0, 107.0)  # new peak at 107
+        # Trail stop = 107 * (1 - 0.02) = 104.86
+        # Price drops to 104 — below trailing stop
+        result = ts.update(1, 100.0, 104.0)
+        assert result == "trailing_stop"
+
+    def test_no_trigger_above_trail(self):
+        from src.exit_advisor import TrailingStop
+        ts = TrailingStop()
+        ts.update(1, 100.0, 106.0)  # peak at 106
+        # Trail stop = 106 * 0.98 = 103.88
+        # Price at 105 — still above trail
+        assert ts.update(1, 100.0, 105.0) is None
+
+    def test_remove_clears_tracking(self):
+        from src.exit_advisor import TrailingStop
+        ts = TrailingStop()
+        ts.update(1, 100.0, 110.0)  # set high peak
+        ts.remove(1)
+        # After remove, starts fresh — no activation yet at 101
+        assert ts.update(1, 100.0, 101.0) is None
+
 
 class TestThresholdChecks:
     def test_hard_stop(self):

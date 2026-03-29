@@ -25,6 +25,11 @@ SOFT_TAKE_PROFIT_PCT = 0.05  # +5% triggers LLM consultation
 HARD_STOP_PCT = -0.04        # -4% immediate exit
 HARD_TAKE_PROFIT_PCT = 0.10  # +10% immediate exit
 
+# Trailing stop — once position is up >= TRAIL_ACTIVATION, the stop follows
+# the high-water mark minus TRAIL_DISTANCE. Locks in gains automatically.
+TRAIL_ACTIVATION_PCT = 0.03  # activate trailing stop once up 3%
+TRAIL_DISTANCE_PCT = 0.02    # trail 2% behind the peak
+
 EXIT_EVALUATION_PROMPT = """You are an expert crypto swing trader evaluating an open position.
 Your job is to decide: HOLD, TIGHTEN, or EXIT.
 
@@ -204,6 +209,54 @@ class ExitAdvisor:
             reasoning=reasoning,
             trigger_type=trigger_type,
         )
+
+
+class TrailingStop:
+    """Tracks high-water marks and trailing stops for open positions.
+
+    Once a position gains >= TRAIL_ACTIVATION_PCT, the stop follows
+    the peak price minus TRAIL_DISTANCE_PCT. If the price drops below
+    the trailing stop, the position is closed — locking in gains.
+    """
+
+    def __init__(self):
+        self._peaks: dict[int, float] = {}  # trade_id → highest price seen
+
+    def update(self, trade_id: int, entry_price: float, current_price: float) -> str | None:
+        """Update the trailing stop and return action if triggered.
+
+        Returns:
+            "trailing_stop" if price fell below the trail
+            None otherwise
+        """
+        if entry_price <= 0:
+            return None
+
+        pnl_pct = (current_price - entry_price) / entry_price
+
+        # Track peak — always store the highest price seen
+        prev_peak = self._peaks.get(trade_id)
+        if prev_peak is None or current_price > prev_peak:
+            self._peaks[trade_id] = current_price
+            prev_peak = current_price
+
+        # Only activate once position has gained enough
+        peak_gain = (prev_peak - entry_price) / entry_price
+        if peak_gain < TRAIL_ACTIVATION_PCT:
+            return None
+
+        # Trailing stop = peak minus trail distance
+        trail_stop = prev_peak * (1 - TRAIL_DISTANCE_PCT)
+
+        if current_price <= trail_stop:
+            self.remove(trade_id)
+            return "trailing_stop"
+
+        return None
+
+    def remove(self, trade_id: int):
+        """Remove tracking for a closed position."""
+        self._peaks.pop(trade_id, None)
 
 
 def check_position_thresholds(entry_price: float, current_price: float) -> str | None:
