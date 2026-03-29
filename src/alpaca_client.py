@@ -9,7 +9,7 @@ the existing kalshi_client.py patterns.
 import threading
 import time
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from src.config import Config
 
@@ -245,11 +245,23 @@ class AlpacaClient:
         }
         tf = tf_map.get(timeframe, TimeFrame(1, TimeFrameUnit.Day))
 
+        # Compute a start time to guarantee enough bars.
+        # Map timeframe to approximate bar duration in hours, then request
+        # 2x the needed duration to account for gaps / low-volume periods.
+        tf_hours = {
+            "1Min": 1/60, "5Min": 5/60, "15Min": 0.25, "30Min": 0.5,
+            "1Hour": 1, "4Hour": 4, "1Day": 24, "1Week": 168,
+        }
+        bar_hours = tf_hours.get(timeframe, 24)
+        lookback_hours = int(bar_hours * limit * 2) + 1
+        start = datetime.now(timezone.utc) - timedelta(hours=lookback_hours)
+
         if "/" in symbol:
             from alpaca.data.requests import CryptoBarsRequest
             request = CryptoBarsRequest(
                 symbol_or_symbols=symbol,
                 timeframe=tf,
+                start=start,
                 limit=limit,
             )
             bar_set = _retry(self._crypto_data_client.get_crypto_bars, request)
@@ -258,6 +270,7 @@ class AlpacaClient:
             request = StockBarsRequest(
                 symbol_or_symbols=symbol,
                 timeframe=tf,
+                start=start,
                 limit=limit,
             )
             bar_set = _retry(self._stock_data_client.get_stock_bars, request)
