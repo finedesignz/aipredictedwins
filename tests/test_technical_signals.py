@@ -238,7 +238,7 @@ class TestRiskGateParsing:
         from src.risk_gate import RiskGate
         gate = RiskGate.__new__(RiskGate)
         verdict = gate._parse_response("not json at all")
-        assert verdict.decision == "PROCEED"  # safe default
+        assert verdict.decision == "PROCEED"  # parsing fallback (LLM responded but garbled)
 
 
 # ---------------------------------------------------------------------------

@@ -35,9 +35,15 @@ PROPOSED TRADE:
 RECENT PRICE ACTION (last 10 bars, 1-hour each):
 {price_history}
 
+NOTE ON VOLUME DATA: Alpaca crypto volume figures can appear low or zero — this is
+a data feed limitation, NOT an indication of illiquid markets. These are top-8 crypto
+assets by market cap (BTC, ETH, SOL, etc.) and always have deep liquidity on major
+exchanges. Do NOT veto solely based on low reported volume. Focus on price action,
+macro risks, and event risks instead.
+
 ANALYST ROLES:
 1. Macro Risk Analyst — looks for macro events (Fed, regulation, geopolitical)
-2. Liquidity Analyst — checks if volume supports the position size
+2. Momentum Analyst — checks if price action supports the entry (trend strength, recent reversals)
 3. Correlation Analyst — checks if this trade duplicates risk from other crypto positions
 4. Event Risk Analyst — looks for upcoming catalysts (token unlocks, earnings, forks, exchange issues)
 5. Technical Skeptic — challenges the bullish thesis with bearish chart patterns
@@ -58,7 +64,7 @@ Respond with JSON only:
     ],
     "votes": {{
         "macro": "PROCEED or VETO",
-        "liquidity": "PROCEED or VETO",
+        "momentum": "PROCEED or VETO",
         "correlation": "PROCEED or VETO",
         "event_risk": "PROCEED or VETO",
         "technical_skeptic": "PROCEED or VETO"
@@ -146,16 +152,16 @@ class RiskGate:
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.3,
                 max_tokens=1000,
-                timeout=30,
+                timeout=60,
             )
             raw = response.choices[0].message.content.strip()
             verdict = self._parse_response(raw)
         except Exception as exc:
             log.error("Risk gate LLM call failed for %s: %s", symbol, exc)
-            # On failure, default to PROCEED (don't block trades on LLM errors)
+            # On failure, default to VETO (fail-closed: don't trade without vetting)
             verdict = RiskVerdict(
-                decision="PROCEED",
-                reasoning=f"Risk gate unavailable ({exc}). Defaulting to PROCEED.",
+                decision="VETO",
+                reasoning=f"Risk gate unavailable ({exc}). Defaulting to VETO for safety.",
                 scenarios=[],
                 votes={},
                 raw_response="",
