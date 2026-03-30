@@ -551,6 +551,14 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
 
             # -- 4d. Layer 3: Size and place orders ---------------------------
             for entry in approved:
+                # Re-check position limit before each trade (not just once per cycle)
+                if current_position_count + trades_placed >= MAX_SIMULTANEOUS_POSITIONS:
+                    console.print(
+                        f"  [yellow]Position limit reached ({current_position_count + trades_placed}/"
+                        f"{MAX_SIMULTANEOUS_POSITIONS}) — skipping remaining candidates[/yellow]"
+                    )
+                    break
+
                 signal = entry["signal"]
                 symbol = signal.symbol
                 price = entry["price"]
