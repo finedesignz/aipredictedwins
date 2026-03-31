@@ -87,6 +87,9 @@ class RiskVerdict:
 class RiskGate:
     """Pre-trade risk evaluation using LLM-simulated analyst panel."""
 
+    # High-confluence trades (4+/5) can bypass the gate when LLM is unavailable
+    HIGH_CONFLUENCE_BYPASS = 4
+
     def __init__(self, config: Config, logger: TradeLogger | None = None):
         self.config = config
         self.logger = logger
@@ -95,6 +98,7 @@ class RiskGate:
             base_url=config.llm_base_url,
         )
         self._model = config.llm_model_name
+        self._gateway_healthy = True  # tracks gateway availability
 
     def evaluate(
         self,
@@ -155,17 +159,30 @@ class RiskGate:
                 timeout=60,
             )
             raw = response.choices[0].message.content.strip()
+            self._gateway_healthy = True
             verdict = self._parse_response(raw)
         except Exception as exc:
             log.error("Risk gate LLM call failed for %s: %s", symbol, exc)
-            # On failure, default to VETO (fail-closed: don't trade without vetting)
-            verdict = RiskVerdict(
-                decision="VETO",
-                reasoning=f"Risk gate unavailable ({exc}). Defaulting to VETO for safety.",
-                scenarios=[],
-                votes={},
-                raw_response="",
-            )
+            self._gateway_healthy = False
+
+            # High-confluence trades (4+/5) can proceed without LLM vetting
+            # Lower-confluence trades are blocked (fail-closed)
+            if confluence >= self.HIGH_CONFLUENCE_BYPASS:
+                verdict = RiskVerdict(
+                    decision="PROCEED",
+                    reasoning=f"Risk gate unavailable ({exc}). PROCEEDING on high confluence ({confluence}/5).",
+                    scenarios=[],
+                    votes={},
+                    raw_response="",
+                )
+            else:
+                verdict = RiskVerdict(
+                    decision="VETO",
+                    reasoning=f"Risk gate unavailable ({exc}). VETO on low confluence ({confluence}/5).",
+                    scenarios=[],
+                    votes={},
+                    raw_response="",
+                )
 
         # Log to validations table
         if self.logger:
