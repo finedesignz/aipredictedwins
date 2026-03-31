@@ -5,8 +5,7 @@ For each technical signal candidate, runs a single LLM call that
 simulates a panel of risk analysts brainstorming what could go wrong.
 Returns PROCEED or VETO with reasoning.
 
-Uses the existing QuickSimulator's LLM infrastructure (OpenAI-compatible
-client pointing at the gateway).
+Uses Claude Code CLI directly — handles OAuth token refresh automatically.
 """
 
 import json
@@ -14,8 +13,7 @@ import logging
 import re
 from dataclasses import dataclass
 
-from openai import OpenAI
-from src.config import Config
+from src.claude_llm import ClaudeLLM
 from src.trade_logger import TradeLogger
 
 log = logging.getLogger(__name__)
@@ -90,15 +88,9 @@ class RiskGate:
     # High-confluence trades (4+/5) can bypass the gate when LLM is unavailable
     HIGH_CONFLUENCE_BYPASS = 4
 
-    def __init__(self, config: Config, logger: TradeLogger | None = None):
-        self.config = config
+    def __init__(self, config=None, logger: TradeLogger | None = None, model: str = "claude-sonnet-4-6"):
         self.logger = logger
-        self._llm = OpenAI(
-            api_key=config.llm_api_key or "not-needed",
-            base_url=config.llm_base_url,
-        )
-        self._model = config.llm_model_name
-        self._gateway_healthy = True  # tracks gateway availability
+        self._llm = ClaudeLLM(model=model, timeout=90)
 
     def evaluate(
         self,
@@ -109,27 +101,7 @@ class RiskGate:
         confluence: int,
         bars: list[dict],
     ) -> RiskVerdict:
-        """Run the risk panel simulation for a trade candidate.
-
-        Parameters
-        ----------
-        symbol : str
-            Asset symbol (e.g. "BTC/USD").
-        price : float
-            Current price.
-        change_pct : float
-            24h price change percentage.
-        volume : float
-            24h trading volume.
-        confluence : int
-            Technical confluence score (0-5).
-        bars : list[dict]
-            Recent OHLCV bars for context.
-
-        Returns
-        -------
-        RiskVerdict with decision, reasoning, scenarios, and votes.
-        """
+        """Run the risk panel simulation for a trade candidate."""
         # Format price history from last 10 bars
         recent = bars[-min(10, len(bars)):]
         price_lines = []
@@ -150,39 +122,26 @@ class RiskGate:
             price_history=price_history,
         )
 
-        try:
-            response = self._llm.chat.completions.create(
-                model=self._model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.3,
-                max_tokens=1000,
-                timeout=60,
-            )
-            raw = response.choices[0].message.content.strip()
-            self._gateway_healthy = True
-            verdict = self._parse_response(raw)
-        except Exception as exc:
-            log.error("Risk gate LLM call failed for %s: %s", symbol, exc)
-            self._gateway_healthy = False
+        raw = self._llm.call(prompt)
 
-            # High-confluence trades (4+/5) can proceed without LLM vetting
-            # Lower-confluence trades are blocked (fail-closed)
+        if raw is None:
+            log.error("Risk gate LLM call failed for %s", symbol)
+
+            # High-confluence trades can proceed without LLM vetting
             if confluence >= self.HIGH_CONFLUENCE_BYPASS:
                 verdict = RiskVerdict(
                     decision="PROCEED",
-                    reasoning=f"Risk gate unavailable ({exc}). PROCEEDING on high confluence ({confluence}/5).",
-                    scenarios=[],
-                    votes={},
-                    raw_response="",
+                    reasoning=f"Risk gate unavailable. PROCEEDING on high confluence ({confluence}/5).",
+                    scenarios=[], votes={}, raw_response="",
                 )
             else:
                 verdict = RiskVerdict(
                     decision="VETO",
-                    reasoning=f"Risk gate unavailable ({exc}). VETO on low confluence ({confluence}/5).",
-                    scenarios=[],
-                    votes={},
-                    raw_response="",
+                    reasoning=f"Risk gate unavailable. VETO on low confluence ({confluence}/5).",
+                    scenarios=[], votes={}, raw_response="",
                 )
+        else:
+            verdict = self._parse_response(raw)
 
         # Log to validations table
         if self.logger:
@@ -215,7 +174,6 @@ class RiskGate:
 
     def _parse_response(self, raw: str) -> RiskVerdict:
         """Parse the LLM JSON response into a RiskVerdict."""
-        # Strip markdown code fences if present
         cleaned = re.sub(r"```json\s*", "", raw)
         cleaned = re.sub(r"```\s*", "", cleaned)
 
@@ -226,9 +184,7 @@ class RiskGate:
             return RiskVerdict(
                 decision="PROCEED",
                 reasoning="Could not parse risk assessment. Defaulting to PROCEED.",
-                scenarios=[],
-                votes={},
-                raw_response=raw,
+                scenarios=[], votes={}, raw_response=raw,
             )
 
         scenarios = data.get("scenarios", [])
@@ -237,13 +193,10 @@ class RiskGate:
         reasoning = data.get("reasoning", "No reasoning provided.")
 
         # Enforce decision rules regardless of what LLM said
-        # Rule 1: Any HIGH likelihood + HIGH impact scenario = VETO
         has_critical = any(
             s.get("likelihood", "").lower() == "high" and s.get("impact", "").lower() == "high"
             for s in scenarios
         )
-
-        # Rule 2: 3+ VETO votes = VETO
         veto_count = sum(1 for v in votes.values() if str(v).upper().strip() == "VETO")
 
         if has_critical or veto_count >= 3:

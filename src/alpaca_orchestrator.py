@@ -387,8 +387,8 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
     config = load_config()
     alpaca = AlpacaClient(config)
     logger = TradeLogger()
-    risk_gate = RiskGate(config, logger)
-    exit_advisor = ExitAdvisor(config)
+    risk_gate = RiskGate(logger=logger)
+    exit_advisor = ExitAdvisor()
 
     # Learning system (optional)
     memory = None

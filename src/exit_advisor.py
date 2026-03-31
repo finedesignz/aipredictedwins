@@ -14,8 +14,7 @@ import logging
 import re
 from dataclasses import dataclass
 
-from openai import OpenAI
-from src.config import Config
+from src.claude_llm import ClaudeLLM
 
 log = logging.getLogger(__name__)
 
@@ -79,13 +78,8 @@ class ExitAdvice:
 class ExitAdvisor:
     """MiroFish-powered exit intelligence for open positions."""
 
-    def __init__(self, config: Config):
-        self.config = config
-        self._llm = OpenAI(
-            api_key=config.llm_api_key or "not-needed",
-            base_url=config.llm_base_url,
-        )
-        self._model = config.llm_model_name
+    def __init__(self, config=None, model: str = "claude-sonnet-4-6"):
+        self._llm = ClaudeLLM(model=model, timeout=30)
 
     def should_exit(
         self,
@@ -148,26 +142,18 @@ class ExitAdvisor:
             trigger_pct=trigger_pct,
         )
 
-        try:
-            response = self._llm.chat.completions.create(
-                model=self._model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.2,
-                max_tokens=500,
-                timeout=10,
-            )
-            raw = response.choices[0].message.content.strip()
-            advice = self._parse_response(raw, trigger_type)
-        except Exception as exc:
-            log.error("Exit advisor LLM call failed for %s: %s", symbol, exc)
-            # On failure at soft stop, default to HOLD (don't panic-sell on LLM errors)
-            # On failure at soft take-profit, default to HOLD (let profits run)
+        raw = self._llm.call(prompt)
+
+        if raw is None:
+            log.error("Exit advisor LLM call failed for %s", symbol)
             advice = ExitAdvice(
                 decision="HOLD",
                 confidence="low",
-                reasoning=f"Exit advisor unavailable ({exc}). Defaulting to HOLD.",
+                reasoning="Exit advisor unavailable. Defaulting to HOLD.",
                 trigger_type=trigger_type,
             )
+        else:
+            advice = self._parse_response(raw, trigger_type)
 
         log.info(
             "EXIT ADVISOR %s: %s (confidence=%s, trigger=%s) — %s",

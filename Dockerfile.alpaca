@@ -2,14 +2,28 @@ FROM python:3.13-slim
 
 WORKDIR /app
 
-# Install dependencies
+# Install Node.js (needed for Claude Code CLI)
+RUN apt-get update && apt-get install -y curl && \
+    curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
+    apt-get install -y nodejs && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Install Claude Code CLI globally
+RUN npm install -g @anthropic-ai/claude-code
+
+# Install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy source
 COPY src/ src/
+
 # Create data dir for SQLite (populated at runtime via persistent volume)
 RUN mkdir -p /app/data
+
+# Claude credentials are mounted via persistent volume at /root/.claude
+# Run `claude login` once in the container to authenticate, then the CLI
+# handles token refresh automatically.
 
 # Run the Alpaca orchestrator in paper mode
 CMD ["python", "-m", "src.alpaca_orchestrator", "--mode", "paper"]
