@@ -15,15 +15,13 @@ RUN npm install -g @anthropic-ai/claude-code
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy source
+# Copy source and entrypoint
 COPY src/ src/
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 
 # Create data dir for SQLite (populated at runtime via persistent volume)
 RUN mkdir -p /app/data
 
-# Claude credentials are mounted via persistent volume at /root/.claude
-# Run `claude login` once in the container to authenticate, then the CLI
-# handles token refresh automatically.
-
-# Run the Alpaca orchestrator in paper mode
-CMD ["python", "-m", "src.alpaca_orchestrator", "--mode", "paper"]
+# Entrypoint handles credential injection from CLAUDE_CREDENTIALS env var
+ENTRYPOINT ["/app/entrypoint.sh"]
