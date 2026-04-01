@@ -499,7 +499,8 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                 console.print("  No assets meet confluence threshold")
 
             # -- 4c. Layer 2: MiroFish Risk Gate ------------------------------
-            bankroll = alpaca.get_account()["equity"]
+            # Use buying_power not equity — equity includes positions we can't spend
+            bankroll = alpaca.get_account()["buying_power"]
             approved = []
 
             for signal in candidates:
