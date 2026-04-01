@@ -11,7 +11,9 @@ import sqlite3
 from contextlib import contextmanager
 from typing import Generator
 
-DB_PATH = os.environ.get("DB_PATH", "data/trades.db")
+# DATA_DIR is set by supervisord.conf to /app/data in production
+_DATA_DIR = os.environ.get("DATA_DIR", "data")
+DB_PATH = os.environ.get("DB_PATH", os.path.join(_DATA_DIR, "trades.db"))
 
 
 @contextmanager
