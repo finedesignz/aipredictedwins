@@ -1,0 +1,140 @@
+export interface Portfolio {
+  equity: number;
+  total_pnl: number;
+  total_pnl_percent: number;
+  daily_pnl: number;
+  daily_pnl_percent: number;
+  win_rate: number;
+  total_trades: number;
+  wins: number;
+  losses: number;
+  open_positions: number;
+  mode: "paper" | "live";
+}
+
+export interface Position {
+  id: string;
+  symbol: string;
+  side: "long" | "short";
+  entry_price: number;
+  current_price: number;
+  quantity: number;
+  unrealized_pnl: number;
+  unrealized_pnl_percent: number;
+  confluence_score: number;
+  trailing_stop: number | null;
+  opened_at: string;
+}
+
+export interface ClosedPosition {
+  id: string;
+  symbol: string;
+  side: "long" | "short";
+  entry_price: number;
+  exit_price: number;
+  quantity: number;
+  realized_pnl: number;
+  realized_pnl_percent: number;
+  confluence_score: number;
+  close_reason: string;
+  opened_at: string;
+  closed_at: string;
+}
+
+export interface Trade {
+  id: string;
+  timestamp: string;
+  symbol: string;
+  side: "long" | "short";
+  confluence_score: number;
+  entry_price: number;
+  exit_price: number | null;
+  quantity: number;
+  pnl: number | null;
+  pnl_percent: number | null;
+  status: "open" | "closed" | "cancelled";
+  close_reason: string | null;
+  notes: string | null;
+}
+
+export interface Signal {
+  symbol: string;
+  ema_signal: "bullish" | "bearish" | "neutral";
+  adx_value: number;
+  adx_signal: "bullish" | "bearish" | "neutral";
+  rsi_value: number;
+  rsi_signal: "bullish" | "bearish" | "neutral";
+  volume_spike: boolean;
+  vwap_signal: "bullish" | "bearish" | "neutral";
+  confluence_score: number;
+  action: "BUY" | "WATCH" | "SKIP";
+  scanned_at: string;
+}
+
+export interface RiskDecision {
+  id: string;
+  timestamp: string;
+  symbol: string;
+  confluence_score: number;
+  decision: "PROCEED" | "VETO";
+  veto_count: number;
+  reasoning: string;
+  scenarios: RiskScenario[];
+}
+
+export interface RiskScenario {
+  analyst: string;
+  scenario: string;
+  likelihood: "high" | "medium" | "low";
+  impact: "high" | "medium" | "low";
+  vote: "PROCEED" | "VETO";
+  reasoning: string;
+}
+
+export interface ActivityEvent {
+  id: string;
+  type:
+    | "trade_placed"
+    | "trade_closed"
+    | "scan_complete"
+    | "risk_decision"
+    | "cycle_complete"
+    | "error";
+  message: string;
+  detail?: string;
+  timestamp: string;
+}
+
+export interface BotSettings {
+  mode: "paper" | "live";
+  running: boolean;
+  last_cycle: string | null;
+  uptime_seconds: number;
+  cycle_count: number;
+  paper_trades_completed: number;
+  paper_trades_target: number;
+  win_rate: number;
+  win_rate_target: number;
+  equity: number;
+  equity_target: number;
+  config: Record<string, string | number | boolean>;
+  health: {
+    claude_cli: boolean;
+    alpaca_api: boolean;
+    sqlite_db: boolean;
+    db_size_mb: number;
+  };
+}
+
+export interface EquityPoint {
+  timestamp: string;
+  equity: number;
+}
+
+export interface APIResponse<T> {
+  data: T;
+  meta: {
+    timestamp: string;
+    count?: number;
+  };
+}

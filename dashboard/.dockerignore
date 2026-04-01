@@ -1,0 +1,47 @@
+# Dependencies
+web/node_modules/
+api/__pycache__/
+api/**/__pycache__/
+
+# Build artifacts
+web/.next/
+web/out/
+
+# Python bytecode
+*.pyc
+*.pyo
+*.pyd
+__pycache__/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+Dockerfile
+docker-compose*.yml
+.dockerignore
+
+# Docs
+*.md
+DESIGN.md
+UX_RESEARCH.md
+
+# Data (mounted as volume in production)
+data/
+*.db
+*.log
+
+# Environment files
+.env
+.env.*
