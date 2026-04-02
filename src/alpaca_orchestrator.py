@@ -27,11 +27,13 @@ from rich.table import Table
 
 from src.config import load_config
 from src.alpaca_client import AlpacaClient
-from src.alpaca_evaluator import get_trending_crypto, TOP_CRYPTO_TICKERS
+from src.alpaca_evaluator import get_trending_crypto, TOP_CRYPTO_TICKERS, MEME_CRYPTO
 from src.technical_signals import scan_assets, analyze
 from src.risk_gate import RiskGate
 from src.exit_advisor import ExitAdvisor, TrailingStop, check_position_thresholds, HARD_STOP_PCT, HARD_TAKE_PROFIT_PCT
 from src.trade_logger import TradeLogger
+
+from src.notifier import alert_bot_crash, alert_drawdown_stop, alert_monitor_error, alert_position_closed
 
 try:
     from src.trade_memory import TradeMemory
@@ -46,7 +48,7 @@ except ImportError:
 import os as _os
 
 MAX_POSITION_PCT = 0.05           # 5% bankroll per position
-MAX_SIMULTANEOUS_POSITIONS = 5    # max open positions at once
+MAX_TOTAL_EXPOSURE_PCT = 0.80     # max 80% of bankroll deployed across all positions
 DRAWDOWN_STOP_PCT = 0.10          # 10% daily drawdown kills the bot
 MIN_PAPER_TRADES = 50             # required before live mode
 MIN_WIN_RATE = 0.40               # required before live mode
@@ -95,6 +97,7 @@ class PositionMonitor(threading.Thread):
                 self._check_all_positions()
             except Exception as exc:
                 log.error("Position monitor error: %s", exc)
+                alert_monitor_error("all", exc)
             self._stop_event.wait(POSITION_CHECK_INTERVAL)
         log.info("Position monitor stopped (checks=%d, closes=%d, pnl=$%.2f)",
                  self.checks, self.closes, self.total_pnl)
@@ -112,7 +115,7 @@ class PositionMonitor(threading.Thread):
             trade_id = trade.get("id")
             qty = trade.get("qty", 0)
 
-            if not symbol or not entry_price:
+            if not symbol:
                 continue
 
             try:
@@ -122,6 +125,20 @@ class PositionMonitor(threading.Thread):
 
             if not current_price or current_price <= 0:
                 continue
+
+            # Use Alpaca's live entry price if DB entry is near-zero (sub-penny tokens)
+            if entry_price <= 0:
+                try:
+                    positions = self.alpaca.get_positions()
+                    for pos in positions:
+                        if pos["symbol"] == symbol.replace("/", ""):
+                            entry_price = float(pos.get("avg_entry_price", 0))
+                            break
+                except Exception:
+                    pass
+                if entry_price <= 0:
+                    log.warning("Skipping %s: entry_price is zero in DB and Alpaca", symbol)
+                    continue
 
             pnl_pct = (current_price - entry_price) / entry_price
             trade_pnl = (current_price - entry_price) * qty
@@ -211,8 +228,10 @@ class PositionMonitor(threading.Thread):
                         self.total_pnl += trade_pnl
                         self._tightened.discard(trade_id)
                         self._trailing.remove(trade_id)
+                        alert_position_closed(symbol, side, entry_price, current_price, trade_pnl, close_reason)
                     except Exception as exc:
                         log.error("[MONITOR] Failed to close %s: %s", symbol, exc)
+                        alert_monitor_error(symbol, exc)
 
     def get_stats(self) -> dict:
         return {
@@ -248,7 +267,7 @@ def _print_banner(mode: str, balance: float, config) -> None:
         f"  Max position    : {MAX_POSITION_PCT:.0%} of bankroll\n"
         f"  Hard stop-loss  : {abs(HARD_STOP_PCT):.0%}\n"
         f"  Hard take-profit: {HARD_TAKE_PROFIT_PCT:.0%}\n"
-        f"  Max positions   : {MAX_SIMULTANEOUS_POSITIONS}\n"
+        f"  Max exposure    : {MAX_TOTAL_EXPOSURE_PCT:.0%} of bankroll\n"
         f"  Drawdown stop   : {DRAWDOWN_STOP_PCT:.0%} daily\n"
         f"  Cycle interval  : {CYCLE_SLEEP_SECONDS // 60} min\n"
         f"  Assets          : {', '.join(s.replace('/USD','') for s in TOP_CRYPTO_TICKERS)}"
@@ -450,6 +469,7 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                     title="Risk Management", border_style="red",
                 )
             )
+            alert_drawdown_stop(daily_pnl, starting_bankroll * DRAWDOWN_STOP_PCT, starting_bankroll)
             time.sleep(3600)
             continue
 
@@ -463,10 +483,20 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
         trades_placed = 0
         cycle_pnl = 0.0
 
-        if current_position_count >= MAX_SIMULTANEOUS_POSITIONS:
+        # Check total exposure instead of hard position count cap
+        account = alpaca.get_account()
+        bankroll = account["buying_power"]
+        equity = account.get("equity", bankroll)
+        total_exposure = sum(
+            float(p.get("entry_price", 0)) * float(p.get("qty", 0))
+            for p in open_positions
+        )
+        exposure_pct = total_exposure / equity if equity > 0 else 1.0
+
+        if exposure_pct >= MAX_TOTAL_EXPOSURE_PCT:
             console.print(
-                f"  [yellow]At max positions ({current_position_count}/"
-                f"{MAX_SIMULTANEOUS_POSITIONS}) -- skipping scan[/yellow]"
+                f"  [yellow]Exposure at {exposure_pct:.0%} of equity "
+                f"(${total_exposure:,.0f}/${equity:,.0f}) -- skipping scan[/yellow]"
             )
         else:
             # -- 4b. Layer 1: Technical Signal Engine --------------------------
@@ -479,10 +509,12 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                 time.sleep(CYCLE_SLEEP_SECONDS)
                 continue
 
-            # Filter by minimum confluence and dedup against open positions
+            # Filter: minimum confluence, dedup, and blocklist meme coins
             candidates = [
                 s for s in signals
-                if s.confluence_score >= MIN_CONFLUENCE and s.symbol not in open_symbols
+                if s.confluence_score >= MIN_CONFLUENCE
+                and s.symbol not in open_symbols
+                and s.symbol not in MEME_CRYPTO
             ]
             signals_found = len(candidates)
 
@@ -499,8 +531,6 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                 console.print("  No assets meet confluence threshold")
 
             # -- 4c. Layer 2: MiroFish Risk Gate ------------------------------
-            # Use buying_power not equity — equity includes positions we can't spend
-            bankroll = alpaca.get_account()["buying_power"]
             approved = []
 
             for signal in candidates:
@@ -551,12 +581,13 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                     log.exception("Risk gate failed for %s", symbol)
 
             # -- 4d. Layer 3: Size and place orders ---------------------------
+            cycle_exposure = 0.0
             for entry in approved:
-                # Re-check position limit before each trade (not just once per cycle)
-                if current_position_count + trades_placed >= MAX_SIMULTANEOUS_POSITIONS:
+                # Re-check total exposure before each trade
+                if equity > 0 and (total_exposure + cycle_exposure) / equity >= MAX_TOTAL_EXPOSURE_PCT:
                     console.print(
-                        f"  [yellow]Position limit reached ({current_position_count + trades_placed}/"
-                        f"{MAX_SIMULTANEOUS_POSITIONS}) — skipping remaining candidates[/yellow]"
+                        f"  [yellow]Exposure limit ({MAX_TOTAL_EXPOSURE_PCT:.0%}) reached "
+                        f"— skipping remaining candidates[/yellow]"
                     )
                     break
 
@@ -610,6 +641,7 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
 
                     trades_placed += 1
                     total_trades += 1
+                    cycle_exposure += sizing["dollar_amount"]
                     bankroll -= sizing["dollar_amount"]
 
                     console.print(
@@ -795,4 +827,12 @@ if __name__ == "__main__":
     if args.mode == "evaluate":
         evaluate()
     else:
-        main(mode=args.mode, max_trades=args.max_trades)
+        try:
+            main(mode=args.mode, max_trades=args.max_trades)
+        except KeyboardInterrupt:
+            console.print("\n[yellow]Bot stopped by user[/yellow]")
+        except Exception as exc:
+            console.print(f"\n[bold red]Bot crashed: {exc}[/bold red]")
+            log.exception("Bot crashed")
+            alert_bot_crash(exc)
+            sys.exit(1)
