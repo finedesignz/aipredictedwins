@@ -33,7 +33,7 @@ from src.risk_gate import RiskGate
 from src.exit_advisor import ExitAdvisor, TrailingStop, check_position_thresholds, HARD_STOP_PCT, HARD_TAKE_PROFIT_PCT
 from src.trade_logger import TradeLogger
 
-from src.notifier import alert_bot_crash, alert_drawdown_stop, alert_monitor_error, alert_position_closed
+from src.notifier import alert_bot_crash, alert_drawdown_stop, alert_monitor_error, alert_position_closed, send_alert
 
 try:
     from src.trade_memory import TradeMemory
@@ -426,6 +426,20 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
 
     _print_banner(mode, balance, config)
 
+    # -- 1a. Verify Claude CLI auth (risk gate depends on it) -----------------
+    from src.claude_llm import ClaudeLLM
+    _claude_check = ClaudeLLM()
+    if _claude_check.is_available():
+        test = _claude_check.call("Reply with OK", max_tokens=10)
+        if test:
+            console.print("  [green]Claude CLI auth verified[/green]")
+        else:
+            console.print("  [bold red]Claude CLI auth FAILED — risk gate will not work[/bold red]")
+            send_alert("Claude CLI Auth Failed", "The Claude CLI returned an error on startup. Risk gate and exit advisor will not function. Re-run 'claude login' in the container.")
+    else:
+        console.print("  [bold red]Claude CLI not installed[/bold red]")
+        send_alert("Claude CLI Missing", "Claude CLI is not installed in the container. Risk gate disabled.")
+
     # -- 1b. Start position monitor with exit advisor -------------------------
     monitor = PositionMonitor(alpaca, logger, exit_advisor)
     monitor.start()
@@ -446,6 +460,7 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
     total_trades = 0
     cycle_count = 0
     daily_start = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    _last_auth_check = daily_start  # check Claude auth once per day
 
     # -- 4. Main loop ---------------------------------------------------------
     while True:
@@ -456,6 +471,16 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         if today != daily_start:
             console.print(f"  [cyan]New trading day: {today}[/cyan]")
+
+            # Daily Claude auth health check
+            if today != _last_auth_check:
+                _last_auth_check = today
+                _auth_test = _claude_check.call("Reply with OK", max_tokens=10)
+                if _auth_test:
+                    console.print("  [green]Daily Claude auth check: OK[/green]")
+                else:
+                    console.print("  [bold red]Daily Claude auth check: FAILED[/bold red]")
+                    send_alert("Claude Auth Expired", "Daily auth check failed. The OAuth token may have expired. Run 'claude login' in the Coolify container terminal.")
             daily_pnl = 0.0
             daily_start = today
 
