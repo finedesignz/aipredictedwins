@@ -7,6 +7,7 @@ position monitor failures, and daily summaries.
 
 import json
 import logging
+import os
 import traceback
 from pathlib import Path
 
@@ -15,6 +16,7 @@ log = logging.getLogger(__name__)
 SECRETS_PATH = Path.home() / ".claude" / "secrets" / "services.json"
 SENDER = "alerts@emails4agents.com"
 RECIPIENT = "articulatedesigns@gmail.com"
+BOT_LABEL = os.environ.get("BOT_LABEL", "Agent A")
 
 
 def _get_ses_client():
@@ -41,7 +43,7 @@ def send_alert(subject: str, body: str) -> bool:
             Source=SENDER,
             Destination={"ToAddresses": [RECIPIENT]},
             Message={
-                "Subject": {"Data": f"[AI Predicted Wins] {subject}"},
+                "Subject": {"Data": f"[AI Predicted Wins — {BOT_LABEL}] {subject}"},
                 "Body": {"Text": {"Data": body}},
             },
         )

@@ -47,14 +47,16 @@ except ImportError:
 # ---------------------------------------------------------------------------
 import os as _os
 
-MAX_POSITION_PCT = 0.05           # 5% bankroll per position
-MAX_TOTAL_EXPOSURE_PCT = 0.80     # max 80% of bankroll deployed across all positions
-DRAWDOWN_STOP_PCT = 0.10          # 10% daily drawdown kills the bot
-MIN_PAPER_TRADES = 50             # required before live mode
-MIN_WIN_RATE = 0.40               # required before live mode
-MIN_CONFLUENCE = 3                # minimum technical score (out of 5) to trade
-CYCLE_SLEEP_SECONDS = 1800        # 30 min between cycles
-POSITION_CHECK_INTERVAL = 60      # check positions every 60 seconds
+MAX_POSITION_PCT = float(_os.environ.get("MAX_POSITION_PCT", "0.05"))
+MAX_TOTAL_EXPOSURE_PCT = float(_os.environ.get("MAX_TOTAL_EXPOSURE_PCT", "0.80"))
+DRAWDOWN_STOP_PCT = float(_os.environ.get("DRAWDOWN_STOP_PCT", "0.10"))
+MIN_PAPER_TRADES = int(_os.environ.get("MIN_PAPER_TRADES", "50"))
+MIN_WIN_RATE = float(_os.environ.get("MIN_WIN_RATE", "0.40"))
+MIN_CONFLUENCE = int(_os.environ.get("MIN_CONFLUENCE", "3"))
+CYCLE_SLEEP_SECONDS = int(_os.environ.get("CYCLE_SLEEP_SECONDS", "1800"))
+POSITION_CHECK_INTERVAL = int(_os.environ.get("POSITION_CHECK_INTERVAL", "60"))
+SKIP_RISK_GATE = _os.environ.get("SKIP_RISK_GATE", "").lower() in ("1", "true", "yes")
+BOT_LABEL = _os.environ.get("BOT_LABEL", "Agent A")
 
 # User-configurable live trading threshold (set via env var)
 LIVE_TRADING_THRESHOLD = float(_os.environ.get("LIVE_TRADING_THRESHOLD", "100000"))
@@ -255,16 +257,19 @@ def _setup_logging() -> None:
 
 
 def _print_banner(mode: str, balance: float, config) -> None:
+    risk_mode = "[red]DISABLED[/red]" if SKIP_RISK_GATE else "MiroFish risk gate + exit advisor"
     banner = (
         f"[bold cyan]Alpaca Technical + MiroFish Guardian Bot[/bold cyan]\n"
         f"\n"
+        f"  Bot label       : [bold]{BOT_LABEL}[/bold]\n"
         f"  Mode            : [bold {'red' if mode == 'live' else 'yellow'}]{mode.upper()}[/]\n"
         f"  Signal          : Technical indicators (EMA/ADX/RSI/Volume/VWAP)\n"
-        f"  Guardian        : MiroFish risk gate + exit advisor\n"
+        f"  Guardian        : {risk_mode}\n"
         f"  Balance         : ${balance:,.2f}\n"
         f"  Live threshold  : ${LIVE_TRADING_THRESHOLD:,.2f} (set LIVE_TRADING_THRESHOLD env to change)\n"
         f"  Min confluence  : {MIN_CONFLUENCE}/5 indicators\n"
         f"  Max position    : {MAX_POSITION_PCT:.0%} of bankroll\n"
+        f"  Kelly fraction  : {config.kelly_fraction}\n"
         f"  Hard stop-loss  : {abs(HARD_STOP_PCT):.0%}\n"
         f"  Hard take-profit: {HARD_TAKE_PROFIT_PCT:.0%}\n"
         f"  Max exposure    : {MAX_TOTAL_EXPOSURE_PCT:.0%} of bankroll\n"
@@ -272,7 +277,7 @@ def _print_banner(mode: str, balance: float, config) -> None:
         f"  Cycle interval  : {CYCLE_SLEEP_SECONDS // 60} min\n"
         f"  Assets          : {', '.join(s.replace('/USD','') for s in TOP_CRYPTO_TICKERS)}"
     )
-    console.print(Panel(banner, title="Alpaca Orchestrator v2 Startup", border_style="cyan"))
+    console.print(Panel(banner, title=f"Alpaca Orchestrator v2 — {BOT_LABEL}", border_style="cyan"))
 
 
 def _cycle_summary(
@@ -560,7 +565,6 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
 
             for signal in candidates:
                 symbol = signal.symbol
-                console.print(f"\n  [cyan]Layer 2: Risk gate for {symbol}...[/cyan]")
 
                 try:
                     # Get fresh price data for risk gate context
@@ -576,6 +580,20 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
 
                     volume_24h = sum(b["volume"] for b in bars) if bars else 0
 
+                    if SKIP_RISK_GATE:
+                        # Bypass risk gate — approve all technical signals
+                        risk_gate_passed += 1
+                        console.print(f"  [green]APPROVED[/green] {symbol} (risk gate disabled)")
+                        approved.append({
+                            "signal": signal,
+                            "price": price,
+                            "change_pct": change_pct,
+                            "volume_24h": volume_24h,
+                            "bars": bars,
+                        })
+                        continue
+
+                    console.print(f"\n  [cyan]Layer 2: Risk gate for {symbol}...[/cyan]")
                     verdict = risk_gate.evaluate(
                         symbol=symbol,
                         price=price,
