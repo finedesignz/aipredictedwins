@@ -20,16 +20,23 @@ BOT_LABEL = os.environ.get("BOT_LABEL", "Agent A")
 
 
 def _get_ses_client():
-    """Create a boto3 SES client from secrets."""
+    """Create a boto3 SES client from secrets file or env vars."""
     import boto3
-    with open(SECRETS_PATH) as f:
-        aws = json.load(f)["aws"]
-    return boto3.client(
-        "ses",
-        region_name=aws["ses_region"],
-        aws_access_key_id=aws["access_key_id"],
-        aws_secret_access_key=aws["secret_access_key"],
-    )
+
+    # Try secrets file first (local dev), fall back to env vars (container)
+    if SECRETS_PATH.exists():
+        with open(SECRETS_PATH) as f:
+            aws = json.load(f)["aws"]
+        return boto3.client(
+            "ses",
+            region_name=aws["ses_region"],
+            aws_access_key_id=aws["access_key_id"],
+            aws_secret_access_key=aws["secret_access_key"],
+        )
+
+    # In container: boto3 picks up AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY,
+    # AWS_DEFAULT_REGION from env automatically
+    return boto3.client("ses", region_name=os.environ.get("AWS_DEFAULT_REGION", "us-west-2"))
 
 
 def send_alert(subject: str, body: str) -> bool:
