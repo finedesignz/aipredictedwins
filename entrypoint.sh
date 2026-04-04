@@ -13,19 +13,18 @@ set -e
 # Create Claude config directory
 mkdir -p /root/.claude
 
-# If CLAUDE_CREDENTIALS env var is set, write it to the credentials file.
-# The persistent volume at /root/.claude preserves this across restarts.
-# The CLI's auto-refresh will update this file when the token rotates.
-if [ -n "$CLAUDE_CREDENTIALS" ]; then
+# Credential priority:
+# 1. Existing file on persistent volume (may have been refreshed by CLI)
+# 2. CLAUDE_CREDENTIALS env var (initial bootstrap only)
+# 3. No credentials (warning)
+if [ -f /root/.claude/.credentials.json ]; then
+    echo "[entrypoint] Using existing Claude credentials from persistent volume"
+elif [ -n "$CLAUDE_CREDENTIALS" ]; then
     echo "$CLAUDE_CREDENTIALS" > /root/.claude/.credentials.json
-    echo "[entrypoint] Claude credentials written from env var"
+    echo "[entrypoint] Claude credentials bootstrapped from env var"
 else
-    if [ -f /root/.claude/.credentials.json ]; then
-        echo "[entrypoint] Using existing Claude credentials from persistent volume"
-    else
-        echo "[entrypoint] WARNING: No Claude credentials found. Risk gate and exit advisor will use fallback mode."
-        echo "[entrypoint] Set CLAUDE_CREDENTIALS env var in Coolify UI or run 'claude login' in the container terminal."
-    fi
+    echo "[entrypoint] WARNING: No Claude credentials found. Risk gate and exit advisor will use fallback mode."
+    echo "[entrypoint] Run 'claude login' in the container terminal to authenticate."
 fi
 
 # Verify Claude CLI is available (don't fail if it errors — set -e is active)
