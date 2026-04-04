@@ -27,9 +27,10 @@ else
     fi
 fi
 
-# Verify Claude CLI is available
+# Verify Claude CLI is available (don't fail if it errors — set -e is active)
 if command -v claude &> /dev/null; then
-    echo "[entrypoint] Claude CLI version: $(claude --version 2>/dev/null || echo 'unknown')"
+    claude_ver=$(claude --version 2>/dev/null || true)
+    echo "[entrypoint] Claude CLI version: ${claude_ver:-unknown}"
 else
     echo "[entrypoint] WARNING: Claude CLI not found"
 fi
