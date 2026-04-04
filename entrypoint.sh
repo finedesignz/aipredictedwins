@@ -1,5 +1,6 @@
 #!/bin/bash
 # Entrypoint for the Alpaca paper trading bot container.
+# v2 — fixed set -e crash on missing Claude credentials
 #
 # Handles Claude CLI credential injection from the CLAUDE_CREDENTIALS
 # environment variable. Set this in the Coolify UI to authenticate
