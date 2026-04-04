@@ -23,15 +23,9 @@ _PROD_HOST = "https://api.elections.kalshi.com/trade-api/v2"
 _ALPACA_PAPER_HOST = "https://paper-api.alpaca.markets"
 _ALPACA_LIVE_HOST = "https://api.alpaca.markets"
 
-_REQUIRED_KEYS = [
-    "KALSHI_API_KEY_ID",
-    "KALSHI_PRIVATE_KEY_PATH",
-    "KALSHI_ENV",
-    "LLM_API_KEY",
-    "LLM_BASE_URL",
-    "LLM_MODEL_NAME",
-    "ZEP_API_KEY",
-]
+# Alpaca bot only needs ALPACA_API_KEY + ALPACA_SECRET_KEY.
+# Kalshi/LLM/Zep keys are optional (v1 legacy, paused).
+_REQUIRED_KEYS: list[str] = []
 
 
 # ---------------------------------------------------------------------------
