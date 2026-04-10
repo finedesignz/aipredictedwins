@@ -204,6 +204,55 @@ class BotInfo(BaseModel):
     config_flags: Optional[dict] = None
 
 
+# -- Multi-bot CRUD models ----------------------------------------------------
+
+class BotFull(BaseModel):
+    bot_id: str
+    label: str
+    kelly_fraction: float = 0.25
+    min_confluence: int = 3
+    hard_stop_pct: float = -0.08
+    soft_stop_pct: float = -0.05
+    rsi_ceiling: float = 65.0
+    crypto_universe: str = "BTC/USD,ETH/USD,SOL/USD,XRP/USD"
+    skip_risk_gate: bool = False
+    max_position_pct: float = 0.05
+    enabled: bool = True
+    status: str = "stopped"
+    status_detail: Optional[str] = None
+    thread_alive: bool = False
+
+
+class BotCreate(BaseModel):
+    bot_id: str
+    label: str
+    alpaca_api_key: str
+    alpaca_secret_key: str
+    kelly_fraction: float = 0.25
+    min_confluence: int = 3
+    hard_stop_pct: float = -0.08
+    soft_stop_pct: float = -0.05
+    rsi_ceiling: float = 65.0
+    crypto_universe: str = "BTC/USD,ETH/USD,SOL/USD,XRP/USD"
+    skip_risk_gate: bool = False
+    max_position_pct: float = 0.05
+
+
+class BotUpdate(BaseModel):
+    label: Optional[str] = None
+    alpaca_api_key: Optional[str] = None
+    alpaca_secret_key: Optional[str] = None
+    kelly_fraction: Optional[float] = None
+    min_confluence: Optional[int] = None
+    hard_stop_pct: Optional[float] = None
+    soft_stop_pct: Optional[float] = None
+    rsi_ceiling: Optional[float] = None
+    crypto_universe: Optional[str] = None
+    skip_risk_gate: Optional[bool] = None
+    max_position_pct: Optional[float] = None
+    enabled: Optional[bool] = None
+
+
 # -- Multi-bot portfolio (bot=both response shape) ----------------------------
 
 class MultiBotPortfolio(BaseModel):

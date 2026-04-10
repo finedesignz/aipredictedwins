@@ -28,6 +28,9 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
+# Install claude CLI globally
+RUN npm install -g @anthropic-ai/claude-code
+
 # ------ Python dependencies ------
 WORKDIR /app/api
 COPY api/requirements.txt ./
@@ -35,6 +38,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # ------ Copy FastAPI source ------
 COPY api/ ./
+
+# Copy trading bot source for BotThread/BotManager
+WORKDIR /app
+COPY src/ ./src/
 
 # ------ Copy built Next.js from builder ------
 WORKDIR /app/web
@@ -44,9 +51,12 @@ COPY --from=web-builder /build/public/ ./public/
 
 # ------ Data directory (volume mount point) ------
 RUN mkdir -p /app/data
+RUN mkdir -p /root/.claude
 
 # ------ Supervisord config ------
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 # ------ Health check ------
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
@@ -56,4 +66,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
 EXPOSE 3000
 
 # Supervisord runs both processes in the foreground
-CMD ["supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
+CMD ["/entrypoint.sh"]

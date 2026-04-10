@@ -12,6 +12,7 @@ import {
   TrendingUp,
   Menu,
   X,
+  Bot,
 } from "lucide-react";
 import { useState } from "react";
 import ModeBadge from "@/components/shared/ModeBadge";
@@ -23,6 +24,7 @@ const navLinks = [
   { href: "/trades", label: "Trades", icon: History },
   { href: "/signals", label: "Signals", icon: BarChart3 },
   { href: "/risk-gate", label: "Risk Gate", icon: ShieldAlert },
+  { href: "/bots", label: "Bots", icon: Bot },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

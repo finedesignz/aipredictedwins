@@ -1,39 +1,49 @@
 "use client";
+import { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import type { BotFull } from "@/types";
+import { useAPI } from "@/hooks/useAPI";
 
-import { createContext, useContext, useState, ReactNode } from "react";
-
-export interface BotFilter {
-  A: boolean;
-  B: boolean;
-  spy: boolean;
-  btc: boolean;
+export interface BotFilterState {
+  [key: string]: boolean;
 }
 
 interface BotFilterContextValue {
-  filter: BotFilter;
-  setFilter: (f: BotFilter) => void;
-  activeBots: ("A" | "B")[];
-  botParam: "A" | "B" | "both";
+  filter: BotFilterState;
+  setFilter: (f: BotFilterState) => void;
+  bots: BotFull[];
+  activeBotIds: string[];
+  botParam: string;
 }
 
-const defaultValue: BotFilterContextValue = {
-  filter: { A: true, B: true, spy: true, btc: true },
+const BotFilterContext = createContext<BotFilterContextValue>({
+  filter: {},
   setFilter: () => {},
-  activeBots: ["A", "B"],
+  bots: [],
+  activeBotIds: [],
   botParam: "both",
-};
-
-const BotFilterContext = createContext<BotFilterContextValue>(defaultValue);
+});
 
 export function BotFilterProvider({ children }: { children: ReactNode }) {
-  const [filter, setFilter] = useState<BotFilter>({ A: true, B: true, spy: true, btc: true });
+  const { data } = useAPI<BotFull[]>("/api/bots", 30_000);
+  const bots: BotFull[] = data ?? [];
 
-  const activeBots = (["A", "B"] as const).filter((b) => filter[b]);
-  const botParam: "A" | "B" | "both" =
-    activeBots.length === 1 ? activeBots[0] : "both";
+  const [filter, setFilter] = useState<BotFilterState>({ spy: true });
+
+  useEffect(() => {
+    if (bots.length > 0) {
+      setFilter((prev) => {
+        const next: BotFilterState = { spy: prev.spy ?? true };
+        bots.forEach((b) => { next[b.bot_id] = prev[b.bot_id] ?? true; });
+        return next;
+      });
+    }
+  }, [bots.length]);
+
+  const activeBotIds = bots.map((b) => b.bot_id).filter((id) => filter[id] !== false);
+  const botParam = activeBotIds.length === 1 ? activeBotIds[0] : "both";
 
   return (
-    <BotFilterContext.Provider value={{ filter, setFilter, activeBots, botParam }}>
+    <BotFilterContext.Provider value={{ filter, setFilter, bots, activeBotIds, botParam }}>
       {children}
     </BotFilterContext.Provider>
   );

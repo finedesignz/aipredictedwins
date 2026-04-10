@@ -2,20 +2,27 @@
 
 import { formatCurrency, formatPercent } from "@/lib/format";
 
+const ENTRY_COLORS = [
+  "text-accent-blue",
+  "text-warning-amber",
+  "text-profit-green",
+  "text-loss-red",
+  "text-text-secondary",
+];
+
+export interface HeroKPIEntry {
+  label: string;
+  value: number;
+  delta?: number;
+  deltaPercent?: number;
+}
+
 interface HeroKPIProps {
   value: number;
   label: string;
   delta?: number;
   deltaPercent?: number;
-  // Dual-bot support
-  labelA?: string;
-  valueA?: number;
-  deltaA?: number;
-  deltaPercentA?: number;
-  labelB?: string;
-  valueB?: number;
-  deltaB?: number;
-  deltaPercentB?: number;
+  entries?: HeroKPIEntry[];
 }
 
 function DeltaBadge({ delta, pct }: { delta?: number; pct?: number }) {
@@ -33,38 +40,26 @@ export default function HeroKPI({
   label,
   delta,
   deltaPercent,
-  labelA,
-  valueA,
-  deltaA,
-  deltaPercentA,
-  labelB,
-  valueB,
-  deltaB,
-  deltaPercentB,
+  entries,
 }: HeroKPIProps) {
-  const isDual = valueA !== undefined && valueB !== undefined;
-
-  if (isDual) {
+  if (entries && entries.length >= 2) {
     return (
       <div className="text-center py-8">
         <p className="text-xs font-medium uppercase tracking-wider text-text-muted mb-3">
           {label}
         </p>
         <div className="flex flex-col gap-2 items-center">
-          <div className="flex items-baseline gap-3">
-            <span className="text-xs font-medium text-accent-blue w-12 text-right">{labelA ?? "Bot A"}:</span>
-            <span className="font-mono-nums text-2xl font-bold text-text-primary">
-              ${Math.abs(valueA!).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </span>
-            <DeltaBadge delta={deltaA} pct={deltaPercentA} />
-          </div>
-          <div className="flex items-baseline gap-3">
-            <span className="text-xs font-medium text-warning-amber w-12 text-right">{labelB ?? "Bot B"}:</span>
-            <span className="font-mono-nums text-2xl font-bold text-text-primary">
-              ${Math.abs(valueB!).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </span>
-            <DeltaBadge delta={deltaB} pct={deltaPercentB} />
-          </div>
+          {entries.map((e, i) => (
+            <div key={e.label} className="flex items-baseline gap-3">
+              <span className={`text-xs font-medium w-16 text-right ${ENTRY_COLORS[i % ENTRY_COLORS.length]}`}>
+                {e.label}:
+              </span>
+              <span className="font-mono-nums text-2xl font-bold text-text-primary">
+                ${Math.abs(e.value).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+              <DeltaBadge delta={e.delta} pct={e.deltaPercent} />
+            </div>
+          ))}
         </div>
       </div>
     );

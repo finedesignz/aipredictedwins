@@ -1,10 +1,9 @@
 "use client";
 
-import { useState, useMemo } from "react";
 import { useAPI } from "@/hooks/useAPI";
 import type { Portfolio, Position, EquityData, MultiBotPortfolio, BenchmarkPoint } from "@/types";
-import HeroKPI from "@/components/kpi/HeroKPI";
-import MetricCard from "@/components/kpi/MetricCard";
+import HeroKPI, { type HeroKPIEntry } from "@/components/kpi/HeroKPI";
+import MetricCard, { type MetricCardEntry } from "@/components/kpi/MetricCard";
 import EquityCurve from "@/components/charts/EquityCurve";
 import PositionCard from "@/components/positions/PositionCard";
 import ActivityFeed from "@/components/activity/ActivityFeed";
@@ -16,15 +15,8 @@ import {
   formatPercentUnsigned,
 } from "@/lib/format";
 
-function daysAgo(n: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return d.toISOString().slice(0, 10);
-}
-
 export default function OverviewPage() {
-  const { botParam } = useBotFilter();
-  const [days, setDays] = useState<7 | 14 | 30 | 60 | 90>(30);
+  const { botParam, bots, activeBotIds } = useBotFilter();
 
   const { data: rawPortfolio, loading: portfolioLoading } = useAPI<Portfolio | MultiBotPortfolio>(
     `/api/portfolio?bot=${botParam}`,
@@ -34,32 +26,65 @@ export default function OverviewPage() {
     `/api/positions/open?bot=${botParam}`,
     30000
   );
-  const { data: equityData } = useAPI<EquityData>(`/api/equity?bot=${botParam}&days=${days}`);
+  const { data: equityData } = useAPI<EquityData>(`/api/equity?bot=${botParam}`);
+  const { data: spyData } = useAPI<BenchmarkPoint[]>("/api/benchmark/spy", 300000);
+  const { data: btcData } = useAPI<BenchmarkPoint[]>("/api/benchmark/btc", 300000);
 
-  // Derive the earliest date in the equity series so benchmarks start at the same point
-  const benchmarkSince = useMemo(() => {
-    if (!equityData?.series?.length) return daysAgo(days);
-    const dates = equityData.series
-      .flatMap((s) => s.points)
-      .map((p) => p.timestamp.slice(0, 10))
-      .filter(Boolean);
-    return dates.length ? [...dates].sort()[0] : daysAgo(days);
-  }, [equityData, days]);
+  // Build label lookup from DB bots
+  const botLabelMap: Record<string, string> = {};
+  bots.forEach((b) => { botLabelMap[b.bot_id] = b.label; });
 
-  const { data: spyData } = useAPI<BenchmarkPoint[]>(`/api/benchmark/spy?since=${benchmarkSince}`, 300000);
-  const { data: btcData } = useAPI<BenchmarkPoint[]>(`/api/benchmark/btc?since=${benchmarkSince}`, 300000);
+  const isMulti = activeBotIds.length !== 1;
 
-  // Derive per-bot values
-  const isMulti = botParam === "both";
-  const portA: Portfolio | undefined = isMulti
-    ? (rawPortfolio as MultiBotPortfolio)?.A ?? undefined
+  // In multi mode, portfolio is keyed by bot_id; in single mode it's a flat Portfolio
+  const portMap: MultiBotPortfolio = isMulti
+    ? (rawPortfolio as MultiBotPortfolio) ?? {}
+    : {};
+  const portfolio: Portfolio | undefined = isMulti
+    ? undefined
     : (rawPortfolio as Portfolio) ?? undefined;
-  const portB: Portfolio | undefined = isMulti
-    ? (rawPortfolio as MultiBotPortfolio)?.B ?? undefined
-    : undefined;
 
-  // For single-bot mode, use the flat portfolio
-  const portfolio = isMulti ? undefined : (rawPortfolio as Portfolio);
+  // Per-bot portfolio entries for multi mode
+  const activePortfolios = activeBotIds
+    .map((id) => ({ id, label: botLabelMap[id] ?? id, port: portMap[id] }))
+    .filter((x) => x.port !== undefined) as Array<{ id: string; label: string; port: Portfolio }>;
+
+  // Hero KPI entries
+  const heroEntries: HeroKPIEntry[] = activePortfolios.map((x) => ({
+    label: x.label,
+    value: x.port.equity,
+    delta: x.port.total_pnl,
+    deltaPercent: x.port.total_pnl_percent,
+  }));
+
+  // MetricCard entry builders
+  function pnlEntries(): MetricCardEntry[] {
+    return activePortfolios.map((x) => ({
+      value: formatCurrency(x.port.total_pnl),
+      delta: formatPercent(x.port.total_pnl_percent),
+      color: x.port.total_pnl >= 0 ? "green" : "red",
+    }));
+  }
+  function winRateEntries(): MetricCardEntry[] {
+    return activePortfolios.map((x) => ({
+      value: formatPercentUnsigned(x.port.win_rate),
+      delta: `${x.port.wins}W / ${x.port.losses}L`,
+      color: x.port.win_rate >= 50 ? "green" : "red",
+    }));
+  }
+  function openPosEntries(): MetricCardEntry[] {
+    return activePortfolios.map((x) => ({
+      value: String(x.port.open_positions),
+      color: "blue" as const,
+    }));
+  }
+  function dailyPnlEntries(): MetricCardEntry[] {
+    return activePortfolios.map((x) => ({
+      value: formatCurrency(x.port.daily_pnl),
+      delta: formatPercent(x.port.daily_pnl_percent),
+      color: x.port.daily_pnl >= 0 ? "green" : "red",
+    }));
+  }
 
   return (
     <div className="space-y-6">
@@ -68,20 +93,11 @@ export default function OverviewPage() {
 
       {/* Hero KPI */}
       {isMulti ? (
-        portA || portB ? (
+        heroEntries.length > 0 ? (
           <HeroKPI
-            value={portA?.equity ?? 0}
+            value={heroEntries[0].value}
             label="Portfolio Value"
-            delta={portA?.total_pnl}
-            deltaPercent={portA?.total_pnl_percent}
-            labelA="Bot A"
-            valueA={portA?.equity}
-            deltaA={portA?.total_pnl}
-            deltaPercentA={portA?.total_pnl_percent}
-            labelB="Bot B"
-            valueB={portB?.equity}
-            deltaB={portB?.total_pnl}
-            deltaPercentB={portB?.total_pnl_percent}
+            entries={heroEntries}
           />
         ) : (
           <div className="text-center py-8">
@@ -105,40 +121,40 @@ export default function OverviewPage() {
 
       {/* Metric cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <MetricCard
-          label="Total P&L"
-          value={portA ? formatCurrency(portA.total_pnl) : "--"}
-          delta={portA ? formatPercent(portA.total_pnl_percent) : undefined}
-          color={portA ? (portA.total_pnl >= 0 ? "green" : "red") : "default"}
-          valueB={portB ? formatCurrency(portB.total_pnl) : undefined}
-          deltaB={portB ? formatPercent(portB.total_pnl_percent) : undefined}
-          colorB={portB ? (portB.total_pnl >= 0 ? "green" : "red") : undefined}
-        />
-        <MetricCard
-          label="Win Rate"
-          value={portA ? formatPercentUnsigned(portA.win_rate) : "--"}
-          delta={portA ? `${portA.wins}W / ${portA.losses}L` : undefined}
-          color={portA ? (portA.win_rate >= 50 ? "green" : "red") : "default"}
-          valueB={portB ? formatPercentUnsigned(portB.win_rate) : undefined}
-          deltaB={portB ? `${portB.wins}W / ${portB.losses}L` : undefined}
-          colorB={portB ? (portB.win_rate >= 50 ? "green" : "red") : undefined}
-        />
-        <MetricCard
-          label="Open Positions"
-          value={portA ? String(portA.open_positions) : "--"}
-          color="blue"
-          valueB={portB ? String(portB.open_positions) : undefined}
-          colorB="blue"
-        />
-        <MetricCard
-          label="Daily P&L"
-          value={portA ? formatCurrency(portA.daily_pnl) : "--"}
-          delta={portA ? formatPercent(portA.daily_pnl_percent) : undefined}
-          color={portA ? (portA.daily_pnl >= 0 ? "green" : "red") : "default"}
-          valueB={portB ? formatCurrency(portB.daily_pnl) : undefined}
-          deltaB={portB ? formatPercent(portB.daily_pnl_percent) : undefined}
-          colorB={portB ? (portB.daily_pnl >= 0 ? "green" : "red") : undefined}
-        />
+        {isMulti ? (
+          <>
+            <MetricCard label="Total P&L" value="--" entries={pnlEntries()} />
+            <MetricCard label="Win Rate" value="--" entries={winRateEntries()} />
+            <MetricCard label="Open Positions" value="--" entries={openPosEntries()} />
+            <MetricCard label="Daily P&L" value="--" entries={dailyPnlEntries()} />
+          </>
+        ) : (
+          <>
+            <MetricCard
+              label="Total P&L"
+              value={portfolio ? formatCurrency(portfolio.total_pnl) : "--"}
+              delta={portfolio ? formatPercent(portfolio.total_pnl_percent) : undefined}
+              color={portfolio ? (portfolio.total_pnl >= 0 ? "green" : "red") : "default"}
+            />
+            <MetricCard
+              label="Win Rate"
+              value={portfolio ? formatPercentUnsigned(portfolio.win_rate) : "--"}
+              delta={portfolio ? `${portfolio.wins}W / ${portfolio.losses}L` : undefined}
+              color={portfolio ? (portfolio.win_rate >= 50 ? "green" : "red") : "default"}
+            />
+            <MetricCard
+              label="Open Positions"
+              value={portfolio ? String(portfolio.open_positions) : "--"}
+              color="blue"
+            />
+            <MetricCard
+              label="Daily P&L"
+              value={portfolio ? formatCurrency(portfolio.daily_pnl) : "--"}
+              delta={portfolio ? formatPercent(portfolio.daily_pnl_percent) : undefined}
+              color={portfolio ? (portfolio.daily_pnl >= 0 ? "green" : "red") : "default"}
+            />
+          </>
+        )}
       </div>
 
       {/* Equity curve */}
@@ -146,8 +162,6 @@ export default function OverviewPage() {
         series={equityData?.series ?? []}
         spy={spyData ?? []}
         btc={btcData ?? []}
-        days={days}
-        onDaysChange={setDays}
       />
 
       {/* Two-column: positions + activity */}
