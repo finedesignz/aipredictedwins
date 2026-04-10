@@ -426,6 +426,34 @@ def _get_btc_regime(alpaca_client) -> tuple[str, float, float]:
     return regime, rsi_1h, rsi_4h
 
 
+VOLUME_PUMP_THRESHOLD = int(_os.environ.get("VOLUME_PUMP_THRESHOLD", "4"))
+
+
+def _apply_volume_context_filter(signals: list) -> list:
+    """Suppress volume spike signal when 4+ assets spike simultaneously (market-wide pump).
+    A spike on one asset = institutional interest (valid).
+    A spike across 4+ = retail FOMO pump (noise).
+    Recalculates confluence score after suppression.
+    """
+    spiking_count = sum(1 for s in signals if s.volume_spike)
+    if spiking_count < VOLUME_PUMP_THRESHOLD:
+        return signals
+
+    log.info(
+        "Volume context filter: %d/%d assets spiking — suppressing volume signal (market-wide pump)",
+        spiking_count, len(signals),
+    )
+
+    from dataclasses import replace
+    updated = []
+    for s in signals:
+        if not s.volume_spike:
+            updated.append(s)
+        else:
+            updated.append(replace(s, volume_spike=False, confluence_score=max(0, s.confluence_score - 1)))
+    return updated
+
+
 def _confirm_live_mode(balance: float) -> bool:
     console.print(
         Panel(
@@ -611,6 +639,7 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
             console.print("[cyan]Layer 1: Technical signal scan...[/cyan]")
             try:
                 signals = scan_assets(alpaca, TOP_CRYPTO_TICKERS, timeframe="1Hour", bar_count=50)
+                signals = _apply_volume_context_filter(signals)
             except Exception as exc:
                 console.print(f"  [red]Technical scan failed: {exc}[/red]")
                 log.exception("Technical scan failed")

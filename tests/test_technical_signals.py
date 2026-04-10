@@ -556,6 +556,49 @@ class TestBTCRegimeFilter:
         assert _check_market_regime(btc_rsi_1h=70.0, btc_rsi_4h=65.0) == "NORMAL"
 
 
+class TestVolumeContextFilter:
+    def _make_signal(self, symbol, vol_spike, score=3):
+        from src.technical_signals import Signal
+        return Signal(
+            symbol=symbol, ema_bullish=True, adx_value=25.0,
+            adx_trending=True, plus_di=20.0, minus_di=10.0,
+            rsi_value=55.0, rsi_signal="neutral",
+            volume_spike=vol_spike, vwap_bullish=True,
+            confluence_score=score, details={},
+        )
+
+    def test_suppress_when_4_or_more_spike(self):
+        from src.alpaca_orchestrator import _apply_volume_context_filter
+        signals = [
+            self._make_signal("BTC/USD", True),
+            self._make_signal("ETH/USD", True),
+            self._make_signal("SOL/USD", True),
+            self._make_signal("XRP/USD", True),  # 4th → suppress
+            self._make_signal("ADA/USD", False),
+        ]
+        filtered = _apply_volume_context_filter(signals)
+        for s in filtered:
+            assert s.volume_spike is False
+
+    def test_no_suppression_below_threshold(self):
+        from src.alpaca_orchestrator import _apply_volume_context_filter
+        signals = [
+            self._make_signal("BTC/USD", True),
+            self._make_signal("ETH/USD", True),
+            self._make_signal("SOL/USD", True),  # only 3 → no suppression
+            self._make_signal("XRP/USD", False),
+        ]
+        filtered = _apply_volume_context_filter(signals)
+        assert sum(1 for s in filtered if s.volume_spike) == 3
+
+    def test_confluence_recalculated_after_suppression(self):
+        from src.alpaca_orchestrator import _apply_volume_context_filter
+        signals = [self._make_signal(f"A{i}/USD", True, score=4) for i in range(5)]
+        filtered = _apply_volume_context_filter(signals)
+        for s in filtered:
+            assert s.confluence_score == 3
+
+
 class TestADXDirectional:
     def test_adx_returns_tuple(self):
         """_adx() must return (adx, plus_di, minus_di) tuple."""
