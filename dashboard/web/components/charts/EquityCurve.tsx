@@ -146,10 +146,15 @@ export default function EquityCurve({
   const chartData = mergeSeries(aPoints, bPoints);
   const hasData = chartData.length > 1;
 
-  // Y-axis domain with 2% padding
-  const allEquity = chartData.flatMap((p) => [p.a, p.b]).filter((v): v is number => v != null);
-  const minY = allEquity.length ? Math.min(...allEquity) * 0.98 : START_EQUITY * 0.95;
-  const maxY = allEquity.length ? Math.max(...allEquity) * 1.02 : START_EQUITY * 1.05;
+  // Y-axis domain — tight around actual data, never includes zero
+  const allEquity = chartData
+    .flatMap((p) => [p.a, p.b])
+    .filter((v): v is number => v != null && v > 0);
+  const dataMin = allEquity.length ? Math.min(...allEquity) : START_EQUITY;
+  const dataMax = allEquity.length ? Math.max(...allEquity) : START_EQUITY;
+  const range = Math.max(dataMax - dataMin, dataMax * 0.01); // at least 1% range
+  const minY = dataMin - range * 0.2;
+  const maxY = dataMax + range * 0.2;
 
   return (
     <div className="rounded-lg border border-border-primary bg-bg-card p-4">
@@ -209,7 +214,10 @@ export default function EquityCurve({
             <YAxis
               yAxisId="pct"
               orientation="right"
-              domain={[((minY - START_EQUITY) / START_EQUITY) * 100, ((maxY - START_EQUITY) / START_EQUITY) * 100]}
+              domain={[
+                ((minY - START_EQUITY) / START_EQUITY) * 100,
+                ((maxY - START_EQUITY) / START_EQUITY) * 100,
+              ]}
               tickFormatter={(v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`}
               axisLine={false}
               tickLine={false}

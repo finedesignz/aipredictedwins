@@ -48,7 +48,8 @@ def _fetch_portfolio_history(api_key: str, secret_key: str, days: int) -> list[d
 
     points = []
     for ts, eq in zip(timestamps, equity_values):
-        if eq is None:
+        # Skip null or zero values (Alpaca returns 0 for days before account opened)
+        if not eq:
             continue
         iso = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
         points.append({"timestamp": iso, "equity": round(float(eq), 2)})
