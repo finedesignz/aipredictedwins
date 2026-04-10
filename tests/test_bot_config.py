@@ -71,3 +71,19 @@ def test_empty_alpaca_keys():
     cfg = BotConfig.from_row(row)
     assert cfg.alpaca_api_key == ""
     assert cfg.alpaca_secret_key == ""
+
+
+def test_zero_values_not_replaced_by_defaults():
+    """Zero values for numeric fields must be kept, not swapped for defaults."""
+    row = {
+        "bot_id": "E", "label": "E",
+        "alpaca_api_key": "k", "alpaca_secret_key": "s",
+        "kelly_fraction": 0.0, "min_confluence": 0,
+        "hard_stop_pct": 0.0, "soft_stop_pct": 0.0,
+        "rsi_ceiling": 0.0, "crypto_universe": None,
+        "skip_risk_gate": None, "max_position_pct": 0.0,
+    }
+    cfg = BotConfig.from_row(row)
+    assert cfg.kelly_fraction == 0.0
+    assert cfg.min_confluence == 0
+    assert cfg.max_position_pct == 0.0
