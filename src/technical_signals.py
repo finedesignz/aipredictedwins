@@ -27,6 +27,8 @@ class Signal:
     ema_bullish: bool
     adx_value: float
     adx_trending: bool
+    plus_di: float            # +DI from ADX calculation
+    minus_di: float           # -DI from ADX calculation
     rsi_value: float
     rsi_signal: str          # "oversold", "overbought", or "neutral"
     volume_spike: bool
@@ -83,10 +85,10 @@ def _rsi(closes: list[float], period: int = 14) -> float | None:
     return 100.0 - (100.0 / (1.0 + rs))
 
 
-def _adx(highs: list[float], lows: list[float], closes: list[float], period: int = 14) -> float | None:
+def _adx(highs: list[float], lows: list[float], closes: list[float], period: int = 14) -> tuple[float, float, float] | None:
     """Average Directional Index (ADX) using Wilder's smoothing.
 
-    Returns the latest ADX value, or None if insufficient data.
+    Returns (adx, plus_di, minus_di), or None if insufficient data.
     Requires at least (period * 2 + 1) bars.
     """
     n = len(closes)
@@ -144,7 +146,9 @@ def _adx(highs: list[float], lows: list[float], closes: list[float], period: int
     for dx in dx_list[period:]:
         adx = (adx * (period - 1) + dx) / period
 
-    return adx
+    final_plus_di = (plus_dm_smooth / atr * 100) if atr > 0 else 0.0
+    final_minus_di = (minus_dm_smooth / atr * 100) if atr > 0 else 0.0
+    return (adx, final_plus_di, final_minus_di)
 
 
 def _volume_spike(volumes: list[float], lookback: int = 20, threshold: float = 1.5) -> bool:
@@ -223,10 +227,15 @@ def analyze(symbol: str, bars: list[dict]) -> Signal | None:
         ema21_latest = 0
 
     # --- ADX (14-period) ---
-    adx_value = _adx(highs, lows, closes, 14)
-    if adx_value is None:
+    adx_result = _adx(highs, lows, closes, 14)
+    if adx_result is None:
         adx_value = 0.0
-    adx_trending = adx_value > 20  # ADX > 20 = meaningful trend
+        plus_di = 0.0
+        minus_di = 0.0
+    else:
+        adx_value, plus_di, minus_di = adx_result
+    # ADX trending: must be strong (>20) AND directionally bullish (+DI > -DI)
+    adx_trending = adx_value > 20 and plus_di > minus_di
 
     # --- RSI (14-period) ---
     rsi_value = _rsi(closes, 14)
@@ -238,6 +247,15 @@ def analyze(symbol: str, bars: list[dict]) -> Signal | None:
         rsi_signal = "overbought"
     else:
         rsi_signal = "neutral"
+
+    # RSI hard block: reject overbought entries above ceiling
+    RSI_ENTRY_CEILING = 72.0
+    if rsi_value > RSI_ENTRY_CEILING:
+        log.debug(
+            "BLOCKED %s: RSI=%.1f > %.0f ceiling (overbought entry rejected)",
+            symbol, rsi_value, RSI_ENTRY_CEILING,
+        )
+        return None
 
     # --- Volume Spike ---
     vol_spike = _volume_spike(volumes, lookback=20, threshold=1.5)
@@ -273,6 +291,8 @@ def analyze(symbol: str, bars: list[dict]) -> Signal | None:
         "ema9": round(ema9_latest, 6),
         "ema21": round(ema21_latest, 6),
         "adx": round(adx_value, 2),
+        "plus_di": round(plus_di, 2),
+        "minus_di": round(minus_di, 2),
         "rsi": round(rsi_value, 2),
         "volume_spike_ratio": round(
             volumes[-1] / (sum(volumes[-21:-1]) / 20) if len(volumes) >= 21 and sum(volumes[-21:-1]) > 0 else 0, 2
@@ -286,6 +306,8 @@ def analyze(symbol: str, bars: list[dict]) -> Signal | None:
         ema_bullish=ema_bullish,
         adx_value=adx_value,
         adx_trending=adx_trending,
+        plus_di=plus_di,
+        minus_di=minus_di,
         rsi_value=rsi_value,
         rsi_signal=rsi_signal,
         volume_spike=vol_spike,

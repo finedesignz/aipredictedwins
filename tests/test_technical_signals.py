@@ -25,8 +25,14 @@ def _make_bars(closes: list[float], base_volume: float = 1000.0) -> list[dict]:
 
 
 def _make_uptrend_bars(n: int = 50, start: float = 100.0, step: float = 0.5) -> list[dict]:
-    """Generate an uptrend: steadily rising prices."""
-    closes = [start + i * step for i in range(n)]
+    """Generate an uptrend: rising prices with realistic oscillation.
+
+    Uses a sine wave overlay (amplitude=5.0) so default step=0.5 bars give
+    RSI ~63 (well below the 72 ceiling). Larger step values (e.g. 1.5) produce
+    RSI > 72, which is used by RSI-ceiling tests to verify the hard block.
+    """
+    import math
+    closes = [start + i * step + 5.0 * math.sin(i * 0.7) for i in range(n)]
     return _make_bars(closes)
 
 
