@@ -49,20 +49,19 @@ const columns = [
   }),
   columnHelper.accessor("entry_price", {
     header: "Entry",
-    cell: (info) => (
-      <span className="font-mono-nums text-sm text-text-secondary">
-        ${info.getValue().toFixed(2)}
-      </span>
-    ),
+    cell: (info) => {
+      const val = info.getValue();
+      return val != null ? (
+        <span className="font-mono-nums text-sm text-text-secondary">${val.toFixed(2)}</span>
+      ) : <span className="text-xs text-text-muted">--</span>;
+    },
   }),
   columnHelper.accessor("exit_price", {
     header: "Exit",
     cell: (info) => {
       const val = info.getValue();
-      return val !== null ? (
-        <span className="font-mono-nums text-sm text-text-secondary">
-          ${val.toFixed(2)}
-        </span>
+      return val != null ? (
+        <span className="font-mono-nums text-sm text-text-secondary">${val.toFixed(2)}</span>
       ) : (
         <span className="text-xs text-text-muted">--</span>
       );
@@ -103,10 +102,10 @@ const columns = [
   columnHelper.accessor("status", {
     header: "Status",
     cell: (info) => {
-      const status = info.getValue();
+      const status = info.getValue() ?? "";
       const variant =
         status === "open" ? "open" : status === "closed" ? "closed" : "neutral";
-      return <Badge variant={variant}>{status.toUpperCase()}</Badge>;
+      return <Badge variant={variant}>{status.toUpperCase() || "—"}</Badge>;
     },
   }),
   columnHelper.accessor("bot", {

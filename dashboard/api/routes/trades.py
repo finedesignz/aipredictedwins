@@ -63,7 +63,20 @@ def _fetch_trades(
 
     rows = query_both(query, tuple(params))
     rows.sort(key=lambda r: r.get("timestamp") or "", reverse=True)
-    return rows[offset: offset + limit]
+    rows = rows[offset: offset + limit]
+
+    # Map DB field names to frontend Trade type field names
+    for r in rows:
+        prob = r.get("mirofish_prob") or 0.0
+        r["confluence_score"] = round(prob * 5, 1)
+        r["quantity"] = r.get("qty") or 0.0
+        r["pnl_percent"] = None  # not stored in DB
+        r["close_reason"] = r.get("notes")
+        raw_side = r.get("side", "buy") or "buy"
+        r["side"] = "long" if raw_side.lower() in ("buy", "long") else "short"
+        r["status"] = r.get("status") or "open"
+
+    return rows
 
 
 @router.get("")
