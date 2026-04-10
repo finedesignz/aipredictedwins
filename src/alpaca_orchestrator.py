@@ -30,7 +30,7 @@ from src.alpaca_client import AlpacaClient
 from src.alpaca_evaluator import get_trending_crypto, TOP_CRYPTO_TICKERS, MEME_CRYPTO
 from src.technical_signals import scan_assets, analyze
 from src.risk_gate import RiskGate
-from src.exit_advisor import ExitAdvisor, TrailingStop, check_position_thresholds, HARD_STOP_PCT, HARD_TAKE_PROFIT_PCT
+from src.exit_advisor import ExitAdvisor, TrailingStop, check_position_thresholds, HARD_STOP_PCT
 from src.trade_logger import TradeLogger
 
 from src.notifier import alert_bot_crash, alert_drawdown_stop, alert_monitor_error, alert_position_closed, send_alert
@@ -164,7 +164,7 @@ class PositionMonitor(threading.Thread):
             should_close = False
             close_reason = threshold
 
-            if threshold in ("hard_stop", "hard_take_profit", "tightened_stop"):
+            if threshold in ("hard_stop", "tightened_stop", "trailing_stop"):
                 should_close = True
             elif threshold in ("soft_stop", "soft_take_profit"):
                 # Consult MiroFish Exit Advisor
@@ -272,7 +272,7 @@ def _print_banner(mode: str, balance: float, config) -> None:
         f"  Max position    : {MAX_POSITION_PCT:.0%} of bankroll\n"
         f"  Kelly fraction  : {config.kelly_fraction}\n"
         f"  Hard stop-loss  : {abs(HARD_STOP_PCT):.0%}\n"
-        f"  Hard take-profit: {HARD_TAKE_PROFIT_PCT:.0%}\n"
+        f"  Soft take-profit: 8% (trailing stop captures large gains)\n"
         f"  Max exposure    : {MAX_TOTAL_EXPOSURE_PCT:.0%} of bankroll\n"
         f"  Drawdown stop   : {DRAWDOWN_STOP_PCT:.0%} daily\n"
         f"  Cycle interval  : {CYCLE_SLEEP_SECONDS // 60} min\n"
@@ -340,9 +340,9 @@ def _kelly_technical(
     win_prob_map = {3: 0.55, 4: 0.60, 5: 0.65}
     win_prob = win_prob_map.get(confluence, 0.55)
 
-    # Risk/reward: soft take-profit at 5%, hard stop at 4%
-    # b = reward / risk = 5% / 4% = 1.25
-    b = 0.05 / 0.04
+    # Risk/reward: soft take-profit at 8%, hard stop at 5%
+    # b = 0.08 / 0.05 = 1.6
+    b = 0.08 / 0.05
     p = win_prob
     q = 1.0 - p
 
@@ -765,7 +765,7 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                         "entry_price": price,
                         "mirofish_prob": signal.confluence_score / 5.0,
                         "market_sentiment": f"technical_confluence_{signal.confluence_score}",
-                        "target_price": price * (1 + HARD_TAKE_PROFIT_PCT),
+                        "target_price": price * (1 + 0.08),  # soft take-profit at 8%
                         "stop_loss": price * (1 + HARD_STOP_PCT),
                         "simulation_id": f"tech_{symbol}_{int(time.time())}",
                         "notes": (

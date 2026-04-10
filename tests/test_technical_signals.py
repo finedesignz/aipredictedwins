@@ -296,33 +296,32 @@ class TestTrailingStop:
     def test_no_trigger_below_activation(self):
         from src.exit_advisor import TrailingStop
         ts = TrailingStop()
-        # Position up 2% — below 3% activation
-        assert ts.update(1, 100.0, 102.0) is None
+        # Position up 4% — below 5% activation threshold
+        assert ts.update(1, 100.0, 104.0) is None
 
     def test_activates_and_holds(self):
         from src.exit_advisor import TrailingStop
         ts = TrailingStop()
-        # Position up 5% — above 3% activation, not trailing yet
-        assert ts.update(1, 100.0, 105.0) is None
+        # Position up 5.1% — above 5% activation, not trailing yet (peak = current)
+        assert ts.update(1, 100.0, 105.1) is None
 
     def test_triggers_on_pullback(self):
         from src.exit_advisor import TrailingStop
         ts = TrailingStop()
         # Build up to peak
-        ts.update(1, 100.0, 105.0)  # peak at 105
-        ts.update(1, 100.0, 107.0)  # new peak at 107
-        # Trail stop = 107 * (1 - 0.02) = 104.86
-        # Price drops to 104 — below trailing stop
-        result = ts.update(1, 100.0, 104.0)
+        ts.update(1, 100.0, 108.0)  # peak at 108
+        ts.update(1, 100.0, 110.0)  # new peak at 110
+        # Trail stop = 110 * (1 - 0.03) = 106.7
+        # Price drops to 106 — below trailing stop
+        result = ts.update(1, 100.0, 106.0)
         assert result == "trailing_stop"
 
     def test_no_trigger_above_trail(self):
         from src.exit_advisor import TrailingStop
         ts = TrailingStop()
-        ts.update(1, 100.0, 106.0)  # peak at 106
-        # Trail stop = 106 * 0.98 = 103.88
-        # Price at 105 — still above trail
-        assert ts.update(1, 100.0, 105.0) is None
+        ts.update(1, 100.0, 108.0)  # peak at 108; trail = 108 * 0.97 = 104.76
+        # Price at 105.5 — still above trail
+        assert ts.update(1, 100.0, 105.5) is None
 
     def test_remove_clears_tracking(self):
         from src.exit_advisor import TrailingStop
@@ -336,23 +335,25 @@ class TestTrailingStop:
 class TestThresholdChecks:
     def test_hard_stop(self):
         from src.exit_advisor import check_position_thresholds
-        assert check_position_thresholds(100.0, 95.0) == "hard_stop"  # -5%
+        assert check_position_thresholds(100.0, 94.9) == "hard_stop"  # -5.1%
 
-    def test_hard_take_profit(self):
+    def test_no_hard_take_profit(self):
+        # hard_take_profit removed — large gains handled by trailing stop
         from src.exit_advisor import check_position_thresholds
-        assert check_position_thresholds(100.0, 111.0) == "hard_take_profit"  # +11%
+        assert check_position_thresholds(100.0, 115.0) == "soft_take_profit"
 
     def test_soft_stop(self):
         from src.exit_advisor import check_position_thresholds
-        assert check_position_thresholds(100.0, 97.5) == "soft_stop"  # -2.5%
+        assert check_position_thresholds(100.0, 96.9) == "soft_stop"  # -3.1%
 
     def test_soft_take_profit(self):
         from src.exit_advisor import check_position_thresholds
-        assert check_position_thresholds(100.0, 106.0) == "soft_take_profit"  # +6%
+        assert check_position_thresholds(100.0, 109.0) == "soft_take_profit"  # +9%
 
     def test_normal_range(self):
         from src.exit_advisor import check_position_thresholds
         assert check_position_thresholds(100.0, 100.5) is None  # +0.5%
+        assert check_position_thresholds(100.0, 97.5) is None   # -2.5% (within new soft stop -3%)
 
     def test_zero_entry(self):
         from src.exit_advisor import check_position_thresholds

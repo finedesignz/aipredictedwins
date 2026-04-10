@@ -20,15 +20,15 @@ from src.claude_llm import ClaudeLLM
 log = logging.getLogger(__name__)
 
 # Thresholds — all overridable via env vars
-SOFT_STOP_PCT        = float(os.environ.get("SOFT_STOP_PCT",        "-0.02"))
-SOFT_TAKE_PROFIT_PCT = float(os.environ.get("SOFT_TAKE_PROFIT_PCT", "0.05"))
-HARD_STOP_PCT        = float(os.environ.get("HARD_STOP_PCT",        "-0.04"))
-HARD_TAKE_PROFIT_PCT = float(os.environ.get("HARD_TAKE_PROFIT_PCT", "0.10"))
+SOFT_STOP_PCT        = float(os.environ.get("SOFT_STOP_PCT",        "-0.03"))
+SOFT_TAKE_PROFIT_PCT = float(os.environ.get("SOFT_TAKE_PROFIT_PCT", "0.08"))
+HARD_STOP_PCT        = float(os.environ.get("HARD_STOP_PCT",        "-0.05"))
+# Hard take-profit removed — trailing stop captures large moves
 
-# Trailing stop — once position is up >= TRAIL_ACTIVATION, the stop follows
-# the high-water mark minus TRAIL_DISTANCE. Locks in gains automatically.
-TRAIL_ACTIVATION_PCT = 0.03  # activate trailing stop once up 3%
-TRAIL_DISTANCE_PCT = 0.02    # trail 2% behind the peak
+TRAIL_ACTIVATION_PCT      = 0.05   # activate trailing stop at +5% (was 3%)
+TRAIL_DISTANCE_PCT        = 0.03   # trail 3% behind peak (was 2%)
+TRAIL_TIGHTEN_THRESHOLD   = 0.12   # tighten trail above +12% gain
+TRAIL_DISTANCE_TIGHT_PCT  = 0.02   # tightened trail distance
 
 EXIT_EVALUATION_PROMPT = """You are an expert crypto swing trader evaluating an open position.
 Your job is to decide: HOLD, TIGHTEN, or EXIT.
@@ -106,8 +106,8 @@ class ExitAdvisor:
         pnl_dollar = (current_price - entry_price)  # per-unit, caller multiplies by qty
 
         # Hard thresholds — don't consult, caller handles these
-        if pnl_pct <= HARD_STOP_PCT or pnl_pct >= HARD_TAKE_PROFIT_PCT:
-            return None  # Caller should exit immediately
+        if pnl_pct <= HARD_STOP_PCT:
+            return None  # Caller handles immediately
 
         # Soft thresholds — consult MiroFish
         if pnl_pct <= SOFT_STOP_PCT:
@@ -210,35 +210,22 @@ class TrailingStop:
         self._peaks: dict[int, float] = {}  # trade_id → highest price seen
 
     def update(self, trade_id: int, entry_price: float, current_price: float) -> str | None:
-        """Update the trailing stop and return action if triggered.
-
-        Returns:
-            "trailing_stop" if price fell below the trail
-            None otherwise
-        """
+        """Update trailing stop. Returns "trailing_stop" if triggered, else None."""
         if entry_price <= 0:
             return None
-
         pnl_pct = (current_price - entry_price) / entry_price
-
-        # Track peak — always store the highest price seen
         prev_peak = self._peaks.get(trade_id)
         if prev_peak is None or current_price > prev_peak:
             self._peaks[trade_id] = current_price
             prev_peak = current_price
-
-        # Only activate once position has gained enough
         peak_gain = (prev_peak - entry_price) / entry_price
         if peak_gain < TRAIL_ACTIVATION_PCT:
             return None
-
-        # Trailing stop = peak minus trail distance
-        trail_stop = prev_peak * (1 - TRAIL_DISTANCE_PCT)
-
+        trail_distance = TRAIL_DISTANCE_TIGHT_PCT if peak_gain >= TRAIL_TIGHTEN_THRESHOLD else TRAIL_DISTANCE_PCT
+        trail_stop = prev_peak * (1 - trail_distance)
         if current_price <= trail_stop:
             self.remove(trade_id)
             return "trailing_stop"
-
         return None
 
     def remove(self, trade_id: int):
@@ -247,24 +234,15 @@ class TrailingStop:
 
 
 def check_position_thresholds(entry_price: float, current_price: float) -> str | None:
-    """Quick check for threshold crossings without LLM calls.
-
-    Returns:
-        "hard_stop" — immediate exit, position at -4% or worse
-        "hard_take_profit" — immediate exit, position at +10% or better
-        "soft_stop" — position at -2%, needs LLM consultation
-        "soft_take_profit" — position at +5%, needs LLM consultation
-        None — position within normal range
+    """Quick threshold check without LLM calls.
+    Returns: "hard_stop", "soft_stop", "soft_take_profit", or None.
+    Note: hard_take_profit removed — trailing stop handles large gains.
     """
     if entry_price <= 0:
         return None
-
     pnl_pct = (current_price - entry_price) / entry_price
-
     if pnl_pct <= HARD_STOP_PCT:
         return "hard_stop"
-    if pnl_pct >= HARD_TAKE_PROFIT_PCT:
-        return "hard_take_profit"
     if pnl_pct <= SOFT_STOP_PCT:
         return "soft_stop"
     if pnl_pct >= SOFT_TAKE_PROFIT_PCT:
