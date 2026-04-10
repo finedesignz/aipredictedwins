@@ -28,6 +28,7 @@ export default function OverviewPage() {
   );
   const { data: equityData } = useAPI<EquityData>(`/api/equity?bot=${botParam}`);
   const { data: spyData } = useAPI<BenchmarkPoint[]>("/api/benchmark/spy", 300000);
+  const { data: btcData } = useAPI<BenchmarkPoint[]>("/api/benchmark/btc", 300000);
 
   // Derive per-bot values
   const isMulti = botParam === "both";
@@ -125,6 +126,7 @@ export default function OverviewPage() {
       <EquityCurve
         series={equityData?.series ?? []}
         spy={spyData ?? []}
+        btc={btcData ?? []}
       />
 
       {/* Two-column: positions + activity */}

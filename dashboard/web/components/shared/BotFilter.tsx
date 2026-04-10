@@ -18,7 +18,7 @@ export default function BotFilter() {
   const { filter, setFilter } = useBotFilter();
   const { data: bots } = useAPI<BotInfo[]>("/api/bots", 0);
 
-  const toggle = (key: "A" | "B" | "spy") =>
+  const toggle = (key: "A" | "B" | "spy" | "btc") =>
     setFilter({ ...filter, [key]: !filter[key] });
 
   const botList = bots && bots.length > 0 ? bots : DEFAULT_BOTS;
@@ -54,6 +54,15 @@ export default function BotFilter() {
       >
         <span className="w-2 h-2 rounded-full bg-slate-400 flex-shrink-0" />
         S&amp;P 500
+      </button>
+      <button
+        onClick={() => toggle("btc")}
+        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border border-orange-400 text-orange-400 transition-opacity ${
+          filter.btc ? "opacity-100" : "opacity-40"
+        }`}
+      >
+        <span className="w-2 h-2 rounded-full bg-orange-400 flex-shrink-0" />
+        BTC
       </button>
     </div>
   );

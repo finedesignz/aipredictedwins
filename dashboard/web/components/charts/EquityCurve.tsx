@@ -15,6 +15,7 @@ import { useBotFilter } from "@/context/BotFilterContext";
 interface EquityCurveProps {
   series: EquitySeries[];
   spy?: BenchmarkPoint[];
+  btc?: BenchmarkPoint[];
 }
 
 function formatAxisDate(timestamp: string): string {
@@ -31,11 +32,13 @@ interface MergedPoint {
   a_pct?: number;
   b_pct?: number;
   spy_pct?: number;
+  btc_pct?: number;
 }
 
 function mergeSeries(
   series: EquitySeries[],
-  spy: BenchmarkPoint[]
+  spy: BenchmarkPoint[],
+  btc: BenchmarkPoint[]
 ): MergedPoint[] {
   const map = new Map<string, MergedPoint>();
 
@@ -52,6 +55,12 @@ function mergeSeries(
   for (const p of spy) {
     const existing = map.get(p.timestamp) ?? { timestamp: p.timestamp };
     existing.spy_pct = p.return_pct;
+    map.set(p.timestamp, existing);
+  }
+
+  for (const p of btc) {
+    const existing = map.get(p.timestamp) ?? { timestamp: p.timestamp };
+    existing.btc_pct = p.return_pct;
     map.set(p.timestamp, existing);
   }
 
@@ -129,15 +138,16 @@ function BotStat({
   );
 }
 
-export default function EquityCurve({ series, spy = [] }: EquityCurveProps) {
+export default function EquityCurve({ series, spy = [], btc = [] }: EquityCurveProps) {
   const { filter } = useBotFilter();
 
   const filteredSeries = series.filter(
     (s) => filter[s.bot_id as "A" | "B"] === true
   );
   const filteredSpy = filter.spy ? spy : [];
+  const filteredBtc = filter.btc ? btc : [];
 
-  const data = mergeSeries(filteredSeries, filteredSpy);
+  const data = mergeSeries(filteredSeries, filteredSpy, filteredBtc);
   const hasData = data.length > 1;
 
   // Last return_pct for each bot
@@ -218,6 +228,18 @@ export default function EquityCurve({ series, spy = [] }: EquityCurveProps) {
                 dataKey="spy_pct"
                 name="S&P 500"
                 stroke="#94a3b8"
+                strokeWidth={1.5}
+                strokeDasharray="5 3"
+                dot={false}
+                connectNulls
+              />
+            )}
+            {filter.btc && filteredBtc.length > 0 && (
+              <Line
+                type="monotone"
+                dataKey="btc_pct"
+                name="BTC"
+                stroke="#fb923c"
                 strokeWidth={1.5}
                 strokeDasharray="5 3"
                 dot={false}

@@ -6,6 +6,7 @@ export interface BotFilter {
   A: boolean;
   B: boolean;
   spy: boolean;
+  btc: boolean;
 }
 
 interface BotFilterContextValue {
@@ -16,7 +17,7 @@ interface BotFilterContextValue {
 }
 
 const defaultValue: BotFilterContextValue = {
-  filter: { A: true, B: true, spy: true },
+  filter: { A: true, B: true, spy: true, btc: true },
   setFilter: () => {},
   activeBots: ["A", "B"],
   botParam: "both",
@@ -25,7 +26,7 @@ const defaultValue: BotFilterContextValue = {
 const BotFilterContext = createContext<BotFilterContextValue>(defaultValue);
 
 export function BotFilterProvider({ children }: { children: ReactNode }) {
-  const [filter, setFilter] = useState<BotFilter>({ A: true, B: true, spy: true });
+  const [filter, setFilter] = useState<BotFilter>({ A: true, B: true, spy: true, btc: true });
 
   const activeBots = (["A", "B"] as const).filter((b) => filter[b]);
   const botParam: "A" | "B" | "both" =

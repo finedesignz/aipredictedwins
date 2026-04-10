@@ -1,7 +1,7 @@
 fastapi
 uvicorn[standard]
 pydantic
-aiosqlite
 sse-starlette
+alpaca-py>=0.21.0
 psycopg[binary]>=3.2
 psycopg-pool>=3.2
