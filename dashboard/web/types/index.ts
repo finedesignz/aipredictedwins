@@ -135,10 +135,42 @@ export interface EquityPoint {
   bot?: string;
 }
 
+export interface EquitySeriesPoint {
+  timestamp: string;
+  equity: number;
+  return_pct: number;
+  bot_id?: string;
+}
+
+export interface EquitySeries {
+  bot_id: string;
+  points: EquitySeriesPoint[];
+}
+
+export interface EquityResponse {
+  series: EquitySeries[];
+}
+
+export interface BenchmarkPoint {
+  timestamp: string;
+  return_pct: number;
+}
+
+export interface BotInfo {
+  id: string;
+  label: string;
+  starting_equity: number;
+  alpaca_key_prefix?: string;
+  config_flags?: Record<string, string | number | boolean>;
+}
+
+export interface MultiBotPortfolio {
+  A?: Portfolio;
+  B?: Portfolio;
+}
+
 export interface EquityData {
-  agentA: EquityPoint[];
-  agentB: EquityPoint[];
-  combined: EquityPoint[];
+  series: EquitySeries[];
 }
 
 export interface AlpacaAccountSummary {
