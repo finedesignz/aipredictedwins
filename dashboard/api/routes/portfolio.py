@@ -57,7 +57,7 @@ def _portfolio_for_bot(conn, bot_id: str, days: int = 30) -> PortfolioData:
         """
         SELECT pnl FROM alpaca_trades
         WHERE bot_id = %s AND status IN ('closed', 'stopped', 'target_hit')
-          AND (closed_at IS NULL OR closed_at >= %s)
+          AND (closed_at IS NULL OR closed_at::timestamptz >= %s)
         """,
         (bot_id, since),
     ).fetchall()
