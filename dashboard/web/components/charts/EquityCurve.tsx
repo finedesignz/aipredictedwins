@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   LineChart,
   Line,
@@ -8,52 +9,50 @@ import {
   Tooltip,
   ResponsiveContainer,
   ReferenceLine,
-  Legend,
 } from "recharts";
-import type { EquityPoint } from "@/types";
+import { useAPI } from "@/hooks/useAPI";
+import type { AlpacaEquityData, EquityPoint } from "@/types";
 
-interface EquityCurveProps {
-  agentA: EquityPoint[];
-  agentB: EquityPoint[];
+const AGENT_A_COLOR = "#60a5fa";
+const AGENT_B_COLOR = "#f59e0b";
+const START_EQUITY = 100_000;
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+function formatAxisDate(ts: string): string {
+  return new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-function formatAxisDate(timestamp: string): string {
-  const d = new Date(timestamp);
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+function mergeSeries(aPoints: EquityPoint[], bPoints: EquityPoint[]) {
+  const map = new Map<string, { timestamp: string; a?: number; b?: number }>();
+  for (const p of aPoints) map.set(p.timestamp, { timestamp: p.timestamp, a: p.equity });
+  for (const p of bPoints) {
+    const ex = map.get(p.timestamp);
+    if (ex) ex.b = p.equity;
+    else map.set(p.timestamp, { timestamp: p.timestamp, b: p.equity });
+  }
+  return Array.from(map.values()).sort((x, y) => (x.timestamp < y.timestamp ? -1 : 1));
 }
 
-interface TooltipPayloadItem {
-  value: number;
-  name: string;
-  color: string;
-}
+// ── Tooltip ────────────────────────────────────────────────────────────────
 
-interface CustomTooltipProps {
-  active?: boolean;
-  payload?: TooltipPayloadItem[];
-  label?: string;
-}
+interface TooltipItem { value: number; name: string; color: string }
+interface TTProps { active?: boolean; payload?: TooltipItem[]; label?: string }
 
-function CustomTooltip({ active, payload, label }: CustomTooltipProps) {
-  if (!active || !payload || payload.length === 0) return null;
+function CustomTooltip({ active, payload, label }: TTProps) {
+  if (!active || !payload?.length) return null;
   return (
-    <div className="rounded-lg border border-border-primary bg-bg-card p-3 shadow-lg min-w-[140px]">
+    <div className="rounded-lg border border-border-primary bg-bg-card p-3 shadow-lg min-w-[150px]">
       {label && (
         <p className="text-xs text-text-muted mb-2">
-          {new Date(label).toLocaleDateString("en-US", {
-            month: "short",
-            day: "numeric",
-            year: "numeric",
-          })}
+          {new Date(label).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
         </p>
       )}
       {payload.map((item) => (
         <div key={item.name} className="flex items-center justify-between gap-4">
-          <span className="text-xs font-medium" style={{ color: item.color }}>
-            {item.name}
-          </span>
+          <span className="text-xs font-medium" style={{ color: item.color }}>{item.name}</span>
           <span className="font-mono-nums text-xs font-semibold text-text-primary">
-            ${item.value.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+            ${item.value.toLocaleString("en-US", { minimumFractionDigits: 0 })}
           </span>
         </div>
       ))}
@@ -61,77 +60,119 @@ function CustomTooltip({ active, payload, label }: CustomTooltipProps) {
   );
 }
 
-function BotStat({ label, points, color }: { label: string; points: EquityPoint[]; color: string }) {
-  const start = 100_000;
-  const last = points.length > 0 ? points[points.length - 1].equity : start;
-  const delta = last - start;
-  const deltaPct = (delta / start) * 100;
+// ── Per-bot stat pill ──────────────────────────────────────────────────────
+
+function BotStat({
+  label, equity, color, loading,
+}: {
+  label: string; equity: number; color: string; loading: boolean;
+}) {
+  const delta = equity - START_EQUITY;
+  const pct = (delta / START_EQUITY) * 100;
   const isPos = delta >= 0;
 
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex items-center gap-2.5">
       <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: color }} />
       <div>
-        <p className="text-xs text-text-muted uppercase tracking-wider">{label}</p>
-        <div className="flex items-baseline gap-2 mt-0.5">
-          <span className="font-mono-nums text-lg font-semibold text-text-primary">
-            ${Math.round(last).toLocaleString("en-US")}
-          </span>
-          <span className={`font-mono-nums text-xs font-medium ${isPos ? "text-profit-green" : "text-loss-red"}`}>
-            {isPos ? "+" : ""}{deltaPct.toFixed(2)}%
-          </span>
-        </div>
+        <p className="text-xs text-text-muted uppercase tracking-wider leading-none">{label}</p>
+        {loading ? (
+          <div className="h-5 w-20 rounded bg-bg-card animate-pulse mt-1" />
+        ) : (
+          <div className="flex items-baseline gap-1.5 mt-0.5">
+            <span className="font-mono-nums text-base font-semibold text-text-primary">
+              ${Math.round(equity).toLocaleString("en-US")}
+            </span>
+            <span className={`font-mono-nums text-xs font-medium ${isPos ? "text-profit-green" : "text-loss-red"}`}>
+              {isPos ? "+" : ""}{pct.toFixed(2)}%
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-/**
- * Merge two equity series by timestamp into a recharts-compatible dataset.
- * Each point has { timestamp, a?, b? } where a/b are equity values.
- */
-function mergeSeries(aPoints: EquityPoint[], bPoints: EquityPoint[]) {
-  const map = new Map<string, { timestamp: string; a?: number; b?: number }>();
+// ── Day slider ─────────────────────────────────────────────────────────────
 
-  for (const p of aPoints) {
-    map.set(p.timestamp, { timestamp: p.timestamp, a: p.equity });
-  }
-  for (const p of bPoints) {
-    const existing = map.get(p.timestamp);
-    if (existing) {
-      existing.b = p.equity;
-    } else {
-      map.set(p.timestamp, { timestamp: p.timestamp, b: p.equity });
-    }
-  }
-
-  return Array.from(map.values()).sort((x, y) =>
-    x.timestamp < y.timestamp ? -1 : x.timestamp > y.timestamp ? 1 : 0
+function DaySlider({ days, onChange }: { days: number; onChange: (d: number) => void }) {
+  return (
+    <div className="flex items-center gap-3 min-w-[180px]">
+      <span className="text-xs text-text-muted whitespace-nowrap">{days}d</span>
+      <input
+        type="range"
+        min={1}
+        max={90}
+        value={days}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="w-full h-1.5 rounded-full appearance-none cursor-pointer bg-bg-secondary accent-accent-blue"
+        aria-label={`Show last ${days} days`}
+      />
+      <span className="text-xs text-text-muted">90d</span>
+    </div>
   );
 }
 
-export default function EquityCurve({ agentA, agentB }: EquityCurveProps) {
-  const data = mergeSeries(agentA, agentB);
-  const hasData = agentA.length > 1 || agentB.length > 1;
+// ── Main component ─────────────────────────────────────────────────────────
+
+export default function EquityCurve({
+  agentA: localA,
+  agentB: localB,
+}: {
+  agentA: EquityPoint[];
+  agentB: EquityPoint[];
+}) {
+  const [days, setDays] = useState(30);
+
+  const { data, loading } = useAPI<AlpacaEquityData>(`/api/alpaca/equity?days=${days}`, 0);
+
+  // Prefer Alpaca live data; fall back to local SQLite data
+  const aPoints = (data?.agentA?.length ? data.agentA : localA) ?? [];
+  const bPoints = (data?.agentB?.length ? data.agentB : localB) ?? [];
+
+  const equityA = data?.accountA?.equity ?? (aPoints.at(-1)?.equity ?? START_EQUITY);
+  const equityB = data?.accountB?.equity ?? (bPoints.at(-1)?.equity ?? START_EQUITY);
+
+  const chartData = mergeSeries(aPoints, bPoints);
+  const hasData = chartData.length > 1;
+
+  // Y-axis domain with 2% padding
+  const allEquity = chartData.flatMap((p) => [p.a, p.b]).filter((v): v is number => v != null);
+  const minY = allEquity.length ? Math.min(...allEquity) * 0.98 : START_EQUITY * 0.95;
+  const maxY = allEquity.length ? Math.max(...allEquity) * 1.02 : START_EQUITY * 1.05;
 
   return (
     <div className="rounded-lg border border-border-primary bg-bg-card p-4">
-      {/* Header with per-bot stats */}
-      <div className="flex flex-wrap items-start justify-between gap-4 mb-5">
-        <h3 className="text-sm font-medium text-text-secondary self-center">Equity Curve</h3>
-        <div className="flex flex-wrap gap-6">
-          <BotStat label="Agent A" points={agentA} color="#60a5fa" />
-          <BotStat label="Agent B" points={agentB} color="#f59e0b" />
+      {/* Header row */}
+      <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
+        <div className="flex flex-wrap gap-5">
+          <BotStat label="Agent A" equity={equityA} color={AGENT_A_COLOR} loading={loading} />
+          <BotStat label="Agent B" equity={equityB} color={AGENT_B_COLOR} loading={loading} />
+        </div>
+        <div className="flex items-center gap-3 flex-1 max-w-xs">
+          <span className="text-xs text-text-muted whitespace-nowrap">Last</span>
+          <DaySlider days={days} onChange={setDays} />
         </div>
       </div>
 
+      {/* Error notice */}
+      {data?.errors?.length ? (
+        <p className="text-xs text-warning-amber mb-3">
+          Live data partial: {data.errors.join("; ")}
+        </p>
+      ) : null}
+
       {!hasData ? (
-        <div className="flex items-center justify-center h-56 text-sm text-text-muted">
-          No closed trades yet. Equity will appear here once trades close.
+        <div className="flex items-center justify-center h-56">
+          {loading ? (
+            <div className="h-48 w-full rounded bg-bg-secondary animate-pulse" />
+          ) : (
+            <p className="text-sm text-text-muted">No equity data for this period.</p>
+          )}
         </div>
       ) : (
         <ResponsiveContainer width="100%" height={260}>
-          <LineChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+          <LineChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
             <XAxis
               dataKey="timestamp"
               tickFormatter={formatAxisDate}
@@ -139,8 +180,10 @@ export default function EquityCurve({ agentA, agentB }: EquityCurveProps) {
               tickLine={false}
               tick={{ fill: "#64748b", fontSize: 11 }}
               dy={8}
+              interval="preserveStartEnd"
             />
             <YAxis
+              domain={[minY, maxY]}
               tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}k`}
               axisLine={false}
               tickLine={false}
@@ -150,16 +193,16 @@ export default function EquityCurve({ agentA, agentB }: EquityCurveProps) {
             />
             <Tooltip content={<CustomTooltip />} />
             <ReferenceLine
-              y={100_000}
+              y={START_EQUITY}
               stroke="#64748b"
-              strokeDasharray="3 3"
+              strokeDasharray="4 4"
               strokeOpacity={0.4}
             />
             <Line
               type="monotone"
               dataKey="a"
               name="Agent A"
-              stroke="#60a5fa"
+              stroke={AGENT_A_COLOR}
               strokeWidth={2}
               dot={false}
               connectNulls
@@ -168,7 +211,7 @@ export default function EquityCurve({ agentA, agentB }: EquityCurveProps) {
               type="monotone"
               dataKey="b"
               name="Agent B"
-              stroke="#f59e0b"
+              stroke={AGENT_B_COLOR}
               strokeWidth={2}
               dot={false}
               connectNulls
@@ -176,6 +219,10 @@ export default function EquityCurve({ agentA, agentB }: EquityCurveProps) {
           </LineChart>
         </ResponsiveContainer>
       )}
+
+      <p className="text-xs text-text-muted mt-2 text-right">
+        {data ? "Alpaca live" : "Local data"} · {data?.days ?? days}d window
+      </p>
     </div>
   );
 }

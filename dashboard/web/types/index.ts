@@ -141,6 +141,23 @@ export interface EquityData {
   combined: EquityPoint[];
 }
 
+export interface AlpacaAccountSummary {
+  equity: number;
+  cash: number;
+  buying_power: number;
+  portfolio_value: number;
+  daytrade_count: number;
+}
+
+export interface AlpacaEquityData {
+  agentA: EquityPoint[];
+  agentB: EquityPoint[];
+  accountA: AlpacaAccountSummary;
+  accountB: AlpacaAccountSummary;
+  days: number;
+  errors: string[];
+}
+
 export interface APIResponse<T> {
   data: T;
   meta: {

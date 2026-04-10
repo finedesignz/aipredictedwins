@@ -17,6 +17,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from routes import (
     activity,
+    alpaca,
     equity,
     portfolio,
     positions,
@@ -123,6 +124,7 @@ async def logout():
 
 
 # -- Mount route modules (all require auth) -----------------------------------
+app.include_router(alpaca.router, dependencies=[Depends(verify_token)])
 app.include_router(equity.router, dependencies=[Depends(verify_token)])
 app.include_router(portfolio.router, dependencies=[Depends(verify_token)])
 app.include_router(positions.router, dependencies=[Depends(verify_token)])
