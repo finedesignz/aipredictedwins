@@ -1,6 +1,6 @@
 # Trading Bot v2.1 Phase 0 — Backtester + PipelineState
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Add an offline backtesting framework and wire `PipelineState` through the orchestrator's trading pipeline — establishing the mandatory validation gate for all future phases.
 
@@ -47,7 +47,7 @@
 - Create: `src/pipeline_state.py`
 - Create: `tests/test_pipeline_state.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # tests/test_pipeline_state.py
@@ -98,7 +98,7 @@ class TestPipelineState:
         assert s.skipped_reason is not None
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 ```bash
 cd C:/Users/artic/GitHub/aipredictedwins
@@ -107,7 +107,7 @@ python -m pytest tests/test_pipeline_state.py -v
 
 Expected: `ModuleNotFoundError: No module named 'src.pipeline_state'`
 
-- [ ] **Step 3: Create `src/pipeline_state.py`**
+- [x] **Step 3: Create `src/pipeline_state.py`**
 
 ```python
 """
@@ -146,7 +146,7 @@ class PipelineState:
         return dataclasses.replace(self, **kwargs)
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 ```bash
 python -m pytest tests/test_pipeline_state.py -v
@@ -154,7 +154,7 @@ python -m pytest tests/test_pipeline_state.py -v
 
 Expected: 5 tests PASSED
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/pipeline_state.py tests/test_pipeline_state.py
@@ -171,7 +171,7 @@ git commit -m "feat(phase0): add immutable PipelineState dataclass"
 
 The cache stores `sha256(prompt + model)` → response in `data/llm_cache.db`. The production bot writes to it automatically (so Phase 1+ backtests can replay decisions). Cache is disabled by default and opt-in via `cache_db` param.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # tests/test_claude_llm_cache.py
@@ -223,7 +223,7 @@ class TestLLMCache:
             assert os.path.exists(path)
 ```
 
-- [ ] **Step 2: Run to verify fails**
+- [x] **Step 2: Run to verify fails**
 
 ```bash
 python -m pytest tests/test_claude_llm_cache.py -v
@@ -231,7 +231,7 @@ python -m pytest tests/test_claude_llm_cache.py -v
 
 Expected: `ImportError: cannot import name 'LLMCache'`
 
-- [ ] **Step 3: Add `LLMCache` to `src/claude_llm.py`**
+- [x] **Step 3: Add `LLMCache` to `src/claude_llm.py`**
 
 Add after the existing imports at the top of the file:
 
@@ -291,7 +291,7 @@ class LLMCache:
             )
 ```
 
-- [ ] **Step 4: Add `cache_db` parameter to `ClaudeLLM.__init__` and wire into `call()`**
+- [x] **Step 4: Add `cache_db` parameter to `ClaudeLLM.__init__` and wire into `call()`**
 
 Replace the existing `__init__` and `call()` methods:
 
@@ -371,7 +371,7 @@ def call(self, prompt: str, max_tokens: int = 1024) -> str | None:
         return None
 ```
 
-- [ ] **Step 5: Run all tests**
+- [x] **Step 5: Run all tests**
 
 ```bash
 python -m pytest tests/test_claude_llm_cache.py tests/test_pipeline_state.py -v
@@ -379,7 +379,7 @@ python -m pytest tests/test_claude_llm_cache.py tests/test_pipeline_state.py -v
 
 Expected: 11 tests PASSED
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/claude_llm.py tests/test_claude_llm_cache.py
@@ -397,7 +397,7 @@ git commit -m "feat(phase0): add SQLite LLM cache with sha256 prompt keying"
 - Create: `tests/backtester/fixtures/BTC_USD.json`
 - Create: `tests/backtester/test_data_loader.py`
 
-- [ ] **Step 1: Create the fixture file**
+- [x] **Step 1: Create the fixture file**
 
 Create `tests/backtester/fixtures/BTC_USD.json` with 60 synthetic 1-hour bars:
 
@@ -421,7 +421,7 @@ print(json.dumps(bars, indent=2))
 
 Save the output as `tests/backtester/fixtures/BTC_USD.json`.
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 ```python
 # tests/backtester/test_data_loader.py
@@ -469,7 +469,7 @@ class TestLoadBarsFixture:
         assert timestamps == sorted(timestamps)
 ```
 
-- [ ] **Step 3: Run to verify fails**
+- [x] **Step 3: Run to verify fails**
 
 ```bash
 python -m pytest tests/backtester/test_data_loader.py -v
@@ -477,7 +477,7 @@ python -m pytest tests/backtester/test_data_loader.py -v
 
 Expected: `ModuleNotFoundError: No module named 'src.backtester'`
 
-- [ ] **Step 4: Create package files**
+- [x] **Step 4: Create package files**
 
 `src/backtester/__init__.py`:
 ```python
@@ -488,7 +488,7 @@ Expected: `ModuleNotFoundError: No module named 'src.backtester'`
 ```python
 ```
 
-- [ ] **Step 5: Create `src/backtester/data_loader.py`**
+- [x] **Step 5: Create `src/backtester/data_loader.py`**
 
 ```python
 """
@@ -678,7 +678,7 @@ def load_bars(
                                   timeframe=timeframe, cache_dir=cache_dir)
 ```
 
-- [ ] **Step 6: Generate the fixture file**
+- [x] **Step 6: Generate the fixture file**
 
 ```bash
 cd C:/Users/artic/GitHub/aipredictedwins
@@ -703,7 +703,7 @@ print("Generated 60 bars → tests/backtester/fixtures/BTC_USD.json")
 EOF
 ```
 
-- [ ] **Step 7: Run tests**
+- [x] **Step 7: Run tests**
 
 ```bash
 python -m pytest tests/backtester/test_data_loader.py -v
@@ -711,7 +711,7 @@ python -m pytest tests/backtester/test_data_loader.py -v
 
 Expected: 5 tests PASSED
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/backtester/ tests/backtester/ 
@@ -726,7 +726,7 @@ git commit -m "feat(phase0): add backtester data_loader with fixture/cache/Alpac
 - Create: `src/backtester/portfolio.py`
 - Create: `tests/backtester/test_portfolio.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # tests/backtester/test_portfolio.py
@@ -795,7 +795,7 @@ class TestBacktestPortfolio:
             pass
 ```
 
-- [ ] **Step 2: Run to verify fails**
+- [x] **Step 2: Run to verify fails**
 
 ```bash
 python -m pytest tests/backtester/test_portfolio.py -v
@@ -803,7 +803,7 @@ python -m pytest tests/backtester/test_portfolio.py -v
 
 Expected: `ImportError: cannot import name 'BacktestPortfolio'`
 
-- [ ] **Step 3: Create `src/backtester/portfolio.py`**
+- [x] **Step 3: Create `src/backtester/portfolio.py`**
 
 ```python
 """
@@ -909,7 +909,7 @@ class BacktestPortfolio:
         return list(self._history)
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 ```bash
 python -m pytest tests/backtester/test_portfolio.py -v
@@ -917,7 +917,7 @@ python -m pytest tests/backtester/test_portfolio.py -v
 
 Expected: 8 tests PASSED
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/backtester/portfolio.py tests/backtester/test_portfolio.py
@@ -932,7 +932,7 @@ git commit -m "feat(phase0): add BacktestPortfolio with position tracking and P&
 - Create: `src/backtester/metrics.py`
 - Create: `tests/backtester/test_metrics.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # tests/backtester/test_metrics.py
@@ -1017,13 +1017,13 @@ class TestComputeSummary:
         assert "total_return_pct" in result
 ```
 
-- [ ] **Step 2: Run to verify fails**
+- [x] **Step 2: Run to verify fails**
 
 ```bash
 python -m pytest tests/backtester/test_metrics.py -v
 ```
 
-- [ ] **Step 3: Create `src/backtester/metrics.py`**
+- [x] **Step 3: Create `src/backtester/metrics.py`**
 
 ```python
 """Backtester performance metrics."""
@@ -1098,7 +1098,7 @@ def compute_summary(
     }
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 ```bash
 python -m pytest tests/backtester/test_metrics.py -v
@@ -1106,7 +1106,7 @@ python -m pytest tests/backtester/test_metrics.py -v
 
 Expected: 14 tests PASSED
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/backtester/metrics.py tests/backtester/test_metrics.py
@@ -1122,7 +1122,7 @@ git commit -m "feat(phase0): add backtester metrics (Sharpe, drawdown, win rate,
 
 No test needed — it's a plain dataclass with no logic.
 
-- [ ] **Step 1: Create `src/backtester/config.py`**
+- [x] **Step 1: Create `src/backtester/config.py`**
 
 ```python
 """
@@ -1180,7 +1180,7 @@ PHASE_PRESETS: dict[int, PhaseConfig] = {
 }
 ```
 
-- [ ] **Step 2: Update `src/backtester/__init__.py` to export the key types**
+- [x] **Step 2: Update `src/backtester/__init__.py` to export the key types**
 
 ```python
 """Backtester package — offline replay of the trading pipeline."""
@@ -1191,7 +1191,7 @@ from src.backtester.metrics import compute_summary
 __all__ = ["PhaseConfig", "PHASE_PRESETS", "BacktestPortfolio", "compute_summary"]
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/backtester/config.py src/backtester/__init__.py
@@ -1208,7 +1208,7 @@ git commit -m "feat(phase0): add PhaseConfig with per-phase feature flag presets
 
 The engine iterates bars chronologically across all symbols, runs technical signals on a sliding window, and simulates entries/exits. Phase 0 uses hard thresholds only (no LLM).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # tests/backtester/test_engine.py
@@ -1264,13 +1264,13 @@ class TestBacktestEngine:
         assert len(all_open) == len(set(all_open))
 ```
 
-- [ ] **Step 2: Run to verify fails**
+- [x] **Step 2: Run to verify fails**
 
 ```bash
 python -m pytest tests/backtester/test_engine.py -v
 ```
 
-- [ ] **Step 3: Create `src/backtester/engine.py`**
+- [x] **Step 3: Create `src/backtester/engine.py`**
 
 ```python
 """
@@ -1448,7 +1448,7 @@ class BacktestEngine:
         return getattr(self, "_last_equity_curve", [self._starting_equity])
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 ```bash
 python -m pytest tests/backtester/test_engine.py -v
@@ -1456,7 +1456,7 @@ python -m pytest tests/backtester/test_engine.py -v
 
 Expected: 4 tests PASSED
 
-- [ ] **Step 5: Run all backtester tests to catch any regressions**
+- [x] **Step 5: Run all backtester tests to catch any regressions**
 
 ```bash
 python -m pytest tests/backtester/ -v
@@ -1464,7 +1464,7 @@ python -m pytest tests/backtester/ -v
 
 Expected: all PASSED
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/backtester/engine.py tests/backtester/test_engine.py
@@ -1479,7 +1479,7 @@ git commit -m "feat(phase0): add BacktestEngine with time-aligned bar replay"
 - Create: `src/backtester/report.py`
 - Create: `src/backtester/cli.py`
 
-- [ ] **Step 1: Create `src/backtester/report.py`**
+- [x] **Step 1: Create `src/backtester/report.py`**
 
 ```python
 """HTML report generator for backtest results. No external dependencies."""
@@ -1578,7 +1578,7 @@ ctx.stroke();
     return path
 ```
 
-- [ ] **Step 2: Create `src/backtester/cli.py`**
+- [x] **Step 2: Create `src/backtester/cli.py`**
 
 ```python
 """
@@ -1700,7 +1700,7 @@ if __name__ == "__main__":
     main()
 ```
 
-- [ ] **Step 3: Add `__main__.py` so `python -m src.backtester` works**
+- [x] **Step 3: Add `__main__.py` so `python -m src.backtester` works**
 
 Create `src/backtester/__main__.py`:
 ```python
@@ -1708,7 +1708,7 @@ from src.backtester.cli import main
 main()
 ```
 
-- [ ] **Step 4: Smoke test the CLI with fixtures**
+- [x] **Step 4: Smoke test the CLI with fixtures**
 
 ```bash
 cd C:/Users/artic/GitHub/aipredictedwins
@@ -1718,7 +1718,7 @@ python -m src.backtester --phase 0 --start 2026-03-01 --end 2026-03-03 \
 
 Expected: logs show loaded bars, summary metrics, and "Report written: data/backtest_results/phase0_*.html"
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/backtester/report.py src/backtester/cli.py src/backtester/__main__.py
@@ -1736,7 +1736,7 @@ This is a refactor only — zero behavior change. The same logic runs, just wrap
 
 The scan loop currently builds ad-hoc dicts (`approved` list). We replace this with a list of `PipelineState` objects flowing through stages.
 
-- [ ] **Step 1: Verify existing tests pass before touching anything**
+- [x] **Step 1: Verify existing tests pass before touching anything**
 
 ```bash
 python -m pytest tests/ -v --ignore=tests/backtester
@@ -1744,7 +1744,7 @@ python -m pytest tests/ -v --ignore=tests/backtester
 
 Expected: all PASSED (note the current test file imports `_kelly_technical` from the orchestrator — verify this function exists)
 
-- [ ] **Step 2: Add the import at the top of `src/alpaca_orchestrator.py`**
+- [x] **Step 2: Add the import at the top of `src/alpaca_orchestrator.py`**
 
 Add after the existing imports block (after `from src.trade_logger import TradeLogger`):
 
@@ -1752,7 +1752,7 @@ Add after the existing imports block (after `from src.trade_logger import TradeL
 from src.pipeline_state import PipelineState
 ```
 
-- [ ] **Step 3: Replace the `approved` list assembly in the scan loop**
+- [x] **Step 3: Replace the `approved` list assembly in the scan loop**
 
 Find this block (around line 562):
 
@@ -1855,7 +1855,7 @@ Replace the `approved = []` list and the per-signal loop that builds it (lines ~
                     log.exception("Risk gate failed for %s", symbol)
 ```
 
-- [ ] **Step 4: Update the order placement loop to use `approved_states`**
+- [x] **Step 4: Update the order placement loop to use `approved_states`**
 
 Find the loop that starts `for entry in approved:` (around line 628). Replace `for entry in approved:` with `for state in approved_states:` and update field access:
 
@@ -1887,7 +1887,7 @@ Find the loop that starts `for entry in approved:` (around line 628). Replace `f
 
 Everything after the `sizing = _kelly_technical(...)` call is unchanged — it still uses `symbol`, `price`, `signal`, `sizing` locals.
 
-- [ ] **Step 5: Run all tests**
+- [x] **Step 5: Run all tests**
 
 ```bash
 python -m pytest tests/ -v --ignore=tests/backtester
@@ -1895,7 +1895,7 @@ python -m pytest tests/ -v --ignore=tests/backtester
 
 Expected: same results as Step 1 — all PASSED. Zero behavior change.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/alpaca_orchestrator.py
@@ -1906,7 +1906,7 @@ git commit -m "refactor(phase0): wrap orchestrator scan loop in PipelineState (n
 
 ## Task 10: End-to-end validation
 
-- [ ] **Step 1: Run full test suite**
+- [x] **Step 1: Run full test suite**
 
 ```bash
 python -m pytest tests/ -v
@@ -1914,7 +1914,7 @@ python -m pytest tests/ -v
 
 Expected: all PASSED
 
-- [ ] **Step 2: Run backtester on fixtures to confirm report generates cleanly**
+- [x] **Step 2: Run backtester on fixtures to confirm report generates cleanly**
 
 ```bash
 python -m src.backtester --phase 0 --start 2026-03-01 --end 2026-03-03 \
@@ -1929,7 +1929,7 @@ INFO backtester:   monitor_pnl               <value>
 INFO backtester: Report written: data/backtest_results/phase0_*.html
 ```
 
-- [ ] **Step 3: Verify `LLMCache` round-trip manually**
+- [x] **Step 3: Verify `LLMCache` round-trip manually**
 
 ```bash
 python - <<'EOF'
@@ -1946,7 +1946,7 @@ EOF
 
 Expected: `LLMCache round-trip: OK`
 
-- [ ] **Step 4: Final commit**
+- [x] **Step 4: Final commit**
 
 ```bash
 git add .

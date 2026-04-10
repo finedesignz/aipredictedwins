@@ -33,7 +33,7 @@
 - Modify: `src/technical_signals.py`
 - Modify: `tests/test_technical_signals.py`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `tests/test_technical_signals.py`:
 
@@ -100,7 +100,7 @@ class TestRSIHardBlock:
             assert result is None or result.rsi_signal == "oversold"
 ```
 
-- [ ] **Step 2: Run tests to confirm they fail**
+- [x] **Step 2: Run tests to confirm they fail**
 
 ```bash
 cd C:/Users/artic/GitHub/aipredictedwins
@@ -109,7 +109,7 @@ python -m pytest tests/test_technical_signals.py::TestRSIHardBlock -v
 
 Expected: FAIL — no RSI block exists yet.
 
-- [ ] **Step 3: Add RSI hard block to `analyze()`**
+- [x] **Step 3: Add RSI hard block to `analyze()`**
 
 In `src/technical_signals.py`, inside `analyze()`, add the RSI check immediately after computing `rsi_value` (around line 234), before the confluence scoring block:
 
@@ -138,7 +138,7 @@ In `src/technical_signals.py`, inside `analyze()`, add the RSI check immediately
 
 Place this block right after the `rsi_signal` assignment, before the volume spike calculation.
 
-- [ ] **Step 4: Run tests to confirm they pass**
+- [x] **Step 4: Run tests to confirm they pass**
 
 ```bash
 python -m pytest tests/test_technical_signals.py::TestRSIHardBlock -v
@@ -146,7 +146,7 @@ python -m pytest tests/test_technical_signals.py::TestRSIHardBlock -v
 
 Expected: PASS for any test case where RSI > 72 on the generated data.
 
-- [ ] **Step 5: Run full test suite to check for regressions**
+- [x] **Step 5: Run full test suite to check for regressions**
 
 ```bash
 python -m pytest tests/test_technical_signals.py -v
@@ -154,7 +154,7 @@ python -m pytest tests/test_technical_signals.py -v
 
 Expected: All existing tests pass. Note: `test_uptrend_high_rsi` in `TestRSI` tests `_rsi()` directly (not `analyze()`), so it is unaffected.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/technical_signals.py tests/test_technical_signals.py
@@ -169,7 +169,7 @@ git commit -m "feat: RSI hard block — reject assets with RSI > 72 at entry"
 - Modify: `src/technical_signals.py`
 - Modify: `tests/test_technical_signals.py`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `tests/test_technical_signals.py`:
 
@@ -222,7 +222,7 @@ class TestADXDirectional:
             assert signal.adx_trending is False or signal.ema_bullish is False
 ```
 
-- [ ] **Step 2: Run tests to confirm they fail**
+- [x] **Step 2: Run tests to confirm they fail**
 
 ```bash
 python -m pytest tests/test_technical_signals.py::TestADXDirectional -v
@@ -230,7 +230,7 @@ python -m pytest tests/test_technical_signals.py::TestADXDirectional -v
 
 Expected: FAIL — `_adx()` returns a float, not a tuple.
 
-- [ ] **Step 3: Refactor `_adx()` to return `(adx, plus_di, minus_di)`**
+- [x] **Step 3: Refactor `_adx()` to return `(adx, plus_di, minus_di)`**
 
 Replace the entire `_adx()` function in `src/technical_signals.py`:
 
@@ -298,7 +298,7 @@ def _adx(highs: list[float], lows: list[float], closes: list[float], period: int
     return (adx, final_plus_di, final_minus_di)
 ```
 
-- [ ] **Step 4: Update `Signal` dataclass to include directional fields**
+- [x] **Step 4: Update `Signal` dataclass to include directional fields**
 
 In `src/technical_signals.py`, update the `Signal` dataclass:
 
@@ -320,7 +320,7 @@ class Signal:
     details: dict            # raw indicator values for logging
 ```
 
-- [ ] **Step 5: Update `analyze()` to use the new ADX tuple and directional condition**
+- [x] **Step 5: Update `analyze()` to use the new ADX tuple and directional condition**
 
 Replace the ADX section in `analyze()` (around line 226):
 
@@ -374,7 +374,7 @@ Also add `plus_di` and `minus_di` to the `details` dict:
     }
 ```
 
-- [ ] **Step 6: Fix the existing ADX tests that expect a float**
+- [x] **Step 6: Fix the existing ADX tests that expect a float**
 
 Update `TestADX` in `tests/test_technical_signals.py` — the existing tests call `_adx()` and expect a float. Update them to unpack the tuple:
 
@@ -427,7 +427,7 @@ Also update `TestAnalyze.test_signal_fields` to include new fields:
         assert signal.minus_di >= 0
 ```
 
-- [ ] **Step 7: Run all signal tests**
+- [x] **Step 7: Run all signal tests**
 
 ```bash
 python -m pytest tests/test_technical_signals.py -v
@@ -435,7 +435,7 @@ python -m pytest tests/test_technical_signals.py -v
 
 Expected: All pass including new `TestADXDirectional` tests.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/technical_signals.py tests/test_technical_signals.py
@@ -450,7 +450,7 @@ git commit -m "feat: ADX directional filter — require +DI > -DI for bullish co
 - Modify: `src/risk_gate.py`
 - Modify: `tests/test_technical_signals.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `tests/test_technical_signals.py`:
 
@@ -485,7 +485,7 @@ class TestRiskGateNoBypass:
         )
 ```
 
-- [ ] **Step 2: Run test to confirm it fails**
+- [x] **Step 2: Run test to confirm it fails**
 
 ```bash
 python -m pytest tests/test_technical_signals.py::TestRiskGateNoBypass -v
@@ -493,7 +493,7 @@ python -m pytest tests/test_technical_signals.py::TestRiskGateNoBypass -v
 
 Expected: FAIL — bypass still exists.
 
-- [ ] **Step 3: Remove bypass from `src/risk_gate.py`**
+- [x] **Step 3: Remove bypass from `src/risk_gate.py`**
 
 Delete the class constant and rewrite the LLM-unavailable branch in `evaluate()`:
 
@@ -515,7 +515,7 @@ Replace the `if raw is None:` block (around line 127) with:
             )
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 ```bash
 python -m pytest tests/test_technical_signals.py::TestRiskGateNoBypass tests/test_technical_signals.py::TestRiskGateParsing -v
@@ -523,7 +523,7 @@ python -m pytest tests/test_technical_signals.py::TestRiskGateNoBypass tests/tes
 
 Expected: All pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/risk_gate.py tests/test_technical_signals.py
@@ -538,7 +538,7 @@ git commit -m "feat: remove HIGH_CONFLUENCE_BYPASS — risk gate always runs, fa
 - Modify: `src/alpaca_orchestrator.py`
 - Modify: `tests/test_technical_signals.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `tests/test_technical_signals.py`:
 
@@ -593,7 +593,7 @@ class TestPerCycleEntryCap:
         assert len(selected) == 2
 ```
 
-- [ ] **Step 2: Run test to confirm it fails**
+- [x] **Step 2: Run test to confirm it fails**
 
 ```bash
 python -m pytest tests/test_technical_signals.py::TestPerCycleEntryCap -v
@@ -601,7 +601,7 @@ python -m pytest tests/test_technical_signals.py::TestPerCycleEntryCap -v
 
 Expected: FAIL — `_select_cycle_candidates` does not exist yet.
 
-- [ ] **Step 3: Add `_select_cycle_candidates()` to `src/alpaca_orchestrator.py`**
+- [x] **Step 3: Add `_select_cycle_candidates()` to `src/alpaca_orchestrator.py`**
 
 Add this function after the `_kelly_technical` function (around line 367):
 
@@ -626,7 +626,7 @@ def _select_cycle_candidates(candidates: list, max_entries: int = MAX_ENTRIES_PE
     return sorted_candidates[:max_entries]
 ```
 
-- [ ] **Step 4: Wire `_select_cycle_candidates` into the main loop**
+- [x] **Step 4: Wire `_select_cycle_candidates` into the main loop**
 
 In the main loop in `main()`, find the line (around line 550):
 
@@ -661,7 +661,7 @@ Change to:
                 )
 ```
 
-- [ ] **Step 5: Run tests**
+- [x] **Step 5: Run tests**
 
 ```bash
 python -m pytest tests/test_technical_signals.py::TestPerCycleEntryCap -v
@@ -669,7 +669,7 @@ python -m pytest tests/test_technical_signals.py::TestPerCycleEntryCap -v
 
 Expected: PASS.
 
-- [ ] **Step 6: Run full test suite**
+- [x] **Step 6: Run full test suite**
 
 ```bash
 python -m pytest tests/ -v --ignore=tests/backtester
@@ -677,7 +677,7 @@ python -m pytest tests/ -v --ignore=tests/backtester
 
 Expected: All pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/alpaca_orchestrator.py tests/test_technical_signals.py
@@ -688,17 +688,17 @@ git commit -m "feat: per-cycle entry cap — max 3 positions per scan, sorted by
 
 ### Task 4b: Deploy Batch 1 and verify
 
-- [ ] **Step 1: Push to main**
+- [x] **Step 1: Push to main**
 
 ```bash
 git push origin main
 ```
 
-- [ ] **Step 2: Confirm Coolify redeploys both bots**
+- [x] **Step 2: Confirm Coolify redeploys both bots**
 
 Both bots use the same `main` branch. Coolify should auto-deploy on push (or trigger manually via dashboard at https://coolify.titaniumlabs.us for UUIDs `qjyla085qflghz7h0dpsk7mh` and `v147jk2s2sm0n7aov83ph8y2`).
 
-- [ ] **Step 3: Monitor for 48 hours**
+- [x] **Step 3: Monitor for 48 hours**
 
 Watch `data/bot_output.log` on both containers. Confirm:
 - No entries with RSI > 72 logged

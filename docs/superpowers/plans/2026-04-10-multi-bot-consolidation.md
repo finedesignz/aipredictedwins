@@ -45,7 +45,7 @@
 **Files:**
 - Create: `dashboard/api/migrations/002_multi_bot.sql`
 
-- [ ] **Step 1: Write the migration SQL**
+- [x] **Step 1: Write the migration SQL**
 
 ```sql
 -- dashboard/api/migrations/002_multi_bot.sql
@@ -78,7 +78,7 @@ UPDATE bots SET bot_id = id WHERE bot_id IS NULL;
 ALTER TABLE bots ADD CONSTRAINT bots_bot_id_unique UNIQUE (bot_id);
 ```
 
-- [ ] **Step 2: Run migration against the Coolify Postgres instance**
+- [x] **Step 2: Run migration against the Coolify Postgres instance**
 
 Connect via `psql $DATABASE_URL` and run the file, OR add it to the FastAPI startup to auto-apply:
 
@@ -88,7 +88,7 @@ psql "$DATABASE_URL" -f dashboard/api/migrations/002_multi_bot.sql
 
 Expected: `ALTER TABLE` lines, no errors.
 
-- [ ] **Step 3: Seed Bot A and Bot B rows from current Coolify env vars**
+- [x] **Step 3: Seed Bot A and Bot B rows from current Coolify env vars**
 
 This SQL sets the API keys so the existing bots keep running after migration.
 
@@ -108,7 +108,7 @@ WHERE bot_id = 'B';
 
 In practice: run this via the Coolify terminal with actual values substituted, OR update via the `/bots` UI after the dashboard is deployed. The important thing is the schema is ready.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add dashboard/api/migrations/002_multi_bot.sql
@@ -122,7 +122,7 @@ git commit -m "feat: add multi-bot columns to bots table, drop bot_id check cons
 **Files:**
 - Create: `src/bot_config.py`
 
-- [ ] **Step 1: Write the dataclass**
+- [x] **Step 1: Write the dataclass**
 
 ```python
 # src/bot_config.py
@@ -175,7 +175,7 @@ class BotConfig:
         return [s.strip() for s in self.crypto_universe.split(",") if s.strip()]
 ```
 
-- [ ] **Step 2: Write a quick smoke test**
+- [x] **Step 2: Write a quick smoke test**
 
 ```python
 # tests/test_bot_config.py
@@ -212,7 +212,7 @@ def test_from_row_custom():
     assert cfg.symbols == ["BTC/USD", "ETH/USD"]
 ```
 
-- [ ] **Step 3: Run tests**
+- [x] **Step 3: Run tests**
 
 ```bash
 cd C:\Users\artic\GitHub\aipredictedwins
@@ -221,7 +221,7 @@ python -m pytest tests/test_bot_config.py -v
 
 Expected: 2 passed.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/bot_config.py tests/test_bot_config.py
@@ -235,7 +235,7 @@ git commit -m "feat: add BotConfig dataclass loaded from bots DB row"
 **Files:**
 - Create: `src/bot_thread.py`
 
-- [ ] **Step 1: Write BotThread**
+- [x] **Step 1: Write BotThread**
 
 ```python
 # src/bot_thread.py
@@ -446,7 +446,7 @@ class BotThread(threading.Thread):
         self._on_status_change(self.config.bot_id, status, detail)
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add src/bot_thread.py
@@ -460,7 +460,7 @@ git commit -m "feat: add BotThread wrapping orchestrator scan/monitor loop per b
 **Files:**
 - Create: `src/bot_manager.py`
 
-- [ ] **Step 1: Write BotManager**
+- [x] **Step 1: Write BotManager**
 
 ```python
 # src/bot_manager.py
@@ -603,7 +603,7 @@ class BotManager:
             log.warning("Failed to write status for bot %s: %s", bot_id, exc)
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add src/bot_manager.py
@@ -617,9 +617,9 @@ git commit -m "feat: add BotManager — reactive thread lifecycle management"
 **Files:**
 - Modify: `dashboard/api/main.py`
 
-- [ ] **Step 1: Read current main.py** (already read — 152 lines, no lifespan)
+- [x] **Step 1: Read current main.py** (already read — 152 lines, no lifespan)
 
-- [ ] **Step 2: Replace main.py**
+- [x] **Step 2: Replace main.py**
 
 Replace the `app = FastAPI(...)` block and imports to add lifespan:
 
@@ -685,7 +685,7 @@ app = FastAPI(
 
 Keep everything else (CORS, auth, route mounting) identical to current. Just add `chat` to the imports and `app.include_router(chat.router, ...)` after the others.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add dashboard/api/main.py
@@ -700,7 +700,7 @@ git commit -m "feat: add FastAPI lifespan wiring BotManager on startup/shutdown"
 - Modify: `dashboard/api/routes/bots.py`
 - Modify: `dashboard/api/models.py`
 
-- [ ] **Step 1: Add Pydantic models to models.py**
+- [x] **Step 1: Add Pydantic models to models.py**
 
 Add after the existing `BotInfo` class:
 
@@ -756,7 +756,7 @@ class BotUpdate(BaseModel):
     enabled: Optional[bool] = None
 ```
 
-- [ ] **Step 2: Rewrite bots.py**
+- [x] **Step 2: Rewrite bots.py**
 
 ```python
 # dashboard/api/routes/bots.py
@@ -930,7 +930,7 @@ def disable_bot(bot_id: str, request: Request):
     return Envelope(data=_row_to_full(row, {}))
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add dashboard/api/routes/bots.py dashboard/api/models.py
@@ -944,7 +944,7 @@ git commit -m "feat: replace bots stub with full CRUD endpoints wired to BotMana
 **Files:**
 - Create: `dashboard/api/routes/chat.py`
 
-- [ ] **Step 1: Write the chat route**
+- [x] **Step 1: Write the chat route**
 
 ```python
 # dashboard/api/routes/chat.py
@@ -1065,7 +1065,7 @@ async def chat_message(body: ChatMessage, request: Request):
     )
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add dashboard/api/routes/chat.py
@@ -1081,7 +1081,7 @@ git commit -m "feat: add /api/chat/message SSE endpoint streaming Claude CLI out
 - Create: `dashboard/entrypoint.sh`
 - Modify: `dashboard/supervisord.conf`
 
-- [ ] **Step 1: Create entrypoint.sh**
+- [x] **Step 1: Create entrypoint.sh**
 
 ```bash
 #!/bin/bash
@@ -1104,7 +1104,7 @@ fi
 exec supervisord -c /etc/supervisor/conf.d/supervisord.conf
 ```
 
-- [ ] **Step 2: Update Dockerfile**
+- [x] **Step 2: Update Dockerfile**
 
 Replace the production stage to add `src/` copy, claude CLI installation, and entrypoint:
 
@@ -1160,7 +1160,7 @@ CMD ["/entrypoint.sh"]
 
 Note: The `FROM node:22-slim AS web-builder` stage at the top stays identical — only the production stage changes.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add dashboard/entrypoint.sh dashboard/Dockerfile dashboard/supervisord.conf
@@ -1176,7 +1176,7 @@ git commit -m "feat: add entrypoint.sh for Claude credential persistence, instal
 - Modify: `dashboard/web/context/BotFilterContext.tsx`
 - Modify: `dashboard/web/components/shared/BotFilter.tsx`
 
-- [ ] **Step 1: Add BotFull to types/index.ts**
+- [x] **Step 1: Add BotFull to types/index.ts**
 
 Add after the existing `BotInfo` interface:
 
@@ -1201,7 +1201,7 @@ export interface BotFull {
 }
 ```
 
-- [ ] **Step 2: Rewrite BotFilterContext.tsx**
+- [x] **Step 2: Rewrite BotFilterContext.tsx**
 
 ```typescript
 "use client";
@@ -1259,7 +1259,7 @@ export function BotFilterProvider({ children }: { children: ReactNode }) {
 export const useBotFilter = () => useContext(BotFilterContext);
 ```
 
-- [ ] **Step 3: Rewrite BotFilter.tsx**
+- [x] **Step 3: Rewrite BotFilter.tsx**
 
 ```typescript
 "use client";
@@ -1308,7 +1308,7 @@ export default function BotFilter() {
 }
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add dashboard/web/types/index.ts dashboard/web/context/BotFilterContext.tsx dashboard/web/components/shared/BotFilter.tsx
@@ -1322,9 +1322,9 @@ git commit -m "feat: make BotFilter dynamic over N bots from API, add status dot
 **Files:**
 - Modify: `dashboard/web/components/charts/EquityCurve.tsx`
 
-- [ ] **Step 1: Read full EquityCurve.tsx** (read top 50 lines earlier — need full file)
+- [x] **Step 1: Read full EquityCurve.tsx** (read top 50 lines earlier — need full file)
 
-- [ ] **Step 2: Replace the hardcoded merge + line rendering**
+- [x] **Step 2: Replace the hardcoded merge + line rendering**
 
 The file currently hardcodes `a_pct` and `b_pct` keys. Replace `mergeSeries` and the `<Line>` rendering:
 
@@ -1415,7 +1415,7 @@ const BOT_COLORS = ["#60a5fa", "#fbbf24", "#34d399", "#f87171", "#a78bfa", "#fb9
 )}
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add dashboard/web/components/charts/EquityCurve.tsx
@@ -1431,7 +1431,7 @@ git commit -m "feat: make EquityCurve dynamic for N bots — no hardcoded A/B ke
 - Create: `dashboard/web/components/bots/BotCard.tsx`
 - Create: `dashboard/web/components/bots/BotDrawer.tsx`
 
-- [ ] **Step 1: Write BotCard.tsx**
+- [x] **Step 1: Write BotCard.tsx**
 
 ```typescript
 // dashboard/web/components/bots/BotCard.tsx
@@ -1501,7 +1501,7 @@ export default function BotCard({ bot, onEdit, onToggle }: BotCardProps) {
 }
 ```
 
-- [ ] **Step 2: Write BotDrawer.tsx**
+- [x] **Step 2: Write BotDrawer.tsx**
 
 ```typescript
 // dashboard/web/components/bots/BotDrawer.tsx
@@ -1670,7 +1670,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 ```
 
-- [ ] **Step 3: Write the /bots page**
+- [x] **Step 3: Write the /bots page**
 
 ```typescript
 // dashboard/web/app/bots/page.tsx
@@ -1773,7 +1773,7 @@ export async function fetchAPI(path: string, options: RequestInit = {}): Promise
 }
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add dashboard/web/app/bots/ dashboard/web/components/bots/ dashboard/web/lib/api.ts
@@ -1976,7 +1976,7 @@ git commit -m "feat: add /chat page with streaming Claude chat UI and Apply acti
 **Files:**
 - Modify: `dashboard/web/app/page.tsx`
 
-- [ ] **Step 1: Replace hardcoded "Bot A" / "Bot B" references**
+- [x] **Step 1: Replace hardcoded "Bot A" / "Bot B" references**
 
 The current page.tsx has `labelA="Bot A"` and `labelB="Bot B"` hardcoded in `<HeroKPI>` and `<MetricCard>` components. Replace the entire metric section to be dynamic over `activeBotIds` from context:
 
@@ -1994,7 +1994,7 @@ const botLabels = Object.fromEntries(bots.map((b) => [b.bot_id, b.label]));
 
 For a truly N-bot portfolio, the metric cards also need to generalize. For now, the two-bot A/B layout still works since the API returns A and B — but label strings come from the DB.
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add dashboard/web/app/page.tsx
