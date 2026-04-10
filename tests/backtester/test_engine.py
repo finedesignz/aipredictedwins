@@ -21,7 +21,9 @@ def _load_all_fixtures() -> dict[str, list[dict]]:
 class TestBacktestEngine:
     def test_runs_without_error(self):
         engine = BacktestEngine(config=PHASE_PRESETS[0])
-        result = engine.run(_load_all_fixtures(), start_iso="2026-03-01", end_iso="2026-03-03")
+        bars_by_symbol = _load_all_fixtures()
+        assert bars_by_symbol, "fixture BTC_USD.json must exist for this test to be meaningful"
+        result = engine.run(bars_by_symbol, start_iso="2026-03-01", end_iso="2026-03-03")
         assert result is not None
         assert result.equity() > 0
 
