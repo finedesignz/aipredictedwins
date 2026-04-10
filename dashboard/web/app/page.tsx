@@ -23,7 +23,7 @@ export default function OverviewPage() {
   const [days, setDays] = useState<DayOption>(30);
 
   const { data: rawPortfolio, loading: portfolioLoading } = useAPI<Portfolio | MultiBotPortfolio>(
-    `/api/portfolio?bot=${botParam}`,
+    `/api/portfolio?bot=${botParam}&days=${days}`,
     10000
   );
   const { data: positions } = useAPI<Position[]>(

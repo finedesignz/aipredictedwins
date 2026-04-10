@@ -11,7 +11,7 @@ Falls back to DB-only calculation when Alpaca keys are absent.
 import json
 import os
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Query
@@ -44,20 +44,22 @@ def _fetch_alpaca_account(api_key: str, secret_key: str) -> dict:
         return {}
 
 
-def _portfolio_for_bot(conn, bot_id: str) -> PortfolioData:
+def _portfolio_for_bot(conn, bot_id: str, days: int = 30) -> PortfolioData:
     # Starting equity from registry
     bot_row = conn.execute(
         "SELECT starting_equity FROM bots WHERE id = %s", (bot_id,)
     ).fetchone()
     starting_equity = bot_row["starting_equity"] if bot_row else _DEFAULT_STARTING_EQUITY
 
-    # Closed trades → win rate / trade counts
+    # Closed trades filtered to window → win rate / trade counts
+    since = datetime.now(timezone.utc) - timedelta(days=days)
     closed = conn.execute(
         """
         SELECT pnl FROM alpaca_trades
         WHERE bot_id = %s AND status IN ('closed', 'stopped', 'target_hit')
+          AND (closed_at IS NULL OR closed_at >= %s)
         """,
-        (bot_id,),
+        (bot_id, since),
     ).fetchall()
 
     closed_pnl = sum(r["pnl"] or 0.0 for r in closed)
@@ -122,14 +124,17 @@ def _portfolio_for_bot(conn, bot_id: str) -> PortfolioData:
 
 
 @router.get("/portfolio")
-def get_portfolio(bot: Literal["A", "B", "both"] = Query("both")):
+def get_portfolio(
+    bot: Literal["A", "B", "both"] = Query("both"),
+    days: int = Query(30, ge=1, le=365),
+):
     """Return portfolio KPIs. bot=both returns {A: {...}, B: {...}} shape."""
     with get_db() as conn:
         if bot == "both":
             data = MultiBotPortfolio(
-                A=_portfolio_for_bot(conn, "A"),
-                B=_portfolio_for_bot(conn, "B"),
+                A=_portfolio_for_bot(conn, "A", days),
+                B=_portfolio_for_bot(conn, "B", days),
             )
         else:
-            data = _portfolio_for_bot(conn, bot)
+            data = _portfolio_for_bot(conn, bot, days)
     return Envelope(data=data, meta=Meta(count=1))
