@@ -3,6 +3,7 @@
 
 import logging
 import os
+import threading
 from psycopg_pool import ConnectionPool
 from psycopg.rows import dict_row
 
@@ -25,6 +26,7 @@ class BotManager:
     def __init__(self, db_url: str):
         self._db_url = db_url
         self._threads: dict[str, BotThread] = {}
+        self._lock = threading.Lock()
         self._pool = ConnectionPool(
             conninfo=db_url,
             min_size=1,
@@ -41,59 +43,70 @@ class BotManager:
                 "AND alpaca_api_key IS NOT NULL AND alpaca_api_key != ''"
             ).fetchall()
         log.info("BotManager: starting %d enabled bots", len(rows))
-        for row in rows:
-            try:
-                cfg = BotConfig.from_row(row)
-                self._spawn(cfg)
-            except Exception as exc:
-                log.error("Failed to start bot %s: %s", row.get("bot_id"), exc)
+        with self._lock:
+            for row in rows:
+                try:
+                    cfg = BotConfig.from_row(row)
+                    self._spawn(cfg)
+                except Exception as exc:
+                    log.error("Failed to start bot %s: %s", row.get("bot_id"), exc)
 
     def stop_all(self) -> None:
         """Stop all threads (called from FastAPI lifespan on shutdown)."""
-        for bot_id, thread in list(self._threads.items()):
+        with self._lock:
+            snapshot = list(self._threads.items())
+            self._threads.clear()
+        for bot_id, thread in snapshot:
             log.info("BotManager: stopping bot %s", bot_id)
             thread.stop()
-        for thread in self._threads.values():
+        for _, thread in snapshot:
             thread.join(timeout=15)
-        self._threads.clear()
 
     def add(self, row: dict) -> None:
         """Spawn a new bot thread from a freshly-inserted DB row."""
         cfg = BotConfig.from_row(row)
-        self._spawn(cfg)
+        with self._lock:
+            self._spawn(cfg)
 
     def update(self, bot_id: str, row: dict) -> None:
         """Push updated config to live thread. Thread picks it up next cycle."""
-        thread = self._threads.get(bot_id)
-        if thread and thread.is_alive():
-            thread.update_config(BotConfig.from_row(row))
-        elif row.get("enabled"):
-            self._spawn(BotConfig.from_row(row))
+        with self._lock:
+            thread = self._threads.get(bot_id)
+            if thread and thread.is_alive():
+                thread.update_config(BotConfig.from_row(row))
+            elif row.get("enabled"):
+                self._spawn(BotConfig.from_row(row))
 
     def stop_bot(self, bot_id: str) -> None:
         """Gracefully stop a single bot thread."""
-        thread = self._threads.pop(bot_id, None)
+        with self._lock:
+            thread = self._threads.pop(bot_id, None)
         if thread:
             thread.stop()
             thread.join(timeout=15)
 
     def enable_bot(self, bot_id: str, row: dict) -> None:
         """Spawn thread for a previously-disabled bot."""
-        if bot_id not in self._threads or not self._threads[bot_id].is_alive():
-            self._spawn(BotConfig.from_row(row))
+        with self._lock:
+            if bot_id not in self._threads or not self._threads[bot_id].is_alive():
+                self._spawn(BotConfig.from_row(row))
 
     def status(self) -> dict[str, dict]:
         """Return {bot_id: {thread_alive, config_label}} for all tracked threads."""
-        return {
-            bot_id: {
-                "thread_alive": thread.is_alive(),
-                "config_label": thread.config.label,
+        with self._lock:
+            return {
+                bot_id: {
+                    "thread_alive": thread.is_alive(),
+                    "config_label": thread.config.label,
+                }
+                for bot_id, thread in self._threads.items()
             }
-            for bot_id, thread in self._threads.items()
-        }
 
     def _spawn(self, cfg: BotConfig) -> None:
-        """Start a new BotThread, stopping any existing one first."""
+        """Start a new BotThread, stopping any existing one first.
+
+        Must be called with self._lock held.
+        """
         old = self._threads.get(cfg.bot_id)
         if old and old.is_alive():
             old.stop()
