@@ -181,10 +181,7 @@ export interface BotFull {
   thread_alive: boolean;
 }
 
-export interface MultiBotPortfolio {
-  A?: Portfolio;
-  B?: Portfolio;
-}
+export type MultiBotPortfolio = Record<string, Portfolio>;
 
 export interface EquityData {
   series: EquitySeries[];
