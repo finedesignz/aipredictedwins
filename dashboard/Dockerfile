@@ -10,11 +10,11 @@ FROM node:22-slim AS web-builder
 WORKDIR /build
 
 # Install dependencies first (layer cache)
-COPY web/package.json web/package-lock.json* ./
+COPY dashboard/web/package.json dashboard/web/package-lock.json* ./
 RUN npm ci --ignore-scripts
 
 # Copy source and build
-COPY web/ ./
+COPY dashboard/web/ ./
 RUN npm run build
 
 # ------ Stage 2: Production image ------
@@ -33,11 +33,11 @@ RUN npm install -g @anthropic-ai/claude-code
 
 # ------ Python dependencies ------
 WORKDIR /app/api
-COPY api/requirements.txt ./
+COPY dashboard/api/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 # ------ Copy FastAPI source ------
-COPY api/ ./
+COPY dashboard/api/ ./
 
 # Copy trading bot source for BotThread/BotManager
 WORKDIR /app
@@ -54,8 +54,8 @@ RUN mkdir -p /app/data
 RUN mkdir -p /root/.claude
 
 # ------ Supervisord config ------
-COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
-COPY entrypoint.sh /entrypoint.sh
+COPY dashboard/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+COPY dashboard/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 # ------ Health check ------
