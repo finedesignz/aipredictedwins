@@ -29,9 +29,13 @@ export function formatNumber(value: number): string {
   return value.toLocaleString("en-US");
 }
 
-export function formatRelativeTime(dateString: string): string {
+export function formatRelativeTime(dateString: string | null | undefined): string {
+  if (!dateString) return "--";
+  // SQLite stores "YYYY-MM-DD HH:MM:SS" without T — normalise to ISO so JS parses it correctly
+  const normalised = dateString.replace(" ", "T");
   const now = Date.now();
-  const then = new Date(dateString).getTime();
+  const then = new Date(normalised).getTime();
+  if (isNaN(then)) return "--";
   const diffMs = now - then;
 
   if (diffMs < 0) return "just now";
