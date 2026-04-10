@@ -4,6 +4,10 @@ SQLite connection helper for the dashboard API.
 Read-only connection to the trades database. The bot container writes to
 this database; the dashboard only reads. Uses WAL mode for concurrent
 read access without blocking the writer.
+
+If the database file does not exist yet (e.g. no volume mounted), yields
+an in-memory connection with the correct empty schema so all routes return
+zero rows instead of 500 errors.
 """
 
 import os
@@ -15,18 +19,72 @@ from typing import Generator
 _DATA_DIR = os.environ.get("DATA_DIR", "data")
 DB_PATH = os.environ.get("DB_PATH", os.path.join(_DATA_DIR, "trades.db"))
 
+_EMPTY_SCHEMA = """
+CREATE TABLE IF NOT EXISTS alpaca_trades (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    asset_class TEXT NOT NULL,
+    side TEXT NOT NULL,
+    qty REAL NOT NULL,
+    entry_price REAL NOT NULL,
+    mirofish_prob REAL NOT NULL,
+    market_sentiment TEXT,
+    target_price REAL,
+    stop_loss REAL,
+    status TEXT DEFAULT 'open',
+    exit_price REAL,
+    pnl REAL,
+    closed_at TEXT,
+    simulation_id TEXT,
+    notes TEXT
+);
+CREATE TABLE IF NOT EXISTS validations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL,
+    kalshi_ticker TEXT NOT NULL,
+    event_title TEXT NOT NULL,
+    mirofish_prob REAL NOT NULL,
+    kalshi_price REAL NOT NULL,
+    gap REAL NOT NULL,
+    proposed_side TEXT NOT NULL,
+    decision TEXT NOT NULL,
+    confidence REAL,
+    adjusted_probability REAL,
+    size_multiplier REAL DEFAULT 1.0,
+    sentiment_report TEXT,
+    news_report TEXT,
+    contrarian_report TEXT,
+    risk_assessment TEXT,
+    veto_reason TEXT,
+    trade_id INTEGER
+);
+"""
+
+
+def _make_empty_db() -> sqlite3.Connection:
+    """Create an in-memory DB with the correct empty schema as a fallback."""
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.executescript(_EMPTY_SCHEMA)
+    return conn
+
 
 @contextmanager
 def get_db() -> Generator[sqlite3.Connection, None, None]:
-    """Yield a read-only SQLite connection with Row factory.
+    """Yield a SQLite connection with Row factory.
 
-    Opens in WAL mode with query_only pragma to prevent accidental writes.
-    The connection is closed automatically when the context exits.
+    Opens the live database read-only when it exists. Falls back to an
+    in-memory empty DB when the file is not yet present (e.g. volume not
+    mounted), so all routes return zero rows instead of 500 errors.
     """
-    conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA query_only=ON")
+    if os.path.exists(DB_PATH):
+        conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA query_only=ON")
+    else:
+        conn = _make_empty_db()
     try:
         yield conn
     finally:

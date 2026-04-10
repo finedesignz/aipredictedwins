@@ -13,8 +13,7 @@ router = APIRouter()
 @router.get("/api/equity")
 def get_equity():
     """Return equity curve data points from closed trade P&L history."""
-    conn = get_db()
-    try:
+    with get_db() as conn:
         rows = conn.execute(
             """
             SELECT closed_at, pnl
@@ -25,8 +24,6 @@ def get_equity():
             """
         ).fetchall()
         rows = rows_to_list(rows)
-    finally:
-        conn.close()
 
     # Build cumulative equity curve
     starting_equity = 100000.0  # paper account start
