@@ -79,6 +79,44 @@ def _fetch_account(api_key: str, secret_key: str) -> dict:
         return {}
 
 
+def _fetch_crypto_benchmark(api_key: str, secret_key: str, days: int) -> list[dict]:
+    """Fetch BTC/USD daily bars from Alpaca crypto API, normalized to $100k start."""
+    if not api_key or not secret_key:
+        return []
+    try:
+        start = (datetime.now(timezone.utc) - timedelta(days=days + 5)).strftime("%Y-%m-%d")
+        url = (
+            f"https://data.alpaca.markets/v1beta3/crypto/us/bars"
+            f"?symbols=BTC%2FUSD&timeframe=1Day&start={start}&limit={days + 10}"
+        )
+        req = urllib.request.Request(
+            url,
+            headers={
+                "APCA-API-KEY-ID": api_key,
+                "APCA-API-SECRET-KEY": secret_key,
+                "Accept": "application/json",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode())
+
+        bars = data.get("bars", {}).get("BTC/USD", [])
+        if not bars:
+            return []
+
+        bars = bars[-days:]
+        first_close = bars[0]["c"]
+        points = []
+        for bar in bars:
+            close = bar["c"]
+            normalized = round((close / first_close) * 100_000.0, 2)
+            ts = bar["t"][:10] + "T00:00:00+00:00"
+            points.append({"timestamp": ts, "equity": normalized})
+        return points
+    except Exception:
+        return []
+
+
 def _fetch_sp500(api_key: str, secret_key: str, days: int) -> list[dict]:
     """Fetch SPY daily bars from Alpaca market data API, normalized to $100k start."""
     if not api_key or not secret_key:
@@ -143,6 +181,7 @@ def get_alpaca_equity(days: int = Query(30, ge=1, le=90)):
         errors.append(f"Agent B: {e}")
 
     sp500_points = _fetch_sp500(key_a, sec_a, days)
+    crypto_points = _fetch_crypto_benchmark(key_a, sec_a, days)
 
     # Current account equity
     acct_a = _fetch_account(key_a, sec_a)
@@ -161,6 +200,7 @@ def get_alpaca_equity(days: int = Query(30, ge=1, le=90)):
         "agentA": a_points,
         "agentB": b_points,
         "sp500": sp500_points,
+        "cryptoBenchmark": crypto_points,
         "accountA": _account_summary(acct_a),
         "accountB": _account_summary(acct_b),
         "days": days,

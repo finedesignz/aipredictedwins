@@ -17,6 +17,7 @@ import type { AlpacaEquityData, EquityPoint } from "@/types";
 const AGENT_A_COLOR = "#60a5fa";
 const AGENT_B_COLOR = "#f59e0b";
 const SP500_COLOR = "#94a3b8";
+const CRYPTO_COLOR = "#34d399";
 const START_EQUITY = 100_000;
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -25,8 +26,8 @@ function formatAxisDate(ts: string): string {
   return new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-function mergeSeries(aPoints: EquityPoint[], bPoints: EquityPoint[], spPoints: EquityPoint[]) {
-  const map = new Map<string, { timestamp: string; a?: number; b?: number; sp?: number }>();
+function mergeSeries(aPoints: EquityPoint[], bPoints: EquityPoint[], spPoints: EquityPoint[], cryptoPoints: EquityPoint[]) {
+  const map = new Map<string, { timestamp: string; a?: number; b?: number; sp?: number; crypto?: number }>();
   for (const p of aPoints) map.set(p.timestamp, { timestamp: p.timestamp, a: p.equity });
   for (const p of bPoints) {
     const ex = map.get(p.timestamp);
@@ -38,17 +39,24 @@ function mergeSeries(aPoints: EquityPoint[], bPoints: EquityPoint[], spPoints: E
     if (ex) ex.sp = p.equity;
     else map.set(p.timestamp, { timestamp: p.timestamp, sp: p.equity });
   }
+  for (const p of cryptoPoints) {
+    const ex = map.get(p.timestamp);
+    if (ex) ex.crypto = p.equity;
+    else map.set(p.timestamp, { timestamp: p.timestamp, crypto: p.equity });
+  }
   const sorted = Array.from(map.values()).sort((x, y) => (x.timestamp < y.timestamp ? -1 : 1));
 
   // Forward-fill: carry the last known value for each series so every
-  // tooltip hover shows all three lines, not just those with data that day.
+  // tooltip hover shows all four lines, not just those with data that day.
   let lastA: number | undefined;
   let lastB: number | undefined;
   let lastSp: number | undefined;
+  let lastCrypto: number | undefined;
   for (const pt of sorted) {
     if (pt.a != null) lastA = pt.a; else if (lastA != null) pt.a = lastA;
     if (pt.b != null) lastB = pt.b; else if (lastB != null) pt.b = lastB;
     if (pt.sp != null) lastSp = pt.sp; else if (lastSp != null) pt.sp = lastSp;
+    if (pt.crypto != null) lastCrypto = pt.crypto; else if (lastCrypto != null) pt.crypto = lastCrypto;
   }
   return sorted;
 }
@@ -59,9 +67,10 @@ interface TooltipItem { value: number; name: string; color: string }
 interface TTProps { active?: boolean; payload?: TooltipItem[]; label?: string }
 
 const SERIES_META = [
-  { key: "a",  name: "Agent A", color: AGENT_A_COLOR },
-  { key: "b",  name: "Agent B", color: AGENT_B_COLOR },
-  { key: "sp", name: "S&P 500", color: SP500_COLOR },
+  { key: "a",      name: "Agent A",  color: AGENT_A_COLOR },
+  { key: "b",      name: "Agent B",  color: AGENT_B_COLOR },
+  { key: "sp",     name: "S&P 500",  color: SP500_COLOR },
+  { key: "crypto", name: "BTC (mkt)", color: CRYPTO_COLOR },
 ] as const;
 
 function CustomTooltip({ active, payload, label }: TTProps) {
@@ -74,6 +83,7 @@ function CustomTooltip({ active, payload, label }: TTProps) {
     if (item.name === "Agent A") valMap.a = item.value;
     else if (item.name === "Agent B") valMap.b = item.value;
     else if (item.name === "S&P 500") valMap.sp = item.value;
+    else if (item.name === "BTC (mkt)") valMap.crypto = item.value;
   }
 
   return (
@@ -179,17 +189,19 @@ export default function EquityCurve({
   const aPoints = (data?.agentA?.length ? data.agentA : localA) ?? [];
   const bPoints = (data?.agentB?.length ? data.agentB : localB) ?? [];
   const spPoints = data?.sp500 ?? [];
+  const cryptoPoints = data?.cryptoBenchmark ?? [];
 
   const equityA = data?.accountA?.equity ?? (aPoints.at(-1)?.equity ?? START_EQUITY);
   const equityB = data?.accountB?.equity ?? (bPoints.at(-1)?.equity ?? START_EQUITY);
   const spLast = spPoints.at(-1)?.equity ?? START_EQUITY;
+  const cryptoLast = cryptoPoints.at(-1)?.equity ?? START_EQUITY;
 
-  const chartData = mergeSeries(aPoints, bPoints, spPoints);
+  const chartData = mergeSeries(aPoints, bPoints, spPoints, cryptoPoints);
   const hasData = chartData.length > 1;
 
   // Y-axis domain — tight around actual data, never includes zero
   const allEquity = chartData
-    .flatMap((p) => [p.a, p.b, p.sp])
+    .flatMap((p) => [p.a, p.b, p.sp, p.crypto])
     .filter((v): v is number => v != null && v > 0);
   const dataMin = allEquity.length ? Math.min(...allEquity) : START_EQUITY;
   const dataMax = allEquity.length ? Math.max(...allEquity) : START_EQUITY;
@@ -205,6 +217,7 @@ export default function EquityCurve({
           <BotStat label="Agent A" equity={equityA} color={AGENT_A_COLOR} loading={loading} />
           <BotStat label="Agent B" equity={equityB} color={AGENT_B_COLOR} loading={loading} />
           <BotStat label="S&P 500" equity={spLast} color={SP500_COLOR} loading={loading} />
+          <BotStat label="BTC (mkt)" equity={cryptoLast} color={CRYPTO_COLOR} loading={loading} />
         </div>
         <div className="flex items-center gap-3 flex-1 max-w-xs">
           <span className="text-xs text-text-muted whitespace-nowrap">Last</span>
@@ -301,6 +314,17 @@ export default function EquityCurve({
               dataKey="sp"
               name="S&P 500"
               stroke={SP500_COLOR}
+              strokeWidth={1.5}
+              strokeDasharray="5 3"
+              dot={false}
+              connectNulls
+            />
+            <Line
+              yAxisId="dollar"
+              type="monotone"
+              dataKey="crypto"
+              name="BTC (mkt)"
+              stroke={CRYPTO_COLOR}
               strokeWidth={1.5}
               strokeDasharray="5 3"
               dot={false}
