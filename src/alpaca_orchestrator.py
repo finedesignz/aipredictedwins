@@ -34,6 +34,7 @@ from src.exit_advisor import ExitAdvisor, TrailingStop, check_position_threshold
 from src.trade_logger import TradeLogger
 
 from src.notifier import alert_bot_crash, alert_drawdown_stop, alert_monitor_error, alert_position_closed, send_alert
+from src.pipeline_state import PipelineState
 
 try:
     from src.trade_memory import TradeMemory
@@ -561,7 +562,8 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                 console.print("  No assets meet confluence threshold")
 
             # -- 4c. Layer 2: MiroFish Risk Gate ------------------------------
-            approved = []
+            approved_states: list[PipelineState] = []
+            _extra: dict[str, dict] = {}
 
             for signal in candidates:
                 symbol = signal.symbol
@@ -584,13 +586,14 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                         # Bypass risk gate — approve all technical signals
                         risk_gate_passed += 1
                         console.print(f"  [green]APPROVED[/green] {symbol} (risk gate disabled)")
-                        approved.append({
-                            "signal": signal,
-                            "price": price,
-                            "change_pct": change_pct,
-                            "volume_24h": volume_24h,
-                            "bars": bars,
-                        })
+                        approved_states.append(
+                            PipelineState(
+                                symbol=symbol,
+                                bars=tuple(bars),
+                                signal=signal,
+                            )
+                        )
+                        _extra[symbol] = {"price": price, "change_pct": change_pct, "volume_24h": volume_24h}
                         continue
 
                     console.print(f"\n  [cyan]Layer 2: Risk gate for {symbol}...[/cyan]")
@@ -606,13 +609,14 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                     if verdict.decision == "PROCEED":
                         risk_gate_passed += 1
                         console.print(f"    [green]PROCEED[/green] — {verdict.reasoning[:80]}")
-                        approved.append({
-                            "signal": signal,
-                            "price": price,
-                            "change_pct": change_pct,
-                            "volume_24h": volume_24h,
-                            "bars": bars,
-                        })
+                        approved_states.append(
+                            PipelineState(
+                                symbol=symbol,
+                                bars=tuple(bars),
+                                signal=signal,
+                            )
+                        )
+                        _extra[symbol] = {"price": price, "change_pct": change_pct, "volume_24h": volume_24h}
                     else:
                         veto_count = sum(1 for v in verdict.votes.values() if str(v).upper() == "VETO")
                         console.print(
@@ -625,7 +629,7 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
 
             # -- 4d. Layer 3: Size and place orders ---------------------------
             cycle_exposure = 0.0
-            for entry in approved:
+            for state in approved_states:
                 # Re-check total exposure before each trade
                 if equity > 0 and (total_exposure + cycle_exposure) / equity >= MAX_TOTAL_EXPOSURE_PCT:
                     console.print(
@@ -634,9 +638,9 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                     )
                     break
 
-                signal = entry["signal"]
+                signal = state.signal
                 symbol = signal.symbol
-                price = entry["price"]
+                price = _extra[symbol]["price"]
 
                 sizing = _kelly_technical(
                     confluence=signal.confluence_score,
@@ -701,8 +705,8 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                                 "sentiment": signal.confluence_score / 5.0,
                                 "confidence": "strong" if signal.confluence_score >= 4 else "moderate",
                                 "price_at_entry": price,
-                                "price_change_24h": entry["change_pct"],
-                                "volume_24h": entry["volume_24h"],
+                                "price_change_24h": _extra[symbol]["change_pct"],
+                                "volume_24h": _extra[symbol]["volume_24h"],
                             })
                         except Exception:
                             pass
