@@ -164,6 +164,23 @@ export interface BotInfo {
   config_flags?: Record<string, string | number | boolean>;
 }
 
+export interface BotFull {
+  bot_id: string;
+  label: string;
+  kelly_fraction: number;
+  min_confluence: number;
+  hard_stop_pct: number;
+  soft_stop_pct: number;
+  rsi_ceiling: number;
+  crypto_universe: string;
+  skip_risk_gate: boolean;
+  max_position_pct: number;
+  enabled: boolean;
+  status: "running" | "stopped" | "error";
+  status_detail: string | null;
+  thread_alive: boolean;
+}
+
 export interface MultiBotPortfolio {
   A?: Portfolio;
   B?: Portfolio;

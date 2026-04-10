@@ -27,12 +27,13 @@ function formatPct(v: number): string {
   return (v >= 0 ? "+" : "") + v.toFixed(1) + "%";
 }
 
+const BOT_COLORS = ["#60a5fa", "#fbbf24", "#34d399", "#f87171", "#a78bfa", "#fb923c"];
+
 interface MergedPoint {
   timestamp: string;
-  a_pct?: number;
-  b_pct?: number;
   spy_pct?: number;
   btc_pct?: number;
+  [key: string]: number | string | undefined;
 }
 
 function mergeSeries(
@@ -46,8 +47,7 @@ function mergeSeries(
     for (const p of s.points) {
       const key = p.timestamp;
       const existing = map.get(key) ?? { timestamp: key };
-      if (s.bot_id === "A") existing.a_pct = p.return_pct;
-      if (s.bot_id === "B") existing.b_pct = p.return_pct;
+      existing[`bot_${s.bot_id}_pct`] = p.return_pct;
       map.set(key, existing);
     }
   }
@@ -139,20 +139,14 @@ function BotStat({
 }
 
 export default function EquityCurve({ series, spy = [], btc = [] }: EquityCurveProps) {
-  const { filter } = useBotFilter();
+  const { filter, bots, activeBotIds } = useBotFilter();
 
-  const filteredSeries = series.filter(
-    (s) => filter[s.bot_id as "A" | "B"] === true
-  );
+  const filteredSeries = series.filter((s) => activeBotIds.includes(s.bot_id));
   const filteredSpy = filter.spy ? spy : [];
-  const filteredBtc = filter.btc ? btc : [];
+  const filteredBtc = (filter.btc ?? false) ? btc : [];
 
   const data = mergeSeries(filteredSeries, filteredSpy, filteredBtc);
   const hasData = data.length > 1;
-
-  // Last return_pct for each bot
-  const lastA = filteredSeries.find((s) => s.bot_id === "A")?.points.at(-1)?.return_pct ?? 0;
-  const lastB = filteredSeries.find((s) => s.bot_id === "B")?.points.at(-1)?.return_pct ?? 0;
 
   return (
     <div className="rounded-lg border border-border-primary bg-bg-card p-4">
@@ -161,12 +155,13 @@ export default function EquityCurve({ series, spy = [], btc = [] }: EquityCurveP
           Equity Curve
         </h3>
         <div className="flex flex-wrap gap-6">
-          {filter.A && filteredSeries.some((s) => s.bot_id === "A") && (
-            <BotStat label="Bot A" returnPct={lastA} color="#60a5fa" />
-          )}
-          {filter.B && filteredSeries.some((s) => s.bot_id === "B") && (
-            <BotStat label="Bot B" returnPct={lastB} color="#fbbf24" />
-          )}
+          {filteredSeries.map((s, i) => {
+            const bot = bots.find((b) => b.bot_id === s.bot_id);
+            const label = bot?.label ?? s.bot_id;
+            const color = BOT_COLORS[i % BOT_COLORS.length];
+            const lastPct = s.points.at(-1)?.return_pct ?? 0;
+            return <BotStat key={s.bot_id} label={label} returnPct={lastPct} color={color} />;
+          })}
         </div>
       </div>
 
@@ -200,28 +195,23 @@ export default function EquityCurve({ series, spy = [], btc = [] }: EquityCurveP
               strokeDasharray="3 3"
               strokeOpacity={0.4}
             />
-            {filter.A && (
-              <Line
-                type="monotone"
-                dataKey="a_pct"
-                name="Bot A"
-                stroke="#60a5fa"
-                strokeWidth={2}
-                dot={false}
-                connectNulls
-              />
-            )}
-            {filter.B && (
-              <Line
-                type="monotone"
-                dataKey="b_pct"
-                name="Bot B"
-                stroke="#fbbf24"
-                strokeWidth={2}
-                dot={false}
-                connectNulls
-              />
-            )}
+            {filteredSeries.map((s, i) => {
+              const bot = bots.find((b) => b.bot_id === s.bot_id);
+              const label = bot?.label ?? s.bot_id;
+              const color = BOT_COLORS[i % BOT_COLORS.length];
+              return (
+                <Line
+                  key={s.bot_id}
+                  type="monotone"
+                  dataKey={`bot_${s.bot_id}_pct`}
+                  name={label}
+                  stroke={color}
+                  strokeWidth={2}
+                  dot={false}
+                  connectNulls
+                />
+              );
+            })}
             {filter.spy && filteredSpy.length > 0 && (
               <Line
                 type="monotone"
@@ -234,7 +224,7 @@ export default function EquityCurve({ series, spy = [], btc = [] }: EquityCurveP
                 connectNulls
               />
             )}
-            {filter.btc && filteredBtc.length > 0 && (
+            {(filter.btc ?? false) && filteredBtc.length > 0 && (
               <Line
                 type="monotone"
                 dataKey="btc_pct"
