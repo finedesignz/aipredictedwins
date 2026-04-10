@@ -100,19 +100,22 @@ class TestADX:
         highs = [100 + i * 1.2 for i in range(n)]
         lows = [99 + i * 1.0 for i in range(n)]
         closes = [100 + i * 1.1 for i in range(n)]
-        adx = _adx(highs, lows, closes, 14)
-        assert adx is not None
-        assert adx > 20  # should indicate strong trend
+        result = _adx(highs, lows, closes, 14)
+        assert result is not None
+        adx, plus_di, minus_di = result
+        assert adx > 20
 
     def test_insufficient_data(self):
         assert _adx([1, 2, 3], [0.5, 1.5, 2.5], [0.8, 1.8, 2.8], 14) is None
 
-    def test_returns_float(self):
+    def test_returns_tuple(self):
         n = 50
         highs = [100 + i * 0.5 for i in range(n)]
         lows = [99 + i * 0.5 for i in range(n)]
         closes = [99.5 + i * 0.5 for i in range(n)]
-        adx = _adx(highs, lows, closes, 14)
+        result = _adx(highs, lows, closes, 14)
+        assert isinstance(result, tuple)
+        adx, plus_di, minus_di = result
         assert isinstance(adx, float)
 
 
@@ -192,6 +195,8 @@ class TestAnalyze:
         assert hasattr(signal, "ema_bullish")
         assert hasattr(signal, "adx_value")
         assert hasattr(signal, "adx_trending")
+        assert hasattr(signal, "plus_di")
+        assert hasattr(signal, "minus_di")
         assert hasattr(signal, "rsi_value")
         assert hasattr(signal, "rsi_signal")
         assert hasattr(signal, "volume_spike")
@@ -199,6 +204,8 @@ class TestAnalyze:
         assert hasattr(signal, "confluence_score")
         assert hasattr(signal, "details")
         assert 0 <= signal.confluence_score <= 5
+        assert signal.plus_di >= 0
+        assert signal.minus_di >= 0
 
     def test_sideways_low_score(self):
         bars = _make_sideways_bars(50)
@@ -374,3 +381,193 @@ class TestKellyTechnical:
         r3 = _kelly_technical(3, 100.0, 10000.0)
         r5 = _kelly_technical(5, 100.0, 10000.0)
         assert r5["kelly_pct"] >= r3["kelly_pct"]
+
+
+class TestRiskGateNoBypass:
+    def test_high_confluence_bypass_does_not_exist(self):
+        """HIGH_CONFLUENCE_BYPASS must not exist on RiskGate."""
+        from src.risk_gate import RiskGate
+        assert not hasattr(RiskGate, "HIGH_CONFLUENCE_BYPASS"), (
+            "HIGH_CONFLUENCE_BYPASS still exists — bypass must be removed entirely"
+        )
+
+    def test_llm_unavailable_vetoes_at_high_confluence(self):
+        """When LLM is unavailable, gate must VETO at confluence=4 (previously bypassed)."""
+        from src.risk_gate import RiskGate, RiskVerdict
+
+        gate = RiskGate.__new__(RiskGate)
+        gate.logger = None
+
+        class FakeLLM:
+            def call(self, *a, **kw):
+                return None
+
+        gate._llm = FakeLLM()
+
+        verdict = gate.evaluate(
+            symbol="BTC/USD", price=70000.0, change_pct=1.5,
+            volume=1000000.0, confluence=4, bars=[],
+        )
+        assert verdict.decision == "VETO", (
+            f"Expected VETO when LLM unavailable (confluence=4), got {verdict.decision}"
+        )
+
+    def test_llm_unavailable_vetoes_at_low_confluence(self):
+        """When LLM is unavailable, gate must VETO at confluence=3 too."""
+        from src.risk_gate import RiskGate
+
+        gate = RiskGate.__new__(RiskGate)
+        gate.logger = None
+
+        class FakeLLM:
+            def call(self, *a, **kw):
+                return None
+
+        gate._llm = FakeLLM()
+
+        verdict = gate.evaluate(
+            symbol="ETH/USD", price=2000.0, change_pct=0.5,
+            volume=500000.0, confluence=3, bars=[],
+        )
+        assert verdict.decision == "VETO"
+
+
+class TestPerCycleEntryCap:
+    def _make_signal(self, symbol, score, rsi):
+        from src.technical_signals import Signal
+        import inspect
+        sig_fields = {f.name for f in Signal.__dataclass_fields__.values()}
+        kwargs = dict(
+            symbol=symbol, ema_bullish=True, adx_value=25.0,
+            adx_trending=True, rsi_value=rsi, rsi_signal="neutral",
+            volume_spike=True, vwap_bullish=True,
+            confluence_score=score, details={},
+        )
+        # Include plus_di/minus_di if the field exists (added by parallel agent)
+        if "plus_di" in sig_fields:
+            kwargs["plus_di"] = 20.0
+        if "minus_di" in sig_fields:
+            kwargs["minus_di"] = 10.0
+        return Signal(**kwargs)
+
+    def test_selects_top_3_by_confluence_then_rsi(self):
+        """_select_cycle_candidates caps at 3, sorted by confluence desc then RSI asc."""
+        from src.alpaca_orchestrator import _select_cycle_candidates
+
+        candidates = [
+            self._make_signal("BTC/USD", 4, 65),
+            self._make_signal("ETH/USD", 4, 58),   # same score, lower RSI → preferred
+            self._make_signal("SOL/USD", 3, 50),
+            self._make_signal("XRP/USD", 4, 70),   # same score, highest RSI → last
+            self._make_signal("ADA/USD", 3, 45),
+            self._make_signal("AVAX/USD", 5, 60),  # highest score → first
+        ]
+
+        selected = _select_cycle_candidates(candidates, max_entries=3)
+        assert len(selected) == 3
+        assert selected[0].symbol == "AVAX/USD"   # 5/60
+        assert selected[1].symbol == "ETH/USD"    # 4/58
+        assert selected[2].symbol == "BTC/USD"    # 4/65
+
+    def test_fewer_than_cap_returns_all(self):
+        """If fewer candidates than cap, return all of them."""
+        from src.alpaca_orchestrator import _select_cycle_candidates
+
+        candidates = [
+            self._make_signal("BTC/USD", 4, 55),
+            self._make_signal("ETH/USD", 3, 50),
+        ]
+        selected = _select_cycle_candidates(candidates, max_entries=3)
+        assert len(selected) == 2
+
+    def test_empty_candidates(self):
+        """Empty list returns empty list."""
+        from src.alpaca_orchestrator import _select_cycle_candidates
+        assert _select_cycle_candidates([], max_entries=3) == []
+
+# ---------------------------------------------------------------------------
+# RSI hard block tests
+# ---------------------------------------------------------------------------
+
+class TestRSIHardBlock:
+    def test_overbought_rsi_returns_none(self):
+        """Assets with RSI > 72 must return None from analyze()."""
+        from src.technical_signals import _rsi
+        bars = _make_uptrend_bars(50, start=100.0, step=1.5)
+        closes = [b["close"] for b in bars]
+        rsi = _rsi(closes, 14)
+        signal = analyze("BTC/USD", bars)
+        if rsi is not None and rsi > 72:
+            assert signal is None, f"Expected None for RSI={rsi:.1f} > 72"
+
+    def test_oversold_rsi_not_blocked(self):
+        """RSI < 35 (oversold) must NOT be blocked."""
+        from src.technical_signals import _rsi
+        bars = _make_downtrend_bars(50, start=125.0, step=0.8)
+        closes = [b["close"] for b in bars]
+        rsi = _rsi(closes, 14)
+        if rsi is not None and rsi < 35:
+            # Should not be blocked by the RSI ceiling check
+            signal = analyze("ADA/USD", bars)
+            # signal may be None for other reasons but NOT because RSI < 35
+            if signal is not None:
+                assert signal.rsi_signal == "oversold"
+
+    def test_rsi_below_ceiling_not_blocked(self):
+        """RSI <= 72 is not blocked by the ceiling check."""
+        from src.technical_signals import _rsi
+        bars = _make_uptrend_bars(50, start=100.0, step=0.1)
+        closes = [b["close"] for b in bars]
+        rsi = _rsi(closes, 14)
+        # If RSI is at or below 72, analyze() must not return None due to ceiling
+        if rsi is not None and rsi <= 72:
+            # Just confirm no crash — may return None for data reasons, not ceiling
+            _ = analyze("SOL/USD", bars)
+
+
+# ---------------------------------------------------------------------------
+# ADX directional filter tests
+# ---------------------------------------------------------------------------
+
+class TestADXDirectional:
+    def test_adx_returns_tuple(self):
+        """_adx() must return (adx, plus_di, minus_di) tuple."""
+        n = 50
+        highs = [100 + i * 1.2 for i in range(n)]
+        lows = [99 + i * 1.0 for i in range(n)]
+        closes = [100 + i * 1.1 for i in range(n)]
+        result = _adx(highs, lows, closes, 14)
+        assert isinstance(result, tuple), f"Expected tuple, got {type(result)}"
+        assert len(result) == 3
+        adx, plus_di, minus_di = result
+        assert adx is not None
+        assert plus_di >= 0
+        assert minus_di >= 0
+
+    def test_uptrend_plus_di_dominates(self):
+        """In an uptrend, +DI > -DI."""
+        n = 50
+        highs = [100 + i * 1.2 for i in range(n)]
+        lows = [99 + i * 1.0 for i in range(n)]
+        closes = [100 + i * 1.1 for i in range(n)]
+        adx, plus_di, minus_di = _adx(highs, lows, closes, 14)
+        assert plus_di > minus_di, f"+DI={plus_di:.1f} should > -DI={minus_di:.1f}"
+
+    def test_downtrend_minus_di_dominates(self):
+        """In a downtrend, -DI > +DI."""
+        n = 50
+        highs = [125 - i * 1.0 for i in range(n)]
+        lows = [124 - i * 1.2 for i in range(n)]
+        closes = [124.5 - i * 1.1 for i in range(n)]
+        adx, plus_di, minus_di = _adx(highs, lows, closes, 14)
+        assert minus_di > plus_di, f"-DI={minus_di:.1f} should > +DI={plus_di:.1f}"
+
+    def test_signal_has_di_fields(self):
+        """Signal dataclass must have plus_di and minus_di fields."""
+        bars = _make_uptrend_bars(50)
+        signal = analyze("BTC/USD", bars)
+        if signal is not None:
+            assert hasattr(signal, "plus_di")
+            assert hasattr(signal, "minus_di")
+            assert signal.plus_di >= 0
+            assert signal.minus_di >= 0

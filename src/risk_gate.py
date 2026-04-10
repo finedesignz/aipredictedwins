@@ -85,9 +85,6 @@ class RiskVerdict:
 class RiskGate:
     """Pre-trade risk evaluation using LLM-simulated analyst panel."""
 
-    # High-confluence trades (4+/5) can bypass the gate when LLM is unavailable
-    HIGH_CONFLUENCE_BYPASS = 4
-
     def __init__(self, config=None, logger: TradeLogger | None = None, model: str = "claude-sonnet-4-6"):
         self.logger = logger
         self._llm = ClaudeLLM(model=model, timeout=90)
@@ -125,21 +122,12 @@ class RiskGate:
         raw = self._llm.call(prompt)
 
         if raw is None:
-            log.error("Risk gate LLM call failed for %s", symbol)
-
-            # High-confluence trades can proceed without LLM vetting
-            if confluence >= self.HIGH_CONFLUENCE_BYPASS:
-                verdict = RiskVerdict(
-                    decision="PROCEED",
-                    reasoning=f"Risk gate unavailable. PROCEEDING on high confluence ({confluence}/5).",
-                    scenarios=[], votes={}, raw_response="",
-                )
-            else:
-                verdict = RiskVerdict(
-                    decision="VETO",
-                    reasoning=f"Risk gate unavailable. VETO on low confluence ({confluence}/5).",
-                    scenarios=[], votes={}, raw_response="",
-                )
+            log.error("Risk gate LLM call failed for %s — VETO (fail-closed)", symbol)
+            verdict = RiskVerdict(
+                decision="VETO",
+                reasoning="Risk gate LLM unavailable. VETO fail-closed regardless of confluence.",
+                scenarios=[], votes={}, raw_response="",
+            )
         else:
             verdict = self._parse_response(raw)
 
