@@ -146,6 +146,18 @@ Save is optimistic — updates UI immediately, rolls back on API error.
 
 ## Claude Chat UI
 
+### Claude Credential Persistence
+
+The `claude` CLI authenticates via OAuth tokens stored in `/root/.claude/.credentials.json`. These must survive container rebuilds and never expire during normal operation.
+
+**Mechanism:**
+1. Coolify stores `CLAUDE_CREDENTIALS` env var (JSON blob of the credentials file)
+2. `entrypoint.sh` writes it to `/root/.claude/.credentials.json` on every container start — this refreshes the file even after a rebuild
+3. A persistent Coolify volume mounts `/root/.claude` — so tokens refreshed by the CLI at runtime are also preserved between restarts
+4. A background health-check task in FastAPI runs `claude --version` every 6 hours; if it fails (token expired), it rewrites credentials from `CLAUDE_CREDENTIALS` env var and alerts via the notifier
+
+This means credentials never expire silently — the dashboard itself monitors and self-heals the Claude auth state.
+
 ### Backend: `POST /api/chat/message` (SSE response)
 
 Accepts `{ message: string, context?: object }`. Spawns `claude` CLI subprocess with:
@@ -153,7 +165,7 @@ Accepts `{ message: string, context?: object }`. Spawns `claude` CLI subprocess 
 - User message appended
 - Streams stdout back as SSE events
 
-The `claude` binary is already on the server (used by the existing bots). No new credentials needed — uses `/root/.claude` OAuth.
+Uses `/root/.claude` credentials maintained by the persistence mechanism above.
 
 ### Frontend: `/chat` page + sidebar widget
 
@@ -174,9 +186,12 @@ The `claude` binary is already on the server (used by the existing bots). No new
 6. Add `/api/chat/message` SSE endpoint
 7. Build `/bots` page in Next.js dashboard
 8. Build `/chat` UI
-9. Deploy dashboard update
-10. Verify both bots running via new manager
-11. Delete old Bot A + Bot B Coolify apps
+9. Add `/root/.claude` persistent volume to dashboard Coolify app + set `CLAUDE_CREDENTIALS` env var
+10. Update `entrypoint.sh` to write credentials on startup + add FastAPI health-check task
+11. Deploy dashboard update
+12. Verify both bots running via new manager
+13. Verify Claude chat working with fresh credentials
+14. Delete old Bot A + Bot B Coolify apps
 
 ---
 
