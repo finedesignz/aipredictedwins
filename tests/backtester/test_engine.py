@@ -44,3 +44,15 @@ class TestBacktestEngine:
         result = engine.run(_load_all_fixtures(), "2026-03-01", "2026-03-03")
         all_open = [p.symbol for p in result.open_positions()]
         assert len(all_open) == len(set(all_open))
+
+    def test_open_positions_force_closed_at_end(self):
+        engine = BacktestEngine(config=PHASE_PRESETS[0])
+        result = engine.run(_load_all_fixtures(), "2026-03-01", "2026-03-03")
+        # After run, there should be no open positions
+        assert result.open_positions() == []
+        # All trades should be in trade_history
+        from src.backtester.metrics import compute_summary
+        summary = compute_summary(
+            result.trade_history(), [], PHASE_PRESETS[0].starting_equity
+        )
+        assert summary["trade_count"] == len(result.trade_history())

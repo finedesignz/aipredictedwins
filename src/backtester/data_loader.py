@@ -66,7 +66,7 @@ def load_bars_cached(
     with open(path) as f:
         all_bars = json.load(f)
     bars = [normalise_bar(b) for b in all_bars
-            if start_iso <= str(b.get("timestamp", "")) <= end_iso]
+            if start_iso[:10] <= str(b.get("timestamp", ""))[:10] <= end_iso[:10]]
     bars.sort(key=lambda b: b["timestamp"])
     log.debug("Bar cache HIT: %s %s bars (%s-%s)", symbol, len(bars), start_iso[:10], end_iso[:10])
     return bars or None
@@ -104,14 +104,18 @@ def load_bars_from_alpaca(
     """Fetch bars from Alpaca and write to disk cache. Requires ALPACA_API_KEY/SECRET in env."""
     from alpaca.data import CryptoHistoricalDataClient
     from alpaca.data.requests import CryptoBarsRequest
-    from alpaca.data.timeframe import TimeFrame
+    from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 
     api_key = os.environ.get("ALPACA_API_KEY")
     secret_key = os.environ.get("ALPACA_SECRET_KEY")
     if not api_key or not secret_key:
         raise RuntimeError("ALPACA_API_KEY and ALPACA_SECRET_KEY must be set")
 
-    tf_map = {"1Hour": TimeFrame.Hour, "1Day": TimeFrame.Day, "15Min": TimeFrame.Minute}
+    tf_map = {
+        "1Hour": TimeFrame.Hour,
+        "1Day": TimeFrame.Day,
+        "15Min": TimeFrame(15, TimeFrameUnit.Minute),
+    }
     tf = tf_map.get(timeframe, TimeFrame.Hour)
     client = CryptoHistoricalDataClient(api_key, secret_key)
     request = CryptoBarsRequest(symbol_or_symbols=symbol, timeframe=tf,

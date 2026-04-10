@@ -146,6 +146,17 @@ class BacktestEngine:
 
             equity_curve.append(portfolio.equity(prices=current_prices))
 
+        # Force-close any open positions at the last available bar's close price
+        last_prices: dict[str, float] = {}
+        for sym, bars in bars_by_symbol.items():
+            in_window = [b for b in bars if start_iso[:10] <= b.get("timestamp", "")[:10] <= end_iso[:10]]
+            if in_window:
+                last_prices[sym] = in_window[-1].get("close", 0.0)
+
+        for pos in list(portfolio.open_positions()):
+            close_price = last_prices.get(pos.symbol, pos.entry_price)
+            portfolio.close_position(pos.trade_id, close_price, end_iso + "T23:59:59", "end_of_backtest")
+
         self._equity_curve = equity_curve
         return portfolio
 
