@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useAPI } from "@/hooks/useAPI";
 import type { Portfolio, Position, EquityData, MultiBotPortfolio, BenchmarkPoint } from "@/types";
 import HeroKPI from "@/components/kpi/HeroKPI";
@@ -15,8 +16,15 @@ import {
   formatPercentUnsigned,
 } from "@/lib/format";
 
+function daysAgo(n: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return d.toISOString().slice(0, 10);
+}
+
 export default function OverviewPage() {
   const { botParam } = useBotFilter();
+  const [days, setDays] = useState<7 | 14 | 30 | 60 | 90>(30);
 
   const { data: rawPortfolio, loading: portfolioLoading } = useAPI<Portfolio | MultiBotPortfolio>(
     `/api/portfolio?bot=${botParam}`,
@@ -26,9 +34,9 @@ export default function OverviewPage() {
     `/api/positions/open?bot=${botParam}`,
     30000
   );
-  const { data: equityData } = useAPI<EquityData>(`/api/equity?bot=${botParam}`);
-  const { data: spyData } = useAPI<BenchmarkPoint[]>("/api/benchmark/spy", 300000);
-  const { data: btcData } = useAPI<BenchmarkPoint[]>("/api/benchmark/btc", 300000);
+  const { data: equityData } = useAPI<EquityData>(`/api/equity?bot=${botParam}&days=${days}`);
+  const { data: spyData } = useAPI<BenchmarkPoint[]>(`/api/benchmark/spy?since=${daysAgo(days)}`, 300000);
+  const { data: btcData } = useAPI<BenchmarkPoint[]>(`/api/benchmark/btc?since=${daysAgo(days)}`, 300000);
 
   // Derive per-bot values
   const isMulti = botParam === "both";
@@ -127,6 +135,8 @@ export default function OverviewPage() {
         series={equityData?.series ?? []}
         spy={spyData ?? []}
         btc={btcData ?? []}
+        days={days}
+        onDaysChange={setDays}
       />
 
       {/* Two-column: positions + activity */}

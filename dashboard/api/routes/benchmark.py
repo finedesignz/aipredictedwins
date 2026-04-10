@@ -71,8 +71,10 @@ def get_spy_benchmark(
     points = []
     for bar in bars:
         return_pct = round((bar.close - base_close) / base_close * 100, 4)
+        # Normalise to midnight UTC so timestamps align with bot portfolio points
+        day = bar.timestamp.strftime("%Y-%m-%d")
         points.append(BenchmarkPoint(
-            timestamp=bar.timestamp.isoformat(),
+            timestamp=f"{day}T00:00:00+00:00",
             return_pct=return_pct,
         ).model_dump())
 

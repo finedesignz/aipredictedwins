@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   LineChart,
   Line,
@@ -12,10 +13,15 @@ import {
 import type { EquitySeries, BenchmarkPoint } from "@/types";
 import { useBotFilter } from "@/context/BotFilterContext";
 
+const DAY_OPTIONS = [7, 14, 30, 60, 90] as const;
+type DayOption = typeof DAY_OPTIONS[number];
+
 interface EquityCurveProps {
   series: EquitySeries[];
   spy?: BenchmarkPoint[];
   btc?: BenchmarkPoint[];
+  days: DayOption;
+  onDaysChange: (d: DayOption) => void;
 }
 
 function formatAxisDate(timestamp: string): string {
@@ -138,7 +144,7 @@ function BotStat({
   );
 }
 
-export default function EquityCurve({ series, spy = [], btc = [] }: EquityCurveProps) {
+export default function EquityCurve({ series, spy = [], btc = [], days, onDaysChange }: EquityCurveProps) {
   const { filter } = useBotFilter();
 
   const filteredSeries = series.filter(
@@ -160,13 +166,28 @@ export default function EquityCurve({ series, spy = [], btc = [] }: EquityCurveP
         <h3 className="text-sm font-medium text-text-secondary self-center">
           Equity Curve
         </h3>
-        <div className="flex flex-wrap gap-6">
+        <div className="flex flex-wrap items-center gap-6">
           {filter.A && filteredSeries.some((s) => s.bot_id === "A") && (
             <BotStat label="Bot A" returnPct={lastA} color="#60a5fa" />
           )}
           {filter.B && filteredSeries.some((s) => s.bot_id === "B") && (
             <BotStat label="Bot B" returnPct={lastB} color="#fbbf24" />
           )}
+          <div className="flex items-center gap-1 rounded-md border border-border-primary overflow-hidden">
+            {DAY_OPTIONS.map((d) => (
+              <button
+                key={d}
+                onClick={() => onDaysChange(d)}
+                className={`px-2.5 py-1 text-xs font-medium transition-colors ${
+                  days === d
+                    ? "bg-accent-blue text-white"
+                    : "text-text-muted hover:text-text-primary"
+                }`}
+              >
+                {d}d
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
