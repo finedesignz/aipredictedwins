@@ -119,7 +119,9 @@ Each thread is fully isolated — its own Alpaca credentials, its own DB writes 
 
 ### `/bots` page
 
-**Bot list** — one card per bot:
+**Bot list** — dynamically fetches all bots from `GET /api/bots` on page load and polls every 30s for status updates. The list reflects exactly what is in the DB — no hardcoded Bot A/Bot B references anywhere in the frontend. Every existing component that currently references "Agent A" / "Agent B" by name is updated to iterate over the bots array from the API.
+
+One card per bot:
 - Label + bot_id badge
 - Status dot (green=running, red=error, grey=stopped)
 - Live equity + daily P&L (fetched from Alpaca on each card render)
@@ -178,9 +180,22 @@ The `claude` binary is already on the server (used by the existing bots). No new
 
 ---
 
+## Dynamic Bot References
+
+Every part of the UI that currently hardcodes "Agent A" / "Agent B" is replaced with dynamic rendering from the `bots` API:
+
+- **Equity chart** — renders one line per bot returned from DB; color assigned by index; legend labels use `bot.label`
+- **Portfolio header stats** — one stat pill per bot, not hardcoded two
+- **Positions page** — bot badge uses `bot.label` from DB
+- **Trades table** — bot column populated from `bot_id` → `label` lookup
+- **Activity feed** — bot label resolved from DB, not hardcoded
+
+Adding a third bot in the `/bots` UI automatically makes it appear everywhere with no frontend code changes.
+
+---
+
 ## What Does NOT Change
 
 - Existing orchestrator logic (`src/alpaca_orchestrator.py`) — untouched, just instantiated per-thread
-- Dashboard equity chart, positions, trades pages — unchanged
 - Alpaca account separation — each bot still has its own paper account
 - Postgres `alpaca_trades` schema — `bot_id` column already exists
