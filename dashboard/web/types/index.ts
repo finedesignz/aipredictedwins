@@ -124,7 +124,7 @@ export interface BotSettings {
   health: {
     claude_cli: boolean;
     alpaca_api: boolean;
-    sqlite_db: boolean;
+    database: boolean;
     db_size_mb: number;
   };
 }

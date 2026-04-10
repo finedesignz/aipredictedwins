@@ -3,9 +3,10 @@
 import { useAPI } from "@/hooks/useAPI";
 import type { BotSettings } from "@/types";
 import BotStatusComponent from "@/components/settings/BotStatus";
+import ErrorBanner from "@/components/shared/ErrorBanner";
 
 export default function SettingsPage() {
-  const { data: settings, loading } = useAPI<BotSettings>(
+  const { data: settings, loading, error } = useAPI<BotSettings>(
     "/api/settings",
     10000
   );
@@ -17,6 +18,8 @@ export default function SettingsPage() {
         System health, bot status, and configuration. All values are read-only
         -- update configuration in the bot environment.
       </p>
+
+      <ErrorBanner error={error} />
 
       {loading || !settings ? (
         <div className="space-y-4">

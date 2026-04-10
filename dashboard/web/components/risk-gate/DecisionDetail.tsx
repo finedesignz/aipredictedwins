@@ -23,7 +23,7 @@ export default function DecisionDetail({ decision }: DecisionDetailProps) {
         <p className="text-sm text-text-secondary">{decision.reasoning}</p>
       </div>
 
-      {decision.scenarios.length > 0 && (
+      {(decision.scenarios?.length ?? 0) > 0 && (
         <div>
           <h4 className="text-xs font-medium uppercase tracking-wider text-text-muted mb-2">
             Analyst Scenarios

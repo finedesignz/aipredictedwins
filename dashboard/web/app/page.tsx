@@ -17,12 +17,13 @@ import {
   formatPercent,
   formatPercentUnsigned,
 } from "@/lib/format";
+import ErrorBanner from "@/components/shared/ErrorBanner";
 
 export default function OverviewPage() {
   const { botParam, bots, activeBotIds } = useBotFilter();
   const [days, setDays] = useState<DayOption>(30);
 
-  const { data: rawPortfolio, loading: portfolioLoading } = useAPI<Portfolio | MultiBotPortfolio>(
+  const { data: rawPortfolio, loading: portfolioLoading, error: portfolioError } = useAPI<Portfolio | MultiBotPortfolio>(
     `/api/portfolio?bot=${botParam}&days=${days}`,
     10000
   );
@@ -92,6 +93,8 @@ export default function OverviewPage() {
     <div className="space-y-6">
       {/* Bot filter */}
       <BotFilter />
+
+      <ErrorBanner error={portfolioError} />
 
       {/* Hero KPI */}
       {isMulti ? (

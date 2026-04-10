@@ -15,7 +15,7 @@ async function apiFetch(path: string, options: RequestInit = {}) {
 }
 
 export default function BotsPage() {
-  const { data: bots, refetch } = useAPI<BotFull[]>("/api/bots", 30_000);
+  const { data: bots, loading, refetch } = useAPI<BotFull[]>("/api/bots", 30_000);
   const [editBot, setEditBot] = useState<BotFull | null | undefined>(undefined);
   const [open, setOpen] = useState(false);
 
@@ -47,7 +47,11 @@ export default function BotsPage() {
         <h1 className="text-lg font-semibold text-text-primary">Bots</h1>
         <button onClick={openNew} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium rounded">+ Add Bot</button>
       </div>
-      {bots && bots.length > 0 ? (
+      {loading ? (
+        <div className="flex items-center justify-center h-48 rounded-lg border border-border-primary bg-bg-card">
+          <p className="text-sm text-text-muted">Loading bots...</p>
+        </div>
+      ) : bots && bots.length > 0 ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {bots.map((bot) => <BotCard key={bot.bot_id} bot={bot} onEdit={openEdit} onToggle={handleToggle} />)}
         </div>

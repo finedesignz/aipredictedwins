@@ -76,7 +76,12 @@ def _fetch_trades(
         prob = r.get("mirofish_prob") or 0.0
         r["confluence_score"] = round(prob * 5, 1)
         r["quantity"] = r.get("qty") or 0.0
-        r["pnl_percent"] = None
+        entry = r.get("entry_price")
+        exit_ = r.get("exit_price")
+        if entry and exit_ and entry != 0:
+            r["pnl_percent"] = round((exit_ - entry) / entry * 100, 4)
+        else:
+            r["pnl_percent"] = None
         r["close_reason"] = r.get("notes")
         raw_side = r.get("side", "buy") or "buy"
         r["side"] = "long" if raw_side.lower() in ("buy", "long") else "short"

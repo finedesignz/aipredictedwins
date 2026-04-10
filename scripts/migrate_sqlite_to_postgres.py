@@ -258,7 +258,7 @@ def migrate_bot(sqlite_path: str, bot_id: str, pg_conn) -> dict:
         count = fn(sqlite_conn, pg_conn, bot_id)
         # Verify count
         sqlite_count = sqlite_conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-        pg_filter = "date" if table == "daily_stats" else "source_id IS NOT NULL"
+        pg_filter = "TRUE" if table == "daily_stats" else "source_id IS NOT NULL"
         pg_count_row = pg_conn.execute(
             f"SELECT COUNT(*) AS n FROM {table} WHERE bot_id = %s AND {pg_filter}",
             (bot_id,),

@@ -141,8 +141,8 @@ export default function BotStatus({ settings }: BotStatusProps) {
             icon={Activity}
           />
           <HealthIndicator
-            label="SQLite DB"
-            healthy={settings.health.sqlite_db}
+            label="Database"
+            healthy={settings.health.database}
             icon={Database}
             detail={`${settings.health.db_size_mb.toFixed(1)} MB`}
           />

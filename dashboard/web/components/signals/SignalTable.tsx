@@ -34,11 +34,22 @@ const columns = [
   }),
   columnHelper.accessor("adx_value", {
     header: "ADX",
-    cell: (info) => (
-      <span className="font-mono-nums text-sm text-text-secondary">
-        {info.getValue().toFixed(1)}
-      </span>
-    ),
+    cell: (info) => {
+      const adxSignal = info.row.original.adx_signal;
+      const arrow = adxSignal === "bullish" ? " ↑" : adxSignal === "bearish" ? " ↓" : "";
+      const arrowColor =
+        adxSignal === "bullish"
+          ? "text-profit-green"
+          : adxSignal === "bearish"
+          ? "text-loss-red"
+          : "text-text-muted";
+      return (
+        <span className="font-mono-nums text-sm text-text-secondary">
+          {info.getValue().toFixed(1)}
+          <span className={arrowColor}>{arrow}</span>
+        </span>
+      );
+    },
   }),
   columnHelper.accessor("rsi_value", {
     header: "RSI",

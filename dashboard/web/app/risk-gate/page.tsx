@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useAPI } from "@/hooks/useAPI";
 import type { RiskDecision } from "@/types";
 import DecisionTable from "@/components/risk-gate/DecisionTable";
+import ErrorBanner from "@/components/shared/ErrorBanner";
 import { useBotFilter } from "@/context/BotFilterContext";
 
 type FilterType = "PROCEED" | "VETO" | null;
@@ -11,7 +12,7 @@ type FilterType = "PROCEED" | "VETO" | null;
 export default function RiskGatePage() {
   const [filter, setFilter] = useState<FilterType>(null);
   const { botParam } = useBotFilter();
-  const { data: decisions, loading } = useAPI<RiskDecision[]>(`/api/risk-gate?bot=${botParam}`);
+  const { data: decisions, loading, error } = useAPI<RiskDecision[]>(`/api/risk-gate?bot=${botParam}`);
 
   const counts = {
     all: decisions?.length ?? 0,
@@ -29,6 +30,8 @@ export default function RiskGatePage() {
         Every trade candidate passes through a 5-analyst MiroFish risk panel.
         Click a row to see the full scenario analysis and individual votes.
       </p>
+
+      <ErrorBanner error={error} />
 
       {/* Filter chips */}
       <div className="flex gap-2" role="group" aria-label="Filter by decision">

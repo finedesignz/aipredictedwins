@@ -7,6 +7,7 @@ import type { Trade } from "@/types";
 import { buildQueryString } from "@/lib/api";
 import { formatCurrency, formatPercentUnsigned } from "@/lib/format";
 import TradeTable from "@/components/trades/TradeTable";
+import ErrorBanner from "@/components/shared/ErrorBanner";
 import { useBotFilter } from "@/context/BotFilterContext";
 
 const SYMBOLS = ["BTC/USD", "ETH/USD", "SOL/USD", "XRP/USD", "ADA/USD", "AVAX/USD", "DOT/USD", "LINK/USD"];
@@ -22,7 +23,7 @@ export default function TradesPage() {
   const [dateTo, setDateTo] = useState<string>("");
 
   const qs = buildQueryString({ bot: botParam, symbol, date_from: dateFrom, date_to: dateTo });
-  const { data: trades, loading } = useAPI<Trade[]>(`/api/trades${qs}`);
+  const { data: trades, loading, error } = useAPI<Trade[]>(`/api/trades${qs}`);
 
   const summary = useMemo(() => {
     if (!trades || trades.length === 0) return null;
@@ -94,6 +95,8 @@ export default function TradesPage() {
           Export CSV
         </button>
       </div>
+
+      <ErrorBanner error={error} />
 
       {/* Filter bar */}
       <div className="flex flex-wrap gap-3">

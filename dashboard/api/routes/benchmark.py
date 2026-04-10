@@ -17,10 +17,7 @@ from models import BenchmarkPoint, Envelope, Meta
 
 router = APIRouter(prefix="/api/benchmark", tags=["benchmark"])
 
-_ALPACA_KEY = os.environ.get("DASH_ALPACA_API_KEY", "")
-_ALPACA_SECRET = os.environ.get("DASH_ALPACA_SECRET_KEY", "")
-
-_spy_cache: dict = {"data": [], "ts": 0.0}
+_spy_cache: dict[str, dict] = {}  # keyed by since string
 _CACHE_TTL = 300.0  # 5 minutes
 
 
@@ -29,7 +26,13 @@ def _fetch_spy_bars(start: datetime) -> list:
     from alpaca.data.requests import StockBarsRequest
     from alpaca.data.timeframe import TimeFrame
 
-    client = StockHistoricalDataClient(_ALPACA_KEY, _ALPACA_SECRET)
+    # Read keys lazily so a missing-at-startup env var is picked up after restart
+    key = os.environ.get("DASH_ALPACA_API_KEY", "")
+    secret = os.environ.get("DASH_ALPACA_SECRET_KEY", "")
+    if not key or not secret:
+        return []
+
+    client = StockHistoricalDataClient(key, secret)
     req = StockBarsRequest(
         symbol_or_symbols="SPY",
         timeframe=TimeFrame.Day,
@@ -44,11 +47,13 @@ def get_spy_benchmark(
     since: Optional[str] = Query(None, description="ISO date. Defaults to 90 days ago."),
 ):
     """Return SPY daily return_pct normalized to 0% at first data point."""
+    cache_key = since or "default"
     now = time.time()
-    if now - _spy_cache["ts"] < _CACHE_TTL and _spy_cache["data"]:
-        return Envelope(data=_spy_cache["data"], meta=Meta())
+    cached = _spy_cache.get(cache_key)
+    if cached and now - cached["ts"] < _CACHE_TTL and cached["data"]:
+        return Envelope(data=cached["data"], meta=Meta())
 
-    if not _ALPACA_KEY or not _ALPACA_SECRET:
+    if not os.environ.get("DASH_ALPACA_API_KEY"):
         return Envelope(data=[], meta=Meta())
 
     if since:
@@ -78,5 +83,5 @@ def get_spy_benchmark(
             return_pct=return_pct,
         ).model_dump())
 
-    _spy_cache.update({"data": points, "ts": now})
+    _spy_cache[cache_key] = {"data": points, "ts": now}
     return Envelope(data=points, meta=Meta(count=len(points)))
