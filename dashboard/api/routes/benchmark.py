@@ -26,9 +26,17 @@ def _fetch_spy_bars(start: datetime) -> list:
     from alpaca.data.requests import StockBarsRequest
     from alpaca.data.timeframe import TimeFrame
 
-    # Read keys lazily so a missing-at-startup env var is picked up after restart
-    key = os.environ.get("DASH_ALPACA_API_KEY", "")
-    secret = os.environ.get("DASH_ALPACA_SECRET_KEY", "")
+    # Read keys lazily — prefer dedicated dashboard key, fall back to Bot A keys
+    key = (
+        os.environ.get("DASH_ALPACA_API_KEY")
+        or os.environ.get("ALPACA_API_KEY_A")
+        or os.environ.get("ALPACA_API_KEY", "")
+    )
+    secret = (
+        os.environ.get("DASH_ALPACA_SECRET_KEY")
+        or os.environ.get("ALPACA_SECRET_KEY_A")
+        or os.environ.get("ALPACA_SECRET_KEY", "")
+    )
     if not key or not secret:
         return []
 
@@ -53,7 +61,7 @@ def get_spy_benchmark(
     if cached and now - cached["ts"] < _CACHE_TTL and cached["data"]:
         return Envelope(data=cached["data"], meta=Meta())
 
-    if not os.environ.get("DASH_ALPACA_API_KEY"):
+    if not (os.environ.get("DASH_ALPACA_API_KEY") or os.environ.get("ALPACA_API_KEY_A") or os.environ.get("ALPACA_API_KEY")):
         return Envelope(data=[], meta=Meta())
 
     if since:
