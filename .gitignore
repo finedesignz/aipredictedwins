@@ -27,3 +27,4 @@ Thumbs.db
 .superpowers/
 dashboard/web/node_modules/
 dashboard/web/.next/
+.worktrees/
