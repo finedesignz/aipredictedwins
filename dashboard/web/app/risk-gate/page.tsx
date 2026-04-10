@@ -4,12 +4,14 @@ import { useState } from "react";
 import { useAPI } from "@/hooks/useAPI";
 import type { RiskDecision } from "@/types";
 import DecisionTable from "@/components/risk-gate/DecisionTable";
+import { useBotFilter } from "@/context/BotFilterContext";
 
 type FilterType = "PROCEED" | "VETO" | null;
 
 export default function RiskGatePage() {
   const [filter, setFilter] = useState<FilterType>(null);
-  const { data: decisions, loading } = useAPI<RiskDecision[]>("/api/risk-gate");
+  const { botParam } = useBotFilter();
+  const { data: decisions, loading } = useAPI<RiskDecision[]>(`/api/risk-gate?bot=${botParam}`);
 
   const counts = {
     all: decisions?.length ?? 0,

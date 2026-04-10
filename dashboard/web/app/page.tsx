@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useAPI } from "@/hooks/useAPI";
 import type { Portfolio, Position, EquityData, MultiBotPortfolio, BenchmarkPoint } from "@/types";
 import HeroKPI from "@/components/kpi/HeroKPI";
@@ -35,8 +35,19 @@ export default function OverviewPage() {
     30000
   );
   const { data: equityData } = useAPI<EquityData>(`/api/equity?bot=${botParam}&days=${days}`);
-  const { data: spyData } = useAPI<BenchmarkPoint[]>(`/api/benchmark/spy?since=${daysAgo(days)}`, 300000);
-  const { data: btcData } = useAPI<BenchmarkPoint[]>(`/api/benchmark/btc?since=${daysAgo(days)}`, 300000);
+
+  // Derive the earliest date in the equity series so benchmarks start at the same point
+  const benchmarkSince = useMemo(() => {
+    if (!equityData?.series?.length) return daysAgo(days);
+    const dates = equityData.series
+      .flatMap((s) => s.points)
+      .map((p) => p.timestamp.slice(0, 10))
+      .filter(Boolean);
+    return dates.length ? [...dates].sort()[0] : daysAgo(days);
+  }, [equityData, days]);
+
+  const { data: spyData } = useAPI<BenchmarkPoint[]>(`/api/benchmark/spy?since=${benchmarkSince}`, 300000);
+  const { data: btcData } = useAPI<BenchmarkPoint[]>(`/api/benchmark/btc?since=${benchmarkSince}`, 300000);
 
   // Derive per-bot values
   const isMulti = botParam === "both";

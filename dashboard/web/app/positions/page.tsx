@@ -5,17 +5,20 @@ import { useAPI } from "@/hooks/useAPI";
 import type { Position, ClosedPosition } from "@/types";
 import PositionCard from "@/components/positions/PositionCard";
 import ClosedTable from "@/components/positions/ClosedTable";
+import { useBotFilter } from "@/context/BotFilterContext";
 
 type Tab = "open" | "closed";
 
 export default function PositionsPage() {
   const [activeTab, setActiveTab] = useState<Tab>("open");
+  const { botParam } = useBotFilter();
+
   const { data: openPositions, loading: openLoading } = useAPI<Position[]>(
-    "/api/positions/open",
+    `/api/positions/open?bot=${botParam}`,
     30000
   );
   const { data: closedPositions, loading: closedLoading } =
-    useAPI<ClosedPosition[]>("/api/positions/closed");
+    useAPI<ClosedPosition[]>(`/api/positions/closed?bot=${botParam}`);
 
   return (
     <div className="space-y-6">

@@ -7,10 +7,12 @@ import type { Trade } from "@/types";
 import { buildQueryString } from "@/lib/api";
 import { formatCurrency, formatPercentUnsigned } from "@/lib/format";
 import TradeTable from "@/components/trades/TradeTable";
+import { useBotFilter } from "@/context/BotFilterContext";
 
 const SYMBOLS = ["BTC/USD", "ETH/USD", "SOL/USD", "XRP/USD", "ADA/USD", "AVAX/USD", "DOT/USD", "LINK/USD"];
 
 export default function TradesPage() {
+  const { botParam } = useBotFilter();
   const [symbol, setSymbol] = useState<string>("");
   const [dateFrom, setDateFrom] = useState<string>(() => {
     const d = new Date();
@@ -19,7 +21,7 @@ export default function TradesPage() {
   });
   const [dateTo, setDateTo] = useState<string>("");
 
-  const qs = buildQueryString({ symbol, date_from: dateFrom, date_to: dateTo });
+  const qs = buildQueryString({ bot: botParam, symbol, date_from: dateFrom, date_to: dateTo });
   const { data: trades, loading } = useAPI<Trade[]>(`/api/trades${qs}`);
 
   const summary = useMemo(() => {
