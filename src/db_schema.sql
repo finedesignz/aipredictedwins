@@ -193,8 +193,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_alpaca_trades_bot_src ON alpaca_trades (bot
 CREATE UNIQUE INDEX IF NOT EXISTS ux_validations_bot_src   ON validations   (bot_id, source_id) WHERE source_id IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS ux_screenings_bot_src    ON screenings    (bot_id, source_id) WHERE source_id IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS ux_trades_bot_src        ON trades        (bot_id, source_id) WHERE source_id IS NOT NULL;
-CREATE UNIQUE INDEX IF NOT EXISTS ux_trade_lessons_bot_src ON trade_lessons (bot_id, source_id) WHERE source_id IS NOT NULL;
-CREATE UNIQUE INDEX IF NOT EXISTS ux_trade_context_bot_src ON trade_context (bot_id, source_id) WHERE source_id IS NOT NULL;
+-- trade_lessons and trade_context have no source_id column — no dedup index needed
 
 -- Additional targeted indexes
 CREATE INDEX IF NOT EXISTS idx_alpaca_trades_bot_status  ON alpaca_trades (bot_id, status);
