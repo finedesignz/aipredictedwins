@@ -114,7 +114,6 @@ def load_bars_from_alpaca(
     tf_map = {"1Hour": TimeFrame.Hour, "1Day": TimeFrame.Day, "15Min": TimeFrame.Minute}
     tf = tf_map.get(timeframe, TimeFrame.Hour)
     client = CryptoHistoricalDataClient(api_key, secret_key)
-    from alpaca.data.requests import CryptoBarsRequest
     request = CryptoBarsRequest(symbol_or_symbols=symbol, timeframe=tf,
                                  start=start_iso, end=end_iso)
     response = client.get_crypto_bars(request)

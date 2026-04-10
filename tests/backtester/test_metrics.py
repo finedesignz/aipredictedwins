@@ -5,17 +5,23 @@ from src.backtester.metrics import sharpe_ratio, max_drawdown, win_rate, monitor
 
 
 class TestSharpeRatio:
-    def test_positive_returns(self):
-        returns = [0.01] * 252
+    def test_positive_returns_with_variance(self):
+        returns = [0.01, 0.02, 0.01, 0.03, 0.015]
         sr = sharpe_ratio(returns)
         assert sr > 0
 
     def test_zero_returns(self):
         assert sharpe_ratio([0.0] * 10) == 0.0
 
+    def test_identical_positive_returns_returns_zero(self):
+        # When all returns are identical, std=0, spec requires 0.0
+        returns = [0.01] * 100
+        assert sharpe_ratio(returns) == 0.0
+
     def test_negative_returns(self):
-        returns = [-0.01] * 100
-        assert sharpe_ratio(returns) < 0
+        returns = [-0.01, -0.01, -0.01, -0.02, -0.01]
+        sr = sharpe_ratio(returns)
+        assert sr < 0
 
     def test_empty_returns(self):
         assert sharpe_ratio([]) == 0.0

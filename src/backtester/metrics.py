@@ -12,11 +12,6 @@ def sharpe_ratio(returns: list[float], risk_free: float = 0.0) -> float:
     variance = sum((r - mean) ** 2 for r in returns) / (n - 1)
     std = math.sqrt(variance) if variance > 0 else 0.0
     if std == 0:
-        # All returns are identical — return sign of mean * large value, or 0
-        if mean > 0:
-            return float("inf")
-        elif mean < 0:
-            return float("-inf")
         return 0.0
     return (mean / std) * math.sqrt(252)
 
