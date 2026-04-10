@@ -14,12 +14,14 @@ export function formatCurrencyUnsigned(value: number): string {
   })}`;
 }
 
-export function formatPercent(value: number): string {
+export function formatPercent(value: number | null | undefined): string {
+  if (value == null) return "--";
   const sign = value > 0 ? "+" : "";
   return `${sign}${value.toFixed(1)}%`;
 }
 
-export function formatPercentUnsigned(value: number): string {
+export function formatPercentUnsigned(value: number | null | undefined): string {
+  if (value == null) return "--";
   return `${Math.abs(value).toFixed(1)}%`;
 }
 

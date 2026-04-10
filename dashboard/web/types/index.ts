@@ -4,18 +4,19 @@ export interface Portfolio {
   total_pnl_percent: number;
   daily_pnl: number;
   daily_pnl_percent: number;
-  win_rate: number;
+  win_rate: number;          // 0-100 percentage
   total_trades: number;
+  trades_resolved: number;
   wins: number;
   losses: number;
   open_positions: number;
-  mode: "paper" | "live";
+  mode: string;
 }
 
 export interface Position {
-  id: string;
+  id: number;
   symbol: string;
-  side: "long" | "short";
+  side: string;
   entry_price: number;
   current_price: number;
   quantity: number;
@@ -106,15 +107,15 @@ export interface ActivityEvent {
 }
 
 export interface BotSettings {
-  mode: "paper" | "live";
+  mode: string;
   running: boolean;
   last_cycle: string | null;
   uptime_seconds: number;
   cycle_count: number;
   paper_trades_completed: number;
   paper_trades_target: number;
-  win_rate: number;
-  win_rate_target: number;
+  win_rate: number;            // 0-100 percentage
+  win_rate_target: number;     // 0-100 percentage
   equity: number;
   equity_target: number;
   config: Record<string, string | number | boolean>;

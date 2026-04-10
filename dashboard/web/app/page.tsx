@@ -73,7 +73,7 @@ export default function OverviewPage() {
           }
           color={
             portfolio
-              ? portfolio.win_rate >= 50
+              ? portfolio.win_rate >= 50  // win_rate is 0-100 percentage
                 ? "green"
                 : "red"
               : "default"

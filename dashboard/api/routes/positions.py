@@ -24,15 +24,33 @@ def get_open_positions():
     with get_db() as conn:
         rows = conn.execute(
             """
-            SELECT id, timestamp, symbol, asset_class, side, qty,
-                   entry_price, mirofish_prob, market_sentiment,
-                   target_price, stop_loss, status, simulation_id, notes
+            SELECT id, timestamp, symbol, side, qty,
+                   entry_price, mirofish_prob, stop_loss
             FROM alpaca_trades
             WHERE status = 'open'
             ORDER BY timestamp DESC
             """
         ).fetchall()
-    data = rows_to_list(rows)
+
+    data = []
+    for r in rows_to_list(rows):
+        # Map DB fields to the frontend Position type
+        side = "long" if r.get("side", "buy").lower() in ("buy", "long") else "short"
+        entry = r.get("entry_price") or 0.0
+        prob = r.get("mirofish_prob") or 0.0
+        data.append(OpenPosition(
+            id=r["id"],
+            symbol=r["symbol"],
+            side=side,
+            entry_price=entry,
+            current_price=entry,          # no live price in DB
+            quantity=r.get("qty") or 0.0,
+            unrealized_pnl=0.0,
+            unrealized_pnl_percent=0.0,
+            confluence_score=round(prob * 5, 1),
+            trailing_stop=r.get("stop_loss"),
+            opened_at=r.get("timestamp") or "",
+        ))
     return Envelope(data=data, meta=Meta(count=len(data)))
 
 

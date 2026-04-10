@@ -32,9 +32,12 @@ class Envelope(BaseModel, Generic[T]):
 class PortfolioData(BaseModel):
     equity: float = 0.0
     total_pnl: float = 0.0
-    win_rate: float = 0.0
+    total_pnl_percent: float = 0.0
+    win_rate: float = 0.0         # 0-100 percentage
     open_positions: int = 0
     daily_pnl: float = 0.0
+    daily_pnl_percent: float = 0.0
+    mode: str = "paper"
     trades_resolved: int = 0
     total_trades: int = 0
     wins: int = 0
@@ -44,20 +47,18 @@ class PortfolioData(BaseModel):
 # -- Positions ----------------------------------------------------------------
 
 class OpenPosition(BaseModel):
+    """Open position with fields mapped to match the frontend Position type."""
     id: int
-    timestamp: str
     symbol: str
-    asset_class: str
-    side: str
-    qty: float
+    side: str              # mapped to "long"/"short"
     entry_price: float
-    mirofish_prob: float
-    market_sentiment: Optional[str] = None
-    target_price: Optional[float] = None
-    stop_loss: Optional[float] = None
-    status: str
-    simulation_id: Optional[str] = None
-    notes: Optional[str] = None
+    current_price: float   # fallback to entry_price (no live data)
+    quantity: float        # mapped from qty
+    unrealized_pnl: float = 0.0
+    unrealized_pnl_percent: float = 0.0
+    confluence_score: float  # mapped from mirofish_prob * 5
+    trailing_stop: Optional[float] = None
+    opened_at: str         # mapped from timestamp
 
 
 class ClosedPosition(BaseModel):
@@ -143,45 +144,28 @@ class RiskGateDetail(RiskGateRecord):
 
 # -- Settings -----------------------------------------------------------------
 
-class BotConfig(BaseModel):
-    max_position_pct: float = 0.05
-    max_simultaneous_positions: int = 5
-    drawdown_stop_pct: float = 0.10
-    min_paper_trades: int = 50
-    min_win_rate: float = 0.40
-    min_confluence: int = 3
-    kelly_fraction: float = 0.25
-    starting_bankroll: float = 1000.0
-    live_trading_threshold: float = 100000.0
-    hard_stop_pct: float = -0.04
-    hard_take_profit_pct: float = 0.10
-    soft_stop_pct: float = -0.02
-    asset_universe: list[str] = [
-        "BTC/USD", "ETH/USD", "SOL/USD", "XRP/USD",
-        "ADA/USD", "AVAX/USD", "DOT/USD", "LINK/USD",
-    ]
-
-
-class SystemHealth(BaseModel):
-    claude_cli: str = "unknown"
-    alpaca_api: str = "unknown"
+class HealthStatus(BaseModel):
+    claude_cli: bool = True
+    alpaca_api: bool = True
+    sqlite_db: bool = True
     db_size_mb: float = 0.0
 
 
-class PaperProgress(BaseModel):
-    total_trades: int = 0
-    target_trades: int = 50
-    win_rate: float = 0.0
-    target_win_rate: float = 0.40
-    equity: float = 0.0
-    target_equity: float = 100000.0
-    ready_for_live: bool = False
-
-
 class SettingsData(BaseModel):
-    config: BotConfig = Field(default_factory=BotConfig)
-    health: SystemHealth = Field(default_factory=SystemHealth)
-    paper_progress: PaperProgress = Field(default_factory=PaperProgress)
+    """Flat structure matching the BotSettings frontend type."""
+    mode: str = "paper"
+    running: bool = True
+    last_cycle: Optional[str] = None
+    uptime_seconds: int = 0
+    cycle_count: int = 0
+    paper_trades_completed: int = 0
+    paper_trades_target: int = 50
+    win_rate: float = 0.0       # 0-100 percentage
+    win_rate_target: float = 40.0
+    equity: float = 0.0
+    equity_target: float = 100000.0
+    health: HealthStatus = Field(default_factory=HealthStatus)
+    config: dict = Field(default_factory=dict)
 
 
 # -- Activity SSE -------------------------------------------------------------
