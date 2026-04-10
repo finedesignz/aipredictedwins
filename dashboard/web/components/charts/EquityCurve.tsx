@@ -38,7 +38,19 @@ function mergeSeries(aPoints: EquityPoint[], bPoints: EquityPoint[], spPoints: E
     if (ex) ex.sp = p.equity;
     else map.set(p.timestamp, { timestamp: p.timestamp, sp: p.equity });
   }
-  return Array.from(map.values()).sort((x, y) => (x.timestamp < y.timestamp ? -1 : 1));
+  const sorted = Array.from(map.values()).sort((x, y) => (x.timestamp < y.timestamp ? -1 : 1));
+
+  // Forward-fill: carry the last known value for each series so every
+  // tooltip hover shows all three lines, not just those with data that day.
+  let lastA: number | undefined;
+  let lastB: number | undefined;
+  let lastSp: number | undefined;
+  for (const pt of sorted) {
+    if (pt.a != null) lastA = pt.a; else if (lastA != null) pt.a = lastA;
+    if (pt.b != null) lastB = pt.b; else if (lastB != null) pt.b = lastB;
+    if (pt.sp != null) lastSp = pt.sp; else if (lastSp != null) pt.sp = lastSp;
+  }
+  return sorted;
 }
 
 // ── Tooltip ────────────────────────────────────────────────────────────────
@@ -46,24 +58,45 @@ function mergeSeries(aPoints: EquityPoint[], bPoints: EquityPoint[], spPoints: E
 interface TooltipItem { value: number; name: string; color: string }
 interface TTProps { active?: boolean; payload?: TooltipItem[]; label?: string }
 
+const SERIES_META = [
+  { key: "a",  name: "Agent A", color: AGENT_A_COLOR },
+  { key: "b",  name: "Agent B", color: AGENT_B_COLOR },
+  { key: "sp", name: "S&P 500", color: SP500_COLOR },
+] as const;
+
 function CustomTooltip({ active, payload, label }: TTProps) {
   if (!active || !payload?.length) return null;
+
+  // Build a value map from whatever recharts passes
+  const valMap: Record<string, number> = {};
+  for (const item of payload) {
+    // item.name matches the `name` prop on each <Line>
+    if (item.name === "Agent A") valMap.a = item.value;
+    else if (item.name === "Agent B") valMap.b = item.value;
+    else if (item.name === "S&P 500") valMap.sp = item.value;
+  }
+
   return (
-    <div className="rounded-lg border border-border-primary bg-bg-card p-3 shadow-lg min-w-[165px]">
+    <div className="rounded-lg border border-border-primary bg-bg-card p-3 shadow-lg min-w-[175px]">
       {label && (
         <p className="text-xs text-text-muted mb-2">
           {new Date(label).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
         </p>
       )}
-      {payload.map((item) => {
-        const pct = ((item.value - START_EQUITY) / START_EQUITY) * 100;
+      {SERIES_META.map(({ key, name, color }) => {
+        const val = valMap[key];
+        if (val == null) return null;
+        const pct = ((val - START_EQUITY) / START_EQUITY) * 100;
         const isPos = pct >= 0;
         return (
-          <div key={item.name} className="flex items-center justify-between gap-4 mt-1">
-            <span className="text-xs font-medium" style={{ color: item.color }}>{item.name}</span>
+          <div key={key} className="flex items-center justify-between gap-5 mt-1.5">
+            <div className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: color }} />
+              <span className="text-xs font-medium text-text-secondary">{name}</span>
+            </div>
             <div className="text-right">
               <span className="font-mono-nums text-xs font-semibold text-text-primary block">
-                ${item.value.toLocaleString("en-US", { minimumFractionDigits: 0 })}
+                ${val.toLocaleString("en-US", { minimumFractionDigits: 0 })}
               </span>
               <span className={`font-mono-nums text-xs ${isPos ? "text-profit-green" : "text-loss-red"}`}>
                 {isPos ? "+" : ""}{pct.toFixed(2)}%
