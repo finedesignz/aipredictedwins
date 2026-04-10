@@ -60,7 +60,7 @@ def get_settings():
     health = HealthStatus(
         claude_cli=True,   # bot is writing trades → CLI is working
         alpaca_api=True,   # bot is writing trades → Alpaca is connected
-        sqlite_db=db_exists,
+        database=db_exists,
         db_size_mb=db_size_mb,
     )
 

@@ -149,7 +149,7 @@ class RiskGateDetail(RiskGateRecord):
 class HealthStatus(BaseModel):
     claude_cli: bool = True
     alpaca_api: bool = True
-    sqlite_db: bool = True
+    database: bool = True
     db_size_mb: float = 0.0
 
 
@@ -178,3 +178,41 @@ class ActivityEvent(BaseModel):
     timestamp: str = Field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
+
+
+# -- Multi-bot equity ---------------------------------------------------------
+
+class EquityPoint(BaseModel):
+    timestamp: str
+    equity: float
+    return_pct: float
+    bot_id: Optional[str] = None
+
+
+class EquitySeries(BaseModel):
+    bot_id: str
+    points: list[EquityPoint]
+
+
+# -- Bot registry -------------------------------------------------------------
+
+class BotInfo(BaseModel):
+    id: str
+    label: str
+    starting_equity: float
+    alpaca_key_prefix: Optional[str] = None
+    config_flags: Optional[dict] = None
+
+
+# -- Multi-bot portfolio (bot=both response shape) ----------------------------
+
+class MultiBotPortfolio(BaseModel):
+    A: Optional[PortfolioData] = None
+    B: Optional[PortfolioData] = None
+
+
+# -- SPY benchmark ------------------------------------------------------------
+
+class BenchmarkPoint(BaseModel):
+    timestamp: str
+    return_pct: float
