@@ -30,13 +30,22 @@ export default function BotFilter() {
         );
       })}
       <button
-        onClick={() => setFilter({ ...filter, spy: !filter.spy })}
+        onClick={() => setFilter({ ...filter, spy: filter.spy === false })}
         className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border border-slate-400 text-slate-400 transition-opacity ${
-          filter.spy ? "opacity-100" : "opacity-40"
+          filter.spy !== false ? "opacity-100" : "opacity-40"
         }`}
       >
         <span className="w-2 h-2 rounded-full bg-slate-400 flex-shrink-0" />
         S&amp;P 500
+      </button>
+      <button
+        onClick={() => setFilter({ ...filter, btc: filter.btc === false })}
+        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border border-orange-400 text-orange-400 transition-opacity ${
+          filter.btc !== false ? "opacity-100" : "opacity-40"
+        }`}
+      >
+        <span className="w-2 h-2 rounded-full bg-orange-400 flex-shrink-0" />
+        BTC
       </button>
     </div>
   );

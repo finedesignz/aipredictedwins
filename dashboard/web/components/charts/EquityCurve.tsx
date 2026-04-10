@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useMemo } from "react";
 import {
   LineChart,
   Line,
@@ -10,19 +11,30 @@ import {
   ReferenceLine,
 } from "recharts";
 import type { EquitySeries, BenchmarkPoint } from "@/types";
+import { useAPI } from "@/hooks/useAPI";
 import { useBotFilter } from "@/context/BotFilterContext";
 
+// ── Days selector ─────────────────────────────────────────────────────────────
 type DayOption = 7 | 14 | 30 | 60 | 90;
 const DAY_OPTIONS: DayOption[] = [7, 14, 30, 60, 90];
 
+function daysAgo(n: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return d.toISOString().slice(0, 10);
+}
+
+// ── Props ─────────────────────────────────────────────────────────────────────
 interface EquityCurveProps {
+  /** Bot equity series from /api/equity — passed in so the parent controls the
+   *  ?days= query param via this component's internal state. */
   series: EquitySeries[];
-  spy?: BenchmarkPoint[];
-  btc?: BenchmarkPoint[];
+  /** Called when the user changes the day range so the parent can re-fetch equity. */
   days: DayOption;
   onDaysChange: (d: DayOption) => void;
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
 function formatAxisDate(timestamp: string): string {
   const d = new Date(timestamp);
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
@@ -50,19 +62,16 @@ function mergeSeries(
 
   for (const s of series) {
     for (const p of s.points) {
-      const key = p.timestamp;
-      const existing = map.get(key) ?? { timestamp: key };
+      const existing = map.get(p.timestamp) ?? { timestamp: p.timestamp };
       existing[`bot_${s.bot_id}_pct`] = p.return_pct;
-      map.set(key, existing);
+      map.set(p.timestamp, existing);
     }
   }
-
   for (const p of spy) {
     const existing = map.get(p.timestamp) ?? { timestamp: p.timestamp };
     existing.spy_pct = p.return_pct;
     map.set(p.timestamp, existing);
   }
-
   for (const p of btc) {
     const existing = map.get(p.timestamp) ?? { timestamp: p.timestamp };
     existing.btc_pct = p.return_pct;
@@ -74,19 +83,22 @@ function mergeSeries(
   );
 }
 
+// ── Sub-components ────────────────────────────────────────────────────────────
 interface TooltipPayloadItem {
   value: number;
   name: string;
   color: string;
 }
 
-interface CustomTooltipProps {
+function CustomTooltip({
+  active,
+  payload,
+  label,
+}: {
   active?: boolean;
   payload?: TooltipPayloadItem[];
   label?: string;
-}
-
-function CustomTooltip({ active, payload, label }: CustomTooltipProps) {
+}) {
   if (!active || !payload || payload.length === 0) return null;
   return (
     <div className="rounded-lg border border-border-primary bg-bg-card p-3 shadow-lg min-w-[160px]">
@@ -104,7 +116,11 @@ function CustomTooltip({ active, payload, label }: CustomTooltipProps) {
           <span className="text-xs font-medium" style={{ color: item.color }}>
             {item.name}
           </span>
-          <span className={`font-mono-nums text-xs font-semibold ${item.value >= 0 ? "text-profit-green" : "text-loss-red"}`}>
+          <span
+            className={`font-mono-nums text-xs font-semibold ${
+              item.value >= 0 ? "text-profit-green" : "text-loss-red"
+            }`}
+          >
             {formatPct(item.value)}
           </span>
         </div>
@@ -125,10 +141,7 @@ function BotStat({
   const isPos = returnPct >= 0;
   return (
     <div className="flex items-center gap-3">
-      <span
-        className="w-2 h-2 rounded-full flex-shrink-0"
-        style={{ background: color }}
-      />
+      <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: color }} />
       <div>
         <p className="text-xs text-text-muted uppercase tracking-wider">{label}</p>
         <span
@@ -143,18 +156,42 @@ function BotStat({
   );
 }
 
-export default function EquityCurve({ series, spy = [], btc = [], days, onDaysChange }: EquityCurveProps) {
+// ── Main component ────────────────────────────────────────────────────────────
+export default function EquityCurve({ series, days, onDaysChange }: EquityCurveProps) {
   const { filter, bots, activeBotIds } = useBotFilter();
 
+  // Anchor benchmarks to the bot's first equity point so all lines share origin
+  const benchmarkSince = useMemo(() => {
+    if (!series.length) return daysAgo(days);
+    const dates = series
+      .flatMap((s) => s.points)
+      .map((p) => p.timestamp.slice(0, 10))
+      .filter(Boolean);
+    return dates.length ? [...dates].sort()[0] : daysAgo(days);
+  }, [series, days]);
+
+  // Benchmark data — fetched here so this component is fully self-contained
+  const { data: spyData } = useAPI<BenchmarkPoint[]>(
+    `/api/benchmark/spy?since=${benchmarkSince}`,
+    300_000
+  );
+  const { data: btcData } = useAPI<BenchmarkPoint[]>(
+    `/api/benchmark/btc?since=${benchmarkSince}`,
+    300_000
+  );
+
   const filteredSeries = series.filter((s) => activeBotIds.includes(s.bot_id));
-  const filteredSpy = filter.spy ? spy : [];
-  const filteredBtc = (filter.btc ?? false) ? btc : [];
+  const showSpy = filter.spy !== false;
+  const showBtc = filter.btc !== false;
+  const filteredSpy = showSpy ? (spyData ?? []) : [];
+  const filteredBtc = showBtc ? (btcData ?? []) : [];
 
   const data = mergeSeries(filteredSeries, filteredSpy, filteredBtc);
   const hasData = data.length > 1;
 
   return (
     <div className="rounded-lg border border-border-primary bg-bg-card p-4">
+      {/* Header: title + day pills + bot stats */}
       <div className="flex flex-wrap items-start justify-between gap-4 mb-5">
         <div className="flex items-center gap-3 self-center">
           <h3 className="text-sm font-medium text-text-secondary">Equity Curve</h3>
@@ -185,9 +222,10 @@ export default function EquityCurve({ series, spy = [], btc = [], days, onDaysCh
         </div>
       </div>
 
+      {/* Chart or empty state */}
       {!hasData ? (
         <div className="flex items-center justify-center h-56 text-sm text-text-muted">
-          No closed trades yet. Equity will appear here once trades close.
+          No equity data yet. Chart will populate once trades are placed.
         </div>
       ) : (
         <ResponsiveContainer width="100%" height={260}>
@@ -209,12 +247,8 @@ export default function EquityCurve({ series, spy = [], btc = [], days, onDaysCh
               width={56}
             />
             <Tooltip content={<CustomTooltip />} />
-            <ReferenceLine
-              y={0}
-              stroke="#64748b"
-              strokeDasharray="3 3"
-              strokeOpacity={0.4}
-            />
+            <ReferenceLine y={0} stroke="#64748b" strokeDasharray="3 3" strokeOpacity={0.4} />
+
             {filteredSeries.map((s, i) => {
               const bot = bots.find((b) => b.bot_id === s.bot_id);
               const label = bot?.label ?? s.bot_id;
@@ -232,7 +266,8 @@ export default function EquityCurve({ series, spy = [], btc = [], days, onDaysCh
                 />
               );
             })}
-            {filter.spy && filteredSpy.length > 0 && (
+
+            {showSpy && filteredSpy.length > 0 && (
               <Line
                 type="monotone"
                 dataKey="spy_pct"
@@ -244,7 +279,8 @@ export default function EquityCurve({ series, spy = [], btc = [], days, onDaysCh
                 connectNulls
               />
             )}
-            {(filter.btc ?? false) && filteredBtc.length > 0 && (
+
+            {showBtc && filteredBtc.length > 0 && (
               <Line
                 type="monotone"
                 dataKey="btc_pct"

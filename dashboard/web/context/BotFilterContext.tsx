@@ -27,13 +27,16 @@ export function BotFilterProvider({ children }: { children: ReactNode }) {
   const { data } = useAPI<BotFull[]>("/api/bots", 30_000);
   const bots: BotFull[] = data ?? [];
 
-  const [filter, setFilter] = useState<BotFilterState>({ spy: true });
+  const [filter, setFilter] = useState<BotFilterState>({ spy: true, btc: true });
 
   useEffect(() => {
     if (bots.length > 0) {
       setFilter((prev) => {
-        const next: BotFilterState = { spy: prev.spy ?? true };
-        bots.forEach((b) => { next[b.bot_id] = prev[b.bot_id] ?? true; });
+        const next: BotFilterState = {
+          spy: prev.spy !== false,
+          btc: prev.btc !== false,
+        };
+        bots.forEach((b) => { next[b.bot_id] = prev[b.bot_id] !== false; });
         return next;
       });
     }
