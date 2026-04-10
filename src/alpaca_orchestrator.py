@@ -386,6 +386,46 @@ def _select_cycle_candidates(candidates: list, max_entries: int = MAX_ENTRIES_PE
     return sorted_candidates[:max_entries]
 
 
+def _check_market_regime(btc_rsi_1h: float, btc_rsi_4h: float) -> str:
+    """Classify crypto market regime using BTC RSI on two timeframes.
+    OVERHEATED: BTC RSI(1h) > 70 AND RSI(4h) > 65 — skip new entries.
+    NORMAL: everything else.
+    """
+    if btc_rsi_1h > 70.0 and btc_rsi_4h > 65.0:
+        return "OVERHEATED"
+    return "NORMAL"
+
+
+def _get_btc_regime(alpaca_client) -> tuple[str, float, float]:
+    """Fetch BTC RSI on 1h and 4h, return (regime, rsi_1h, rsi_4h).
+    Falls back to NORMAL on any error.
+    """
+    try:
+        bars_1h = alpaca_client.get_bars("BTC/USD", timeframe="1Hour", limit=50)
+        rsi_1h = 50.0
+        if bars_1h and len(bars_1h) >= 15:
+            from src.technical_signals import _rsi
+            closes_1h = [b["close"] for b in bars_1h]
+            rsi_1h = _rsi(closes_1h, 14) or 50.0
+    except Exception as exc:
+        log.warning("Failed to fetch BTC 1h bars for regime check: %s", exc)
+        return "NORMAL", 50.0, 50.0
+
+    try:
+        bars_4h = alpaca_client.get_bars("BTC/USD", timeframe="4Hour", limit=50)
+        rsi_4h = 50.0
+        if bars_4h and len(bars_4h) >= 15:
+            from src.technical_signals import _rsi
+            closes_4h = [b["close"] for b in bars_4h]
+            rsi_4h = _rsi(closes_4h, 14) or 50.0
+    except Exception as exc:
+        log.warning("Failed to fetch BTC 4h bars for regime check: %s", exc)
+        rsi_4h = 50.0
+
+    regime = _check_market_regime(rsi_1h, rsi_4h)
+    return regime, rsi_1h, rsi_4h
+
+
 def _confirm_live_mode(balance: float) -> bool:
     console.print(
         Panel(
@@ -550,6 +590,23 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                 f"(${total_exposure:,.0f}/${equity:,.0f}) -- skipping scan[/yellow]"
             )
         else:
+            # BTC market regime check — skip new entries if OVERHEATED
+            regime, btc_rsi_1h, btc_rsi_4h = _get_btc_regime(alpaca)
+            console.print(
+                f"  [cyan]Market regime: {regime}[/cyan] "
+                f"(BTC RSI 1h={btc_rsi_1h:.1f}, 4h={btc_rsi_4h:.1f})"
+            )
+            if regime == "OVERHEATED":
+                console.print(
+                    "  [bold yellow]OVERHEATED regime — skipping new entries this cycle[/bold yellow]"
+                )
+                log.info(
+                    "Cycle %d: OVERHEATED regime (BTC RSI 1h=%.1f, 4h=%.1f) — no new entries",
+                    cycle_count, btc_rsi_1h, btc_rsi_4h,
+                )
+                time.sleep(CYCLE_SLEEP_SECONDS)
+                continue
+
             # -- 4b. Layer 1: Technical Signal Engine --------------------------
             console.print("[cyan]Layer 1: Technical signal scan...[/cyan]")
             try:

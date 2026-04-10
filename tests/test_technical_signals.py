@@ -535,6 +535,26 @@ class TestRSIHardBlock:
 # ADX directional filter tests
 # ---------------------------------------------------------------------------
 
+class TestBTCRegimeFilter:
+    def test_check_market_regime_overheated(self):
+        """OVERHEATED when BTC 1h RSI > 70 AND 4h RSI > 65."""
+        from src.alpaca_orchestrator import _check_market_regime
+        assert _check_market_regime(btc_rsi_1h=71.0, btc_rsi_4h=66.0) == "OVERHEATED"
+
+    def test_check_market_regime_normal_one_condition(self):
+        from src.alpaca_orchestrator import _check_market_regime
+        assert _check_market_regime(btc_rsi_1h=72.0, btc_rsi_4h=60.0) == "NORMAL"
+        assert _check_market_regime(btc_rsi_1h=65.0, btc_rsi_4h=68.0) == "NORMAL"
+
+    def test_check_market_regime_normal_both_below(self):
+        from src.alpaca_orchestrator import _check_market_regime
+        assert _check_market_regime(btc_rsi_1h=55.0, btc_rsi_4h=50.0) == "NORMAL"
+
+    def test_check_market_regime_boundary(self):
+        from src.alpaca_orchestrator import _check_market_regime
+        assert _check_market_regime(btc_rsi_1h=70.0, btc_rsi_4h=65.0) == "NORMAL"
+
+
 class TestADXDirectional:
     def test_adx_returns_tuple(self):
         """_adx() must return (adx, plus_di, minus_di) tuple."""
