@@ -1,8 +1,8 @@
 """POST /api/chat/message — streams Claude CLI output as SSE."""
 
+import asyncio
 import json
 import os
-import subprocess
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Request
@@ -59,22 +59,36 @@ async def _stream(message: str, context: str):
         "When suggesting config changes, append a JSON action block:\n"
         '```action\n{"type":"update_bot","bot_id":"X","field":"hard_stop_pct","value":-0.06}\n```'
     )
-    proc = subprocess.Popen(
-        [CLAUDE_BIN, "--print", "--system", system, message],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        bufsize=1,
-    )
     try:
-        for line in proc.stdout:
-            if line:
-                yield f"data: {json.dumps({'token': line})}\n\n"
-        proc.wait(timeout=60)
+        proc = await asyncio.create_subprocess_exec(
+            CLAUDE_BIN, "--print", "--system", system, message,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError:
+        yield f"data: {json.dumps({'error': f'claude CLI not found at {CLAUDE_BIN}'})}\n\n"
+        yield "data: [DONE]\n\n"
+        return
+
+    try:
+        while True:
+            line = await proc.stdout.readline()
+            if not line:
+                break
+            yield f"data: {json.dumps({'token': line.decode()})}\n\n"
+        await asyncio.wait_for(proc.wait(), timeout=60)
+    except asyncio.TimeoutError:
+        proc.kill()
     except Exception as exc:
         yield f"data: {json.dumps({'error': str(exc)})}\n\n"
     finally:
-        proc.terminate()
+        if proc.returncode is None:
+            proc.terminate()
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=5)
+            except asyncio.TimeoutError:
+                proc.kill()
+
     yield "data: [DONE]\n\n"
 
 

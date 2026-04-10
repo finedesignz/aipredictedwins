@@ -151,7 +151,7 @@ def delete_bot(bot_id: str, request: Request):
     mgr = _mgr(request)
     if mgr is not None:
         try:
-            mgr.stop(bot_id)
+            mgr.stop_bot(bot_id)
         except Exception:
             pass
 
@@ -200,7 +200,7 @@ def disable_bot(bot_id: str, request: Request):
     mgr = _mgr(request)
     if mgr is not None:
         try:
-            mgr.stop(bot_id)
+            mgr.stop_bot(bot_id)
         except Exception:
             pass
 
