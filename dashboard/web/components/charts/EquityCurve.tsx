@@ -16,6 +16,7 @@ import type { AlpacaEquityData, EquityPoint } from "@/types";
 
 const AGENT_A_COLOR = "#60a5fa";
 const AGENT_B_COLOR = "#f59e0b";
+const SP500_COLOR = "#94a3b8";
 const START_EQUITY = 100_000;
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -24,13 +25,18 @@ function formatAxisDate(ts: string): string {
   return new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-function mergeSeries(aPoints: EquityPoint[], bPoints: EquityPoint[]) {
-  const map = new Map<string, { timestamp: string; a?: number; b?: number }>();
+function mergeSeries(aPoints: EquityPoint[], bPoints: EquityPoint[], spPoints: EquityPoint[]) {
+  const map = new Map<string, { timestamp: string; a?: number; b?: number; sp?: number }>();
   for (const p of aPoints) map.set(p.timestamp, { timestamp: p.timestamp, a: p.equity });
   for (const p of bPoints) {
     const ex = map.get(p.timestamp);
     if (ex) ex.b = p.equity;
     else map.set(p.timestamp, { timestamp: p.timestamp, b: p.equity });
+  }
+  for (const p of spPoints) {
+    const ex = map.get(p.timestamp);
+    if (ex) ex.sp = p.equity;
+    else map.set(p.timestamp, { timestamp: p.timestamp, sp: p.equity });
   }
   return Array.from(map.values()).sort((x, y) => (x.timestamp < y.timestamp ? -1 : 1));
 }
@@ -139,16 +145,18 @@ export default function EquityCurve({
   // Prefer Alpaca live data; fall back to local SQLite data
   const aPoints = (data?.agentA?.length ? data.agentA : localA) ?? [];
   const bPoints = (data?.agentB?.length ? data.agentB : localB) ?? [];
+  const spPoints = data?.sp500 ?? [];
 
   const equityA = data?.accountA?.equity ?? (aPoints.at(-1)?.equity ?? START_EQUITY);
   const equityB = data?.accountB?.equity ?? (bPoints.at(-1)?.equity ?? START_EQUITY);
+  const spLast = spPoints.at(-1)?.equity ?? START_EQUITY;
 
-  const chartData = mergeSeries(aPoints, bPoints);
+  const chartData = mergeSeries(aPoints, bPoints, spPoints);
   const hasData = chartData.length > 1;
 
   // Y-axis domain — tight around actual data, never includes zero
   const allEquity = chartData
-    .flatMap((p) => [p.a, p.b])
+    .flatMap((p) => [p.a, p.b, p.sp])
     .filter((v): v is number => v != null && v > 0);
   const dataMin = allEquity.length ? Math.min(...allEquity) : START_EQUITY;
   const dataMax = allEquity.length ? Math.max(...allEquity) : START_EQUITY;
@@ -163,6 +171,7 @@ export default function EquityCurve({
         <div className="flex flex-wrap gap-5">
           <BotStat label="Agent A" equity={equityA} color={AGENT_A_COLOR} loading={loading} />
           <BotStat label="Agent B" equity={equityB} color={AGENT_B_COLOR} loading={loading} />
+          <BotStat label="S&P 500" equity={spLast} color={SP500_COLOR} loading={loading} />
         </div>
         <div className="flex items-center gap-3 flex-1 max-w-xs">
           <span className="text-xs text-text-muted whitespace-nowrap">Last</span>
@@ -250,6 +259,17 @@ export default function EquityCurve({
               name="Agent B"
               stroke={AGENT_B_COLOR}
               strokeWidth={2}
+              dot={false}
+              connectNulls
+            />
+            <Line
+              yAxisId="dollar"
+              type="monotone"
+              dataKey="sp"
+              name="S&P 500"
+              stroke={SP500_COLOR}
+              strokeWidth={1.5}
+              strokeDasharray="5 3"
               dot={false}
               connectNulls
             />

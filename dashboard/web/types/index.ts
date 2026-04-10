@@ -152,6 +152,7 @@ export interface AlpacaAccountSummary {
 export interface AlpacaEquityData {
   agentA: EquityPoint[];
   agentB: EquityPoint[];
+  sp500: EquityPoint[];
   accountA: AlpacaAccountSummary;
   accountB: AlpacaAccountSummary;
   days: number;
