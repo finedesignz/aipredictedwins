@@ -563,7 +563,7 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
 
             # -- 4c. Layer 2: MiroFish Risk Gate ------------------------------
             approved_states: list[PipelineState] = []
-            _extra: dict[str, dict] = {}
+            side_data: dict[str, dict] = {}
 
             for signal in candidates:
                 symbol = signal.symbol
@@ -572,6 +572,10 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                     # Get fresh price data for risk gate context
                     price = alpaca.get_latest_price(symbol)
                     bars = alpaca.get_bars(symbol, timeframe="1Hour", limit=24)
+
+                    if not bars:
+                        console.print(f"  [yellow]Skipping {symbol} — no bar data available[/yellow]")
+                        continue
 
                     # Calculate 24h change
                     if bars and len(bars) >= 2:
@@ -593,7 +597,7 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                                 signal=signal,
                             )
                         )
-                        _extra[symbol] = {"price": price, "change_pct": change_pct, "volume_24h": volume_24h}
+                        side_data[symbol] = {"price": price, "change_pct": change_pct, "volume_24h": volume_24h}
                         continue
 
                     console.print(f"\n  [cyan]Layer 2: Risk gate for {symbol}...[/cyan]")
@@ -616,7 +620,7 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                                 signal=signal,
                             )
                         )
-                        _extra[symbol] = {"price": price, "change_pct": change_pct, "volume_24h": volume_24h}
+                        side_data[symbol] = {"price": price, "change_pct": change_pct, "volume_24h": volume_24h}
                     else:
                         veto_count = sum(1 for v in verdict.votes.values() if str(v).upper() == "VETO")
                         console.print(
@@ -640,7 +644,7 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
 
                 signal = state.signal
                 symbol = signal.symbol
-                price = _extra[symbol]["price"]
+                price = side_data[symbol]["price"]
 
                 sizing = _kelly_technical(
                     confluence=signal.confluence_score,
@@ -705,8 +709,8 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                                 "sentiment": signal.confluence_score / 5.0,
                                 "confidence": "strong" if signal.confluence_score >= 4 else "moderate",
                                 "price_at_entry": price,
-                                "price_change_24h": _extra[symbol]["change_pct"],
-                                "volume_24h": _extra[symbol]["volume_24h"],
+                                "price_change_24h": side_data[symbol]["change_pct"],
+                                "volume_24h": side_data[symbol]["volume_24h"],
                             })
                         except Exception:
                             pass
