@@ -1,15 +1,18 @@
 """
 FastAPI application for the AI Predicted Wins trading dashboard.
 
-Read-only API that serves portfolio data, positions, trades, signals,
-risk gate decisions, settings, and a live SSE activity stream. All data
-is read from the shared SQLite database written by the trading bot.
+Serves portfolio data, positions, trades, signals, risk gate decisions,
+settings, a live SSE activity stream, full bot CRUD, and a Claude chat
+SSE endpoint. All persistent data lives in Postgres.
 
 Authentication: Set DASHBOARD_TOKEN env var. The frontend sends it as
 a Bearer token. Without it, all API routes return 401.
 """
 
+import logging
 import os
+import sys
+from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,6 +24,7 @@ from routes import (
     benchmark,
     benchmark_btc,
     bots,
+    chat,
     equity,
     portfolio,
     positions,
@@ -30,12 +34,44 @@ from routes import (
     trades,
 )
 
+_log = logging.getLogger(__name__)
+
 DASHBOARD_TOKEN = os.environ.get("DASHBOARD_TOKEN", "")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Start BotManager on startup, stop on shutdown.
+
+    Defensive — if BotManager can't be imported or DATABASE_URL is missing
+    the dashboard still starts in read-only mode.
+    """
+    manager = None
+    db_url = os.environ.get("DATABASE_URL", "")
+    if db_url:
+        try:
+            # src/ is at /app/src in container, or project root in dev
+            for p in ["/app", os.path.dirname(os.path.dirname(os.path.abspath(__file__)))]:
+                if p not in sys.path:
+                    sys.path.insert(0, p)
+            from src.bot_manager import BotManager  # noqa: PLC0415
+            manager = BotManager(db_url)
+            manager.start_all()
+            _log.info("BotManager started")
+        except Exception as exc:
+            _log.warning("BotManager unavailable: %s", exc)
+    app.state.bot_manager = manager
+    yield
+    if manager is not None:
+        manager.stop_all()
+        _log.info("BotManager stopped")
+
 
 app = FastAPI(
     title="AI Predicted Wins Dashboard API",
-    description="Read-only trading dashboard API for the Alpaca crypto bot.",
-    version="1.0.0",
+    description="Trading dashboard API for the Alpaca crypto bot.",
+    version="2.0.0",
+    lifespan=lifespan,
 )
 
 # -- CORS --------------------------------------------------------------------
@@ -131,6 +167,7 @@ app.include_router(alpaca.router, dependencies=[Depends(verify_token)])
 app.include_router(benchmark.router, dependencies=[Depends(verify_token)])
 app.include_router(benchmark_btc.router, dependencies=[Depends(verify_token)])
 app.include_router(bots.router, dependencies=[Depends(verify_token)])
+app.include_router(chat.router, dependencies=[Depends(verify_token)])
 app.include_router(equity.router, dependencies=[Depends(verify_token)])
 app.include_router(portfolio.router, dependencies=[Depends(verify_token)])
 app.include_router(positions.router, dependencies=[Depends(verify_token)])
