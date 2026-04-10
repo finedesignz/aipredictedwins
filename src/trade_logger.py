@@ -12,14 +12,22 @@ from src import db as _db
 
 
 class TradeLogger:
-    def __init__(self, db_path: str = "data/trades.db"):
-        # db_path is ignored — kept for backward compat with call sites
-        self.bot_id = os.environ.get("BOT_ID", "")
-        if self.bot_id not in ("A", "B"):
-            raise ValueError(
-                f"BOT_ID env var must be 'A' or 'B', got {self.bot_id!r}. "
-                "Set BOT_ID=A or BOT_ID=B before starting the bot."
-            )
+    def __init__(self, db_path: str = "data/trades.db", bot_id: str | None = None):
+        # db_path is ignored — kept for backward compat with call sites.
+        # bot_id kwarg takes priority and accepts any non-empty string (multi-bot
+        # uses arbitrary UUIDs).  When not supplied, falls back to the BOT_ID env
+        # var, which retains the old 'A'/'B' validation for backward compat.
+        if bot_id is not None:
+            if not bot_id:
+                raise ValueError("bot_id must be a non-empty string")
+            self.bot_id = bot_id
+        else:
+            self.bot_id = os.environ.get("BOT_ID", "")
+            if self.bot_id not in ("A", "B"):
+                raise ValueError(
+                    f"BOT_ID env var must be 'A' or 'B', got {self.bot_id!r}. "
+                    "Set BOT_ID=A or BOT_ID=B before starting the bot."
+                )
 
     # ── Alpaca trades ──────────────────────────────────────────────────
 
