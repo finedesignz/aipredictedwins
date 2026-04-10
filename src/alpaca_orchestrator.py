@@ -366,6 +366,26 @@ def _kelly_technical(
     }
 
 
+MAX_ENTRIES_PER_CYCLE = int(_os.environ.get("MAX_ENTRIES_PER_CYCLE", "3"))
+
+
+def _select_cycle_candidates(candidates: list, max_entries: int = MAX_ENTRIES_PER_CYCLE) -> list:
+    """Select the best candidates for this cycle, capped at max_entries.
+
+    Selection priority:
+    1. Highest confluence score (more bullish indicators = better)
+    2. Lowest RSI as tiebreaker (more room to run before overbought)
+
+    Prevents deploying all capital in one correlated burst when the
+    whole market moves simultaneously.
+    """
+    sorted_candidates = sorted(
+        candidates,
+        key=lambda s: (-s.confluence_score, s.rsi_value),
+    )
+    return sorted_candidates[:max_entries]
+
+
 def _confirm_live_mode(balance: float) -> bool:
     console.print(
         Panel(
@@ -540,14 +560,22 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                 time.sleep(CYCLE_SLEEP_SECONDS)
                 continue
 
-            # Filter: minimum confluence, dedup, and blocklist meme coins
-            candidates = [
+            # Filter: minimum confluence, dedup, blocklist
+            all_candidates = [
                 s for s in signals
                 if s.confluence_score >= MIN_CONFLUENCE
                 and s.symbol not in open_symbols
                 and s.symbol not in MEME_CRYPTO
             ]
+            # Per-cycle cap: pick best 3 by confluence → lowest RSI tiebreaker
+            candidates = _select_cycle_candidates(all_candidates)
             signals_found = len(candidates)
+
+            if len(all_candidates) > len(candidates):
+                console.print(
+                    f"  [yellow]Cycle cap: {len(all_candidates)} candidates filtered to "
+                    f"{len(candidates)} (max {MAX_ENTRIES_PER_CYCLE}/cycle)[/yellow]"
+                )
 
             if candidates:
                 console.print(f"  [bold]{signals_found}[/bold] candidates with confluence >= {MIN_CONFLUENCE}")
