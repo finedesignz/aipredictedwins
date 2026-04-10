@@ -5,11 +5,11 @@ GET /api/risk-gate      -- list validation decisions with filtering
 GET /api/risk-gate/{id} -- single validation record with full details
 """
 
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
-from db import get_db, row_to_dict, rows_to_list
+from db import get_db
 from models import (
     Envelope,
     Meta,
@@ -22,6 +22,7 @@ router = APIRouter(prefix="/api/risk-gate", tags=["risk-gate"])
 
 @router.get("", response_model=Envelope[list[RiskGateRecord]])
 def get_risk_gate_decisions(
+    bot: Literal["A", "B", "both"] = Query("both"),
     decision: Optional[str] = Query(None, description="Filter: PROCEED or VETO"),
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
@@ -35,8 +36,11 @@ def get_risk_gate_decisions(
     clauses: list[str] = []
     params: list = []
 
+    if bot in ("A", "B"):
+        clauses.append("bot_id = %s")
+        params.append(bot)
     if decision:
-        clauses.append("decision = ?")
+        clauses.append("decision = %s")
         params.append(decision.upper())
 
     where = ""
@@ -50,7 +54,7 @@ def get_risk_gate_decisions(
         FROM validations
         {where}
         ORDER BY timestamp DESC
-        LIMIT ? OFFSET ?
+        LIMIT %s OFFSET %s
     """
     params.extend([limit, offset])
 
@@ -58,8 +62,7 @@ def get_risk_gate_decisions(
         rows = conn.execute(query, params).fetchall()
 
     data = []
-    for row in rows:
-        r = dict(row)
+    for r in rows:
         data.append(
             RiskGateRecord(
                 id=r["id"],
@@ -83,32 +86,31 @@ def get_risk_gate_detail(record_id: int):
     """Return a single validation record with all fields."""
     with get_db() as conn:
         row = conn.execute(
-            "SELECT * FROM validations WHERE id = ?", (record_id,)
+            "SELECT * FROM validations WHERE id = %s", (record_id,)
         ).fetchone()
 
     if row is None:
         raise HTTPException(status_code=404, detail="Validation record not found")
 
-    r = dict(row)
     detail = RiskGateDetail(
-        id=r["id"],
-        timestamp=r["timestamp"],
-        symbol=r["kalshi_ticker"],
-        event_title=r["event_title"],
-        confluence=round((r["mirofish_prob"] or 0) * 5, 2),
-        decision=r["decision"],
-        confidence=r.get("confidence"),
-        risk_assessment=r.get("risk_assessment"),
-        veto_reason=r.get("veto_reason"),
-        proposed_side=r.get("proposed_side"),
-        mirofish_prob=r.get("mirofish_prob"),
-        kalshi_price=r.get("kalshi_price"),
-        gap=r.get("gap"),
-        adjusted_probability=r.get("adjusted_probability"),
-        size_multiplier=r.get("size_multiplier"),
-        sentiment_report=r.get("sentiment_report"),
-        news_report=r.get("news_report"),
-        contrarian_report=r.get("contrarian_report"),
-        trade_id=r.get("trade_id"),
+        id=row["id"],
+        timestamp=row["timestamp"],
+        symbol=row["kalshi_ticker"],
+        event_title=row["event_title"],
+        confluence=round((row["mirofish_prob"] or 0) * 5, 2),
+        decision=row["decision"],
+        confidence=row.get("confidence"),
+        risk_assessment=row.get("risk_assessment"),
+        veto_reason=row.get("veto_reason"),
+        proposed_side=row.get("proposed_side"),
+        mirofish_prob=row.get("mirofish_prob"),
+        kalshi_price=row.get("kalshi_price"),
+        gap=row.get("gap"),
+        adjusted_probability=row.get("adjusted_probability"),
+        size_multiplier=row.get("size_multiplier"),
+        sentiment_report=row.get("sentiment_report"),
+        news_report=row.get("news_report"),
+        contrarian_report=row.get("contrarian_report"),
+        trade_id=row.get("trade_id"),
     )
     return Envelope(data=detail, meta=Meta(count=1))

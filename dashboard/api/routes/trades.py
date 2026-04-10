@@ -8,12 +8,12 @@ GET /api/trades/csv  -- CSV export of filtered trades
 import csv
 import io
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
 
-from db import query_both
+from db import get_db
 
 router = APIRouter(prefix="/api/trades", tags=["trades"])
 
@@ -25,6 +25,7 @@ def _default_date_from() -> str:
 
 
 def _fetch_trades(
+    bot: str,
     status: Optional[str],
     symbol: Optional[str],
     date_from: Optional[str],
@@ -32,21 +33,24 @@ def _fetch_trades(
     limit: int,
     offset: int,
 ) -> list[dict]:
-    """Fetch trades from both bots with filters applied."""
+    """Fetch trades from the unified Postgres table with optional bot/field filters."""
     clauses: list[str] = []
     params: list = []
 
+    if bot in ("A", "B"):
+        clauses.append("bot_id = %s")
+        params.append(bot)
     if status:
-        clauses.append("status = ?")
+        clauses.append("status = %s")
         params.append(status)
     if symbol:
-        clauses.append("symbol = ?")
+        clauses.append("symbol = %s")
         params.append(symbol)
     if date_from:
-        clauses.append("timestamp >= ?")
+        clauses.append("timestamp >= %s")
         params.append(date_from)
     if date_to:
-        clauses.append("timestamp <= ?")
+        clauses.append("timestamp <= %s")
         params.append(date_to)
 
     where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
@@ -55,32 +59,35 @@ def _fetch_trades(
         SELECT id, timestamp, symbol, asset_class, side, qty,
                entry_price, exit_price, pnl, mirofish_prob,
                market_sentiment, target_price, stop_loss,
-               status, closed_at, simulation_id, notes
+               status, closed_at, simulation_id, notes, bot_id
         FROM alpaca_trades
         {where}
         ORDER BY timestamp DESC
+        LIMIT %s OFFSET %s
     """
+    params.extend([limit, offset])
 
-    rows = query_both(query, tuple(params))
-    rows.sort(key=lambda r: r.get("timestamp") or "", reverse=True)
-    rows = rows[offset: offset + limit]
+    with get_db() as conn:
+        rows = conn.execute(query, params).fetchall()
 
-    # Map DB field names to frontend Trade type field names
+    result = []
     for r in rows:
+        r = dict(r)
         prob = r.get("mirofish_prob") or 0.0
         r["confluence_score"] = round(prob * 5, 1)
         r["quantity"] = r.get("qty") or 0.0
-        r["pnl_percent"] = None  # not stored in DB
+        r["pnl_percent"] = None
         r["close_reason"] = r.get("notes")
         raw_side = r.get("side", "buy") or "buy"
         r["side"] = "long" if raw_side.lower() in ("buy", "long") else "short"
         r["status"] = r.get("status") or "open"
-
-    return rows
+        result.append(r)
+    return result
 
 
 @router.get("")
 def get_trades(
+    bot: Literal["A", "B", "both"] = Query("both"),
     status: Optional[str] = Query(None, description="Filter by status: open, closed, stopped, target_hit"),
     symbol: Optional[str] = Query(None, description="Filter by symbol, e.g. BTC/USD"),
     date_from: Optional[str] = Query(None, description="Start date (ISO format). Defaults to 30 days ago."),
@@ -88,15 +95,15 @@ def get_trades(
     limit: int = Query(200, ge=1, le=1000),
     offset: int = Query(0, ge=0),
 ):
-    """Return all alpaca trades from both bots with optional filtering and pagination."""
-    # Default to last 30 days if no date_from provided
+    """Return all alpaca trades with optional bot/field filtering and pagination."""
     effective_date_from = date_from if date_from else _default_date_from()
-    rows = _fetch_trades(status, symbol, effective_date_from, date_to, limit, offset)
+    rows = _fetch_trades(bot, status, symbol, effective_date_from, date_to, limit, offset)
     return {"data": rows, "meta": {"timestamp": datetime.now(timezone.utc).isoformat(), "count": len(rows)}}
 
 
 @router.get("/csv")
 def export_trades_csv(
+    bot: Literal["A", "B", "both"] = Query("both"),
     status: Optional[str] = Query(None),
     symbol: Optional[str] = Query(None),
     date_from: Optional[str] = Query(None),
@@ -104,9 +111,9 @@ def export_trades_csv(
     limit: int = Query(10000, ge=1, le=100000),
     offset: int = Query(0, ge=0),
 ):
-    """Export filtered trades from both bots as a CSV file download."""
+    """Export filtered trades as a CSV file download."""
     effective_date_from = date_from if date_from else _default_date_from()
-    rows = _fetch_trades(status, symbol, effective_date_from, date_to, limit, offset)
+    rows = _fetch_trades(bot, status, symbol, effective_date_from, date_to, limit, offset)
 
     if not rows:
         return StreamingResponse(
