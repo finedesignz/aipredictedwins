@@ -52,7 +52,12 @@ def _bot_context(request: Request) -> str:
 
 
 async def _stream(message: str, context: str):
-    """Spawn Claude CLI and yield each line as an SSE token."""
+    """Spawn Claude CLI with stream-json output and yield text deltas as SSE tokens.
+
+    Uses `claude -p --output-format stream-json` which emits one JSON event per
+    line.  We extract content_block_delta / text_delta events and forward each
+    text chunk to the browser incrementally.
+    """
     system = (
         "You are a trading assistant for an Alpaca crypto swing trading system.\n\n"
         f"LIVE CONTEXT:\n{context}\n\n"
@@ -61,7 +66,11 @@ async def _stream(message: str, context: str):
     )
     try:
         proc = await asyncio.create_subprocess_exec(
-            CLAUDE_BIN, "--print", "--system", system, message,
+            CLAUDE_BIN,
+            "-p",
+            "--output-format", "stream-json",
+            "--system", system,
+            message,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -75,7 +84,19 @@ async def _stream(message: str, context: str):
             line = await proc.stdout.readline()
             if not line:
                 break
-            yield f"data: {json.dumps({'token': line.decode()})}\n\n"
+            try:
+                event = json.loads(line.decode().strip())
+            except json.JSONDecodeError:
+                continue
+
+            # Extract text deltas from stream-json events
+            if event.get("type") == "content_block_delta":
+                delta = event.get("delta", {})
+                if delta.get("type") == "text_delta":
+                    text = delta.get("text", "")
+                    if text:
+                        yield f"data: {json.dumps({'token': text})}\n\n"
+
         await asyncio.wait_for(proc.wait(), timeout=60)
     except asyncio.TimeoutError:
         proc.kill()
