@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { useChat } from "@/context/ChatContext";
 
 interface Message {
   role: "user" | "assistant";
@@ -26,7 +27,7 @@ function displayContent(content: string): string {
 }
 
 export default function ChatSidebar() {
-  const [open, setOpen] = useState(false);
+  const { open, toggle } = useChat();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
@@ -52,14 +53,22 @@ export default function ChatSidebar() {
         credentials: "include",
       });
 
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+
       const reader = res.body!.getReader();
       const decoder = new TextDecoder();
+      let buffer = "";
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        const chunk = decoder.decode(value);
-        for (const line of chunk.split("\n")) {
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
           if (!line.startsWith("data: ")) continue;
           const raw = line.slice(6).trim();
           if (raw === "[DONE]") break;
@@ -70,7 +79,7 @@ export default function ChatSidebar() {
                 const last = m[m.length - 1];
                 return [...m.slice(0, -1), { ...last, content: `Error: ${error}`, streaming: false }];
               });
-              break;
+              return;
             }
             if (token) {
               setMessages((m) => {
@@ -78,7 +87,7 @@ export default function ChatSidebar() {
                 return [...m.slice(0, -1), { ...last, content: last.content + token }];
               });
             }
-          } catch { /* ignore */ }
+          } catch { /* ignore malformed */ }
         }
       }
     } catch (e) {
@@ -89,6 +98,7 @@ export default function ChatSidebar() {
     } finally {
       setMessages((m) => {
         const last = m[m.length - 1];
+        if (!last || last.role !== "assistant") return m;
         return [...m.slice(0, -1), { ...last, streaming: false }];
       });
       setStreaming(false);
@@ -114,94 +124,93 @@ export default function ChatSidebar() {
   };
 
   return (
-    <>
-      {/* Toggle tab — always visible on right edge */}
+    <div className="flex flex-shrink-0 h-full">
+      {/* Toggle tab — always visible vertical strip */}
       <button
-        onClick={() => setOpen((o) => !o)}
-        className="fixed right-0 top-1/2 -translate-y-1/2 z-40 bg-blue-600 hover:bg-blue-500 text-white px-1.5 py-4 rounded-l-lg shadow-lg text-xs font-medium"
-        style={{ writingMode: "vertical-rl", textOrientation: "mixed" }}
-        title="Claude Chat"
+        onClick={toggle}
+        className="w-8 flex items-center justify-center bg-bg-card border-l border-border-primary hover:bg-bg-card-hover transition-colors"
+        title={open ? "Close chat" : "Open Claude chat"}
       >
-        {open ? "▶ Close" : "◀ Claude"}
+        <span
+          className="text-[11px] font-medium text-text-secondary select-none"
+          style={{ writingMode: "vertical-rl", textOrientation: "mixed" }}
+        >
+          {open ? "▶ Close" : "◀ Claude"}
+        </span>
       </button>
 
-      {/* Sidebar panel */}
+      {/* Sliding content panel */}
       <div
-        className={`fixed top-0 right-0 h-full z-30 flex flex-col bg-bg-page border-l border-border-primary shadow-xl transition-transform duration-300 ${
-          open ? "translate-x-0" : "translate-x-full"
-        }`}
-        style={{ width: "400px" }}
+        className="overflow-hidden transition-[width] duration-300 flex flex-col bg-bg-card border-l border-border-primary"
+        style={{ width: open ? "400px" : "0px" }}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border-primary">
-          <span className="text-sm font-semibold text-text-primary">Claude Assistant</span>
-          <button onClick={() => setOpen(false)} className="text-text-muted hover:text-text-primary text-lg leading-none">&times;</button>
-        </div>
+        <div className="w-[400px] flex flex-col h-full">
+          {/* Header */}
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border-primary shrink-0">
+            <span className="text-sm font-semibold text-text-primary">Claude Assistant</span>
+          </div>
 
-        {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
-          {messages.length === 0 && (
-            <p className="text-xs text-text-muted text-center mt-8">
-              Ask Claude about your bots, trades, or strategy.<br />
-              <span className="opacity-60">Config changes can be applied with one click.</span>
-            </p>
-          )}
-          {messages.map((msg, i) => {
-            const action = msg.role === "assistant" ? parseAction(msg.content) : null;
-            const text = displayContent(msg.content);
-            return (
-              <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                <div
-                  className={`max-w-[90%] rounded-xl px-3 py-2 text-xs whitespace-pre-wrap break-words ${
-                    msg.role === "user"
-                      ? "bg-blue-600 text-white"
-                      : "bg-bg-card border border-border-primary text-text-primary"
-                  }`}
-                >
-                  {text}
-                  {msg.streaming && <span className="inline-block w-1.5 h-3 bg-current ml-0.5 animate-pulse" />}
-                  {action && !msg.streaming && (
-                    <button
-                      onClick={() => applyAction(action)}
-                      className="mt-2 block w-full text-xs bg-green-700 hover:bg-green-600 text-white rounded px-2 py-1"
-                    >
-                      Apply: {action.field} = {String(action.value)} (Bot {action.bot_id})
-                    </button>
-                  )}
+          {/* Messages */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0">
+            {messages.length === 0 && (
+              <p className="text-xs text-text-muted text-center mt-8">
+                Ask Claude about your bots, trades, or strategy.<br />
+                <span className="opacity-60">Config changes can be applied with one click.</span>
+              </p>
+            )}
+            {messages.map((msg, i) => {
+              const action = msg.role === "assistant" ? parseAction(msg.content) : null;
+              const text = displayContent(msg.content);
+              return (
+                <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                  <div
+                    className={`max-w-[90%] rounded-xl px-3 py-2 text-xs whitespace-pre-wrap break-words ${
+                      msg.role === "user"
+                        ? "bg-accent-blue text-white"
+                        : "bg-bg-page border border-border-primary text-text-primary"
+                    }`}
+                  >
+                    {text}
+                    {msg.streaming && (
+                      <span className="inline-block w-1.5 h-3 bg-current ml-0.5 animate-pulse" />
+                    )}
+                    {action && !msg.streaming && (
+                      <button
+                        onClick={() => applyAction(action)}
+                        className="mt-2 block w-full text-xs bg-green-700 hover:bg-green-600 text-white rounded px-2 py-1"
+                      >
+                        Apply: {action.field} = {String(action.value)} (Bot {action.bot_id})
+                      </button>
+                    )}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
-          <div ref={bottomRef} />
-        </div>
+              );
+            })}
+            <div ref={bottomRef} />
+          </div>
 
-        {/* Input */}
-        <div className="border-t border-border-primary p-3 flex gap-2">
-          <input
-            className="flex-1 bg-bg-card border border-border-primary rounded px-3 py-2 text-xs text-text-primary placeholder-text-muted focus:outline-none focus:border-blue-500"
-            placeholder="Ask Claude..."
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
-            disabled={streaming}
-          />
-          <button
-            onClick={send}
-            disabled={streaming || !input.trim()}
-            className="px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs rounded disabled:opacity-50 shrink-0"
-          >
-            {streaming ? "…" : "Send"}
-          </button>
+          {/* Input */}
+          <div className="border-t border-border-primary p-3 flex gap-2 shrink-0">
+            <input
+              className="flex-1 bg-bg-page border border-border-primary rounded px-3 py-2 text-xs text-text-primary placeholder-text-muted focus:outline-none focus:border-accent-blue"
+              placeholder="Ask Claude..."
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+              }}
+              disabled={streaming}
+            />
+            <button
+              onClick={send}
+              disabled={streaming || !input.trim()}
+              className="px-3 py-2 bg-accent-blue hover:bg-blue-500 text-white text-xs rounded disabled:opacity-50 shrink-0"
+            >
+              {streaming ? "…" : "Send"}
+            </button>
+          </div>
         </div>
       </div>
-
-      {/* Backdrop (mobile / small screens) */}
-      {open && (
-        <div
-          className="fixed inset-0 z-20 bg-black/30 lg:hidden"
-          onClick={() => setOpen(false)}
-        />
-      )}
-    </>
+    </div>
   );
 }

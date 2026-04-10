@@ -3,6 +3,7 @@ import "./globals.css";
 import AuthGuard from "@/components/auth/AuthGuard";
 import NavWrapper from "./NavWrapper";
 import { BotFilterProvider } from "@/context/BotFilterContext";
+import { ChatProvider } from "@/context/ChatContext";
 import ChatSidebar from "@/components/chat/ChatSidebar";
 
 export const metadata: Metadata = {
@@ -29,22 +30,36 @@ export default function RootLayout({
           rel="stylesheet"
         />
       </head>
-      <body className="bg-bg-primary text-text-primary min-h-screen">
+      <body className="bg-bg-primary text-text-primary h-screen flex flex-col overflow-hidden">
         <a
           href="#main-content"
           className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-[100] focus:bg-accent-blue focus:text-white focus:px-4 focus:py-2 focus:rounded-md"
         >
           Skip to main content
         </a>
-        <BotFilterProvider>
-          <AuthGuard>
-            <NavWrapper />
-            <main id="main-content" className="mx-auto max-w-7xl px-4 py-6">
-              {children}
-            </main>
-          </AuthGuard>
-        </BotFilterProvider>
-        <ChatSidebar />
+        <ChatProvider>
+          <BotFilterProvider>
+            <AuthGuard>
+              {/* Top nav — fixed-height header */}
+              <NavWrapper />
+
+              {/* Body row: scrollable main + chat sidebar */}
+              <div className="flex flex-1 min-h-0">
+                <main
+                  id="main-content"
+                  className="flex-1 min-w-0 overflow-y-auto"
+                >
+                  <div className="mx-auto max-w-7xl px-4 py-6">
+                    {children}
+                  </div>
+                </main>
+
+                {/* Chat sidebar — in-flow flex child, pushes main content */}
+                <ChatSidebar />
+              </div>
+            </AuthGuard>
+          </BotFilterProvider>
+        </ChatProvider>
       </body>
     </html>
   );
