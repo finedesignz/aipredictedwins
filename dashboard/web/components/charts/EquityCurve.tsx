@@ -12,10 +12,15 @@ import {
 import type { EquitySeries, BenchmarkPoint } from "@/types";
 import { useBotFilter } from "@/context/BotFilterContext";
 
+type DayOption = 7 | 14 | 30 | 60 | 90;
+const DAY_OPTIONS: DayOption[] = [7, 14, 30, 60, 90];
+
 interface EquityCurveProps {
   series: EquitySeries[];
   spy?: BenchmarkPoint[];
   btc?: BenchmarkPoint[];
+  days: DayOption;
+  onDaysChange: (d: DayOption) => void;
 }
 
 function formatAxisDate(timestamp: string): string {
@@ -138,7 +143,7 @@ function BotStat({
   );
 }
 
-export default function EquityCurve({ series, spy = [], btc = [] }: EquityCurveProps) {
+export default function EquityCurve({ series, spy = [], btc = [], days, onDaysChange }: EquityCurveProps) {
   const { filter, bots, activeBotIds } = useBotFilter();
 
   const filteredSeries = series.filter((s) => activeBotIds.includes(s.bot_id));
@@ -151,9 +156,24 @@ export default function EquityCurve({ series, spy = [], btc = [] }: EquityCurveP
   return (
     <div className="rounded-lg border border-border-primary bg-bg-card p-4">
       <div className="flex flex-wrap items-start justify-between gap-4 mb-5">
-        <h3 className="text-sm font-medium text-text-secondary self-center">
-          Equity Curve
-        </h3>
+        <div className="flex items-center gap-3 self-center">
+          <h3 className="text-sm font-medium text-text-secondary">Equity Curve</h3>
+          <div className="flex gap-1" role="group" aria-label="Select time range">
+            {DAY_OPTIONS.map((d) => (
+              <button
+                key={d}
+                onClick={() => onDaysChange(d)}
+                className={`rounded px-2 py-0.5 text-xs font-medium transition-colors ${
+                  days === d
+                    ? "bg-accent-blue/20 text-accent-blue"
+                    : "text-text-muted hover:text-text-secondary"
+                }`}
+              >
+                {d}d
+              </button>
+            ))}
+          </div>
+        </div>
         <div className="flex flex-wrap gap-6">
           {filteredSeries.map((s, i) => {
             const bot = bots.find((b) => b.bot_id === s.bot_id);

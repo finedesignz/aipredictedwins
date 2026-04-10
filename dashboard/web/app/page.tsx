@@ -1,7 +1,16 @@
 "use client";
 
+import { useState, useMemo } from "react";
 import { useAPI } from "@/hooks/useAPI";
 import type { Portfolio, Position, EquityData, MultiBotPortfolio, BenchmarkPoint } from "@/types";
+
+type DayOption = 7 | 14 | 30 | 60 | 90;
+
+function daysAgo(n: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return d.toISOString().slice(0, 10);
+}
 import HeroKPI, { type HeroKPIEntry } from "@/components/kpi/HeroKPI";
 import MetricCard, { type MetricCardEntry } from "@/components/kpi/MetricCard";
 import EquityCurve from "@/components/charts/EquityCurve";
@@ -17,6 +26,7 @@ import {
 
 export default function OverviewPage() {
   const { botParam, bots, activeBotIds } = useBotFilter();
+  const [days, setDays] = useState<DayOption>(30);
 
   const { data: rawPortfolio, loading: portfolioLoading } = useAPI<Portfolio | MultiBotPortfolio>(
     `/api/portfolio?bot=${botParam}`,
@@ -26,9 +36,20 @@ export default function OverviewPage() {
     `/api/positions/open?bot=${botParam}`,
     30000
   );
-  const { data: equityData } = useAPI<EquityData>(`/api/equity?bot=${botParam}`);
-  const { data: spyData } = useAPI<BenchmarkPoint[]>("/api/benchmark/spy", 300000);
-  const { data: btcData } = useAPI<BenchmarkPoint[]>("/api/benchmark/btc", 300000);
+  const { data: equityData } = useAPI<EquityData>(`/api/equity?bot=${botParam}&days=${days}`);
+
+  // Anchor benchmarks to the bot's first equity data point so all lines start together
+  const benchmarkSince = useMemo(() => {
+    if (!equityData?.series?.length) return daysAgo(days);
+    const dates = equityData.series
+      .flatMap((s) => s.points)
+      .map((p) => p.timestamp.slice(0, 10))
+      .filter(Boolean);
+    return dates.length ? [...dates].sort()[0] : daysAgo(days);
+  }, [equityData, days]);
+
+  const { data: spyData } = useAPI<BenchmarkPoint[]>(`/api/benchmark/spy?since=${benchmarkSince}`, 300000);
+  const { data: btcData } = useAPI<BenchmarkPoint[]>(`/api/benchmark/btc?since=${benchmarkSince}`, 300000);
 
   // Build label lookup from DB bots
   const botLabelMap: Record<string, string> = {};
@@ -162,6 +183,8 @@ export default function OverviewPage() {
         series={equityData?.series ?? []}
         spy={spyData ?? []}
         btc={btcData ?? []}
+        days={days}
+        onDaysChange={setDays}
       />
 
       {/* Two-column: positions + activity */}
