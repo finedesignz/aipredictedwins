@@ -54,9 +54,12 @@ def _bot_context(request: Request) -> str:
 async def _stream(message: str, context: str):
     """Spawn Claude CLI with stream-json output and yield text deltas as SSE tokens.
 
-    Uses `claude -p --output-format stream-json` which emits one JSON event per
-    line.  We extract content_block_delta / text_delta events and forward each
-    text chunk to the browser incrementally.
+    Uses `claude -p --verbose --output-format stream-json --system-prompt` which
+    emits one JSON event per line.  In -p (print) mode the CLI emits:
+      {"type":"assistant","message":{"content":[{"type":"text","text":"..."}],...}}
+    We forward each assistant text content block to the browser as a token.
+    NOTE: --verbose is REQUIRED when using --output-format stream-json with -p.
+    NOTE: the system prompt flag is --system-prompt (not --system).
     """
     system = (
         "You are a trading assistant for an Alpaca crypto swing trading system.\n\n"
@@ -68,8 +71,9 @@ async def _stream(message: str, context: str):
         proc = await asyncio.create_subprocess_exec(
             CLAUDE_BIN,
             "-p",
+            "--verbose",
             "--output-format", "stream-json",
-            "--system", system,
+            "--system-prompt", system,
             message,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -89,13 +93,19 @@ async def _stream(message: str, context: str):
             except json.JSONDecodeError:
                 continue
 
-            # Extract text deltas from stream-json events
-            if event.get("type") == "content_block_delta":
-                delta = event.get("delta", {})
-                if delta.get("type") == "text_delta":
-                    text = delta.get("text", "")
-                    if text:
-                        yield f"data: {json.dumps({'token': text})}\n\n"
+            # In -p mode, claude emits type="assistant" with message.content blocks.
+            # Each assistant event may contain partial or full text as it streams.
+            if event.get("type") == "assistant":
+                content = event.get("message", {}).get("content", [])
+                for block in content:
+                    if block.get("type") == "text":
+                        text = block.get("text", "")
+                        if text:
+                            yield f"data: {json.dumps({'token': text})}\n\n"
+
+            # Also handle authentication errors surfaced as result events
+            elif event.get("type") == "result" and event.get("is_error"):
+                yield f"data: {json.dumps({'error': event.get('result', 'claude error')})}\n\n"
 
         await asyncio.wait_for(proc.wait(), timeout=60)
     except asyncio.TimeoutError:

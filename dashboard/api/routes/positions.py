@@ -1,11 +1,13 @@
 """
 Position endpoints.
 
-GET /api/positions/open    -- open alpaca_trades with live Alpaca prices
-GET /api/positions/closed  -- closed alpaca_trades mapped to frontend field names
+GET  /api/positions/open       -- open alpaca_trades with live Alpaca prices
+GET  /api/positions/closed     -- closed alpaca_trades mapped to frontend field names
+POST /api/positions/reconcile  -- sync DB open trades against Alpaca actual state
 """
 
 import os
+from datetime import datetime, timezone
 from typing import Literal, Optional
 
 import httpx
@@ -16,6 +18,7 @@ from models import Envelope, Meta, OpenPosition
 
 router = APIRouter(prefix="/api/positions", tags=["positions"])
 
+ALPACA_PAPER = "https://paper-api.alpaca.markets"
 ALPACA_DATA = "https://data.alpaca.markets"
 
 
@@ -162,3 +165,144 @@ def get_closed_positions(
         })
 
     return Envelope(data=data, meta=Meta(count=len(data)))
+
+
+def _alpaca_open_symbols(api_key: str, secret_key: str) -> set[str]:
+    """Return the set of symbols currently open in an Alpaca paper account."""
+    if not api_key or not secret_key:
+        return set()
+    try:
+        resp = httpx.get(
+            f"{ALPACA_PAPER}/v2/positions",
+            headers={"APCA-API-KEY-ID": api_key, "APCA-API-SECRET-KEY": secret_key},
+            timeout=8.0,
+        )
+        if resp.status_code != 200:
+            return set()
+        positions = resp.json()
+        if not isinstance(positions, list):
+            return set()
+        return {p.get("symbol", "") for p in positions}
+    except Exception:
+        return set()
+
+
+@router.post("/reconcile")
+def reconcile_positions():
+    """Sync DB open trades against actual Alpaca paper account state.
+
+    For every DB trade marked open where the symbol no longer exists in
+    Alpaca, we mark it closed with the best-available price estimate.
+    Returns a summary of what was reconciled.
+    """
+    # Load Alpaca keys for all known bots (A and B)
+    bot_keys: dict[str, tuple[str, str]] = {}
+    for bot_id in ("A", "B"):
+        key = os.environ.get(f"ALPACA_API_KEY_{bot_id}", "")
+        sec = os.environ.get(f"ALPACA_SECRET_KEY_{bot_id}", "")
+        if key and sec:
+            bot_keys[bot_id] = (key, sec)
+
+    if not bot_keys:
+        return Envelope(
+            data={"reconciled": 0, "message": "No Alpaca API keys configured"},
+            meta=Meta(),
+        )
+
+    # Fetch live open symbols per bot
+    alpaca_open: dict[str, set[str]] = {
+        bot_id: _alpaca_open_symbols(key, sec)
+        for bot_id, (key, sec) in bot_keys.items()
+    }
+
+    # Fetch all DB-open trades
+    with get_db() as conn:
+        db_open = conn.execute(
+            "SELECT id, bot_id, symbol, entry_price, qty, side FROM alpaca_trades WHERE status = 'open'"
+        ).fetchall()
+
+    if not db_open:
+        return Envelope(
+            data={"reconciled": 0, "message": "No open trades in DB to reconcile"},
+            meta=Meta(),
+        )
+
+    # Find any valid keypair to look up current prices
+    any_keys = next(iter(bot_keys.values())) if bot_keys else None
+
+    def _latest_price(symbol: str) -> Optional[float]:
+        if not any_keys:
+            return None
+        key, sec = any_keys
+        try:
+            resp = httpx.get(
+                f"{ALPACA_DATA}/v1beta3/crypto/us/latest/bars",
+                params={"symbols": symbol},
+                headers={"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": sec},
+                timeout=5.0,
+            )
+            if resp.status_code == 200:
+                bar = resp.json().get("bars", {}).get(symbol)
+                if bar:
+                    return float(bar.get("c", 0))
+        except Exception:
+            pass
+        return None
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    reconciled = 0
+    details = []
+
+    with get_db() as conn:
+        for trade in db_open:
+            bot_id = trade.get("bot_id", "")
+            symbol = trade.get("symbol", "")
+            trade_id = trade.get("id")
+
+            # If symbol is still open in this bot's Alpaca account → skip
+            open_symbols = alpaca_open.get(bot_id, set())
+            if bot_keys.get(bot_id) and symbol in open_symbols:
+                continue
+
+            # Symbol gone from Alpaca — estimate P&L from latest market price
+            exit_price = _latest_price(symbol)
+            entry_price = float(trade.get("entry_price") or 0)
+            qty = float(trade.get("qty") or 0)
+            side = (trade.get("side") or "buy").lower()
+
+            if exit_price and entry_price and qty:
+                pnl = round(
+                    (exit_price - entry_price) * qty if side in ("buy", "long")
+                    else (entry_price - exit_price) * qty,
+                    4,
+                )
+            else:
+                exit_price = None
+                pnl = None
+
+            conn.execute(
+                """
+                UPDATE alpaca_trades
+                SET status = 'closed', exit_price = %s, pnl = %s, closed_at = %s,
+                    notes = COALESCE(notes, '') || ' [reconciled]'
+                WHERE id = %s
+                """,
+                (exit_price, pnl, now_iso, trade_id),
+            )
+            reconciled += 1
+            details.append({
+                "trade_id": trade_id,
+                "symbol": symbol,
+                "bot_id": bot_id,
+                "exit_price": exit_price,
+                "pnl": pnl,
+            })
+
+    return Envelope(
+        data={
+            "reconciled": reconciled,
+            "message": f"Marked {reconciled} orphaned DB trade(s) as closed",
+            "details": details,
+        },
+        meta=Meta(count=reconciled),
+    )
