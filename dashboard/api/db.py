@@ -1,134 +1,95 @@
 """
-SQLite connection helper for the dashboard API.
+Postgres connection pool for the dashboard API.
 
-Read-only connection to the trades database. The bot container writes to
-this database; the dashboard only reads. Uses WAL mode for concurrent
-read access without blocking the writer.
-
-If the database file does not exist yet (e.g. no volume mounted), yields
-an in-memory connection with the correct empty schema so all routes return
-zero rows instead of 500 errors.
+All routes use get_db() as a context manager to get a connection.
+query_filtered() handles the bot=A|B|both parameter pattern used across routes.
 """
 
 import os
-import sqlite3
 from contextlib import contextmanager
 from typing import Generator
 
-# DATA_DIR is set by supervisord.conf to /app/data in production
-_DATA_DIR = os.environ.get("DATA_DIR", "data")
-DB_PATH = os.environ.get("DB_PATH", os.path.join(_DATA_DIR, "trades.db"))
-# Bot B database — mounted at /app/data-b in production (empty string = not configured)
-DB_PATH_B = os.environ.get("DB_PATH_B", "")
+import psycopg
+from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool
 
-_EMPTY_SCHEMA = """
-CREATE TABLE IF NOT EXISTS alpaca_trades (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    timestamp TEXT NOT NULL,
-    symbol TEXT NOT NULL,
-    asset_class TEXT NOT NULL,
-    side TEXT NOT NULL,
-    qty REAL NOT NULL,
-    entry_price REAL NOT NULL,
-    mirofish_prob REAL NOT NULL,
-    market_sentiment TEXT,
-    target_price REAL,
-    stop_loss REAL,
-    status TEXT DEFAULT 'open',
-    exit_price REAL,
-    pnl REAL,
-    closed_at TEXT,
-    simulation_id TEXT,
-    notes TEXT
-);
-CREATE TABLE IF NOT EXISTS validations (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    timestamp TEXT NOT NULL,
-    kalshi_ticker TEXT NOT NULL,
-    event_title TEXT NOT NULL,
-    mirofish_prob REAL NOT NULL,
-    kalshi_price REAL NOT NULL,
-    gap REAL NOT NULL,
-    proposed_side TEXT NOT NULL,
-    decision TEXT NOT NULL,
-    confidence REAL,
-    adjusted_probability REAL,
-    size_multiplier REAL DEFAULT 1.0,
-    sentiment_report TEXT,
-    news_report TEXT,
-    contrarian_report TEXT,
-    risk_assessment TEXT,
-    veto_reason TEXT,
-    trade_id INTEGER
-);
-"""
+_pool: ConnectionPool | None = None
 
 
-def _make_empty_db() -> sqlite3.Connection:
-    """Create an in-memory DB with the correct empty schema as a fallback."""
-    conn = sqlite3.connect(":memory:")
-    conn.row_factory = sqlite3.Row
-    conn.executescript(_EMPTY_SCHEMA)
-    return conn
+def _get_pool() -> ConnectionPool:
+    global _pool
+    if _pool is None:
+        _pool = ConnectionPool(
+            conninfo=os.environ["DATABASE_URL"],
+            min_size=2,
+            max_size=10,
+            kwargs={"row_factory": dict_row},
+            open=True,
+        )
+    return _pool
 
 
 @contextmanager
-def get_db() -> Generator[sqlite3.Connection, None, None]:
-    """Yield a SQLite connection with Row factory.
+def get_db() -> Generator[psycopg.Connection, None, None]:
+    """Yield a psycopg3 connection from the pool."""
+    with _get_pool().connection() as conn:
+        yield conn
 
-    Opens the live database read-only when it exists. Falls back to an
-    in-memory empty DB when the file is not yet present (e.g. volume not
-    mounted), so all routes return zero rows instead of 500 errors.
+
+def query_filtered(sql: str, params: tuple, bot: str) -> list[dict]:
+    """Run a query with optional bot_id filter.
+
+    bot='both' returns all rows unfiltered.
+    bot='A' or bot='B' wraps the query to add a bot_id filter.
     """
-    if os.path.exists(DB_PATH):
-        conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA query_only=ON")
+    if bot in ("A", "B"):
+        wrapped = f"SELECT * FROM ({sql}) _q WHERE bot_id = %s"
+        final_params = params + (bot,)
     else:
-        conn = _make_empty_db()
-    try:
-        yield conn
-    finally:
-        conn.close()
+        wrapped = sql
+        final_params = params
+    with get_db() as conn:
+        return conn.execute(wrapped, final_params).fetchall()
 
 
+def rows_to_list(rows) -> list[dict]:
+    """Compatibility shim — psycopg3 dict_row already returns dicts."""
+    return list(rows)
+
+
+# ---------------------------------------------------------------------------
+# Backward-compatibility stubs for routes that have not yet been migrated
+# from the SQLite implementation.  These will raise at call-time (not import-
+# time) so the API starts up cleanly; once the routes are migrated the stubs
+# can be removed.
+# ---------------------------------------------------------------------------
+
+# DB_PATH is no longer meaningful with Postgres; expose an empty string so
+# routes that import it for os.path.exists() checks degrade gracefully.
+DB_PATH: str = ""
+
+# Bot-B is now a different schema concept (bot_id column).  Routes that call
+# get_db_b() should be migrated to use query_filtered(..., bot="B") instead.
 @contextmanager
-def get_db_b() -> Generator[sqlite3.Connection, None, None]:
-    """Yield a connection to Bot B's database (or empty fallback)."""
-    if DB_PATH_B and os.path.exists(DB_PATH_B):
-        conn = sqlite3.connect(f"file:{DB_PATH_B}?mode=ro", uri=True)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA query_only=ON")
-    else:
-        conn = _make_empty_db()
-    try:
-        yield conn
-    finally:
-        conn.close()
+def get_db_b():
+    """Deprecated stub — raises at call time.  Migrate callers to query_filtered."""
+    raise NotImplementedError(
+        "get_db_b() is removed in the Postgres layer. "
+        "Use query_filtered(sql, params, bot='B') instead."
+    )
+    yield  # make this a generator so the contextmanager decorator is happy
 
 
 def query_both(sql: str, params: tuple = ()) -> list[dict]:
-    """Run a query against both bots' databases and return combined rows.
-
-    Each row dict gets an injected ``bot`` key: "Agent A" or "Agent B".
-    """
-    results = []
-    for bot_name, db_ctx in [("Agent A", get_db), ("Agent B", get_db_b)]:
-        with db_ctx() as conn:
-            rows = conn.execute(sql, params).fetchall()
-            for row in rows_to_list(rows):
-                row["bot"] = bot_name
-                results.append(row)
-    return results
+    """Deprecated stub — raises at call time.  Migrate callers to query_filtered."""
+    raise NotImplementedError(
+        "query_both() is removed in the Postgres layer. "
+        "Use query_filtered(sql, params, bot='both') instead."
+    )
 
 
-def row_to_dict(row: sqlite3.Row) -> dict:
-    """Convert a sqlite3.Row to a plain dict."""
+def row_to_dict(row) -> dict:
+    """Compatibility shim — psycopg3 dict_row rows are already dicts."""
+    if isinstance(row, dict):
+        return row
     return dict(row)
-
-
-def rows_to_list(rows: list[sqlite3.Row]) -> list[dict]:
-    """Convert a list of sqlite3.Row objects to a list of dicts."""
-    return [dict(r) for r in rows]

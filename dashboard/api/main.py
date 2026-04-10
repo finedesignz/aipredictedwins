@@ -138,13 +138,10 @@ app.include_router(activity.router, dependencies=[Depends(verify_token)])
 @app.get("/api/health")
 def health_check():
     """Simple health check endpoint (no auth required)."""
-    import os
-    from db import DB_PATH
-    db_exists = os.path.exists(DB_PATH)
-    return {
-        "status": "ok" if db_exists else "no_database",
-        "db_path": DB_PATH,
-        "db_exists": db_exists,
-        "data_dir": os.environ.get("DATA_DIR", "not_set"),
-        "cwd": os.getcwd(),
-    }
+    try:
+        from db import get_db
+        with get_db() as conn:
+            conn.execute("SELECT 1")
+        return {"status": "ok", "database": "postgres"}
+    except Exception as e:
+        return {"status": "degraded", "error": str(e)}
