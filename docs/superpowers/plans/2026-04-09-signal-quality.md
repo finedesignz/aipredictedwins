@@ -1,6 +1,6 @@
 # Signal Quality & Entry Discipline Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Fix 7 root causes that caused both bots to enter all 8 overbought crypto assets simultaneously, losing money in a rising market.
 
@@ -720,7 +720,7 @@ Watch `data/bot_output.log` on both containers. Confirm:
 - Modify: `src/alpaca_orchestrator.py`
 - Modify: `tests/test_technical_signals.py`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `tests/test_technical_signals.py`:
 
@@ -748,7 +748,7 @@ class TestBTCRegimeFilter:
         assert _check_market_regime(btc_rsi_1h=70.0, btc_rsi_4h=65.0) == "NORMAL"
 ```
 
-- [ ] **Step 2: Run tests to confirm they fail**
+- [x] **Step 2: Run tests to confirm they fail**
 
 ```bash
 python -m pytest tests/test_technical_signals.py::TestBTCRegimeFilter -v
@@ -756,7 +756,7 @@ python -m pytest tests/test_technical_signals.py::TestBTCRegimeFilter -v
 
 Expected: FAIL — `_check_market_regime` does not exist.
 
-- [ ] **Step 3: Add `_check_market_regime()` to `src/alpaca_orchestrator.py`**
+- [x] **Step 3: Add `_check_market_regime()` to `src/alpaca_orchestrator.py`**
 
 Add after `_select_cycle_candidates`:
 
@@ -807,7 +807,7 @@ def _get_btc_regime(alpaca_client) -> tuple[str, float, float]:
     return regime, rsi_1h, rsi_4h
 ```
 
-- [ ] **Step 4: Wire regime check into the main scan loop**
+- [x] **Step 4: Wire regime check into the main scan loop**
 
 In `main()`, at the start of the `else:` block that begins the scan (just before `# -- 4b. Layer 1: Technical Signal Engine`), add:
 
@@ -831,7 +831,7 @@ In `main()`, at the start of the `else:` block that begins the scan (just before
                 continue
 ```
 
-- [ ] **Step 5: Run tests**
+- [x] **Step 5: Run tests**
 
 ```bash
 python -m pytest tests/test_technical_signals.py::TestBTCRegimeFilter -v
@@ -839,7 +839,7 @@ python -m pytest tests/test_technical_signals.py::TestBTCRegimeFilter -v
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/alpaca_orchestrator.py tests/test_technical_signals.py
@@ -855,7 +855,7 @@ git commit -m "feat: BTC regime filter — skip new entries when BTC RSI(1h) > 7
 - Modify: `src/alpaca_orchestrator.py` (Kelly b-ratio)
 - Create: `tests/test_exit_advisor.py`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `tests/test_exit_advisor.py`:
 
@@ -959,7 +959,7 @@ class TestNewTrailingStop:
         )
 ```
 
-- [ ] **Step 2: Run tests to confirm they fail**
+- [x] **Step 2: Run tests to confirm they fail**
 
 ```bash
 python -m pytest tests/test_exit_advisor.py -v
@@ -967,7 +967,7 @@ python -m pytest tests/test_exit_advisor.py -v
 
 Expected: Multiple failures — current thresholds don't match new values.
 
-- [ ] **Step 3: Update threshold constants in `src/exit_advisor.py`**
+- [x] **Step 3: Update threshold constants in `src/exit_advisor.py`**
 
 Replace the constants block at the top of the file:
 
@@ -986,7 +986,7 @@ TRAIL_TIGHTEN_THRESHOLD = 0.12  # tighten trail once position is up 12%
 TRAIL_DISTANCE_TIGHT_PCT = 0.02  # tightened trail distance
 ```
 
-- [ ] **Step 4: Update `check_position_thresholds()` to remove hard take-profit**
+- [x] **Step 4: Update `check_position_thresholds()` to remove hard take-profit**
 
 Replace the function:
 
@@ -1015,7 +1015,7 @@ def check_position_thresholds(entry_price: float, current_price: float) -> str |
     return None
 ```
 
-- [ ] **Step 5: Update `should_exit()` to remove hard take-profit check**
+- [x] **Step 5: Update `should_exit()` to remove hard take-profit check**
 
 In `ExitAdvisor.should_exit()`, replace the hard threshold check:
 
@@ -1035,7 +1035,7 @@ In `ExitAdvisor.should_exit()`, replace the hard threshold check:
             return None  # Within normal range, no action
 ```
 
-- [ ] **Step 6: Update `TrailingStop.update()` for new thresholds and tighten logic**
+- [x] **Step 6: Update `TrailingStop.update()` for new thresholds and tighten logic**
 
 Replace the `update()` method in `TrailingStop`:
 
@@ -1078,7 +1078,7 @@ Replace the `update()` method in `TrailingStop`:
         return None
 ```
 
-- [ ] **Step 7: Update Kelly b-ratio in `src/alpaca_orchestrator.py`**
+- [x] **Step 7: Update Kelly b-ratio in `src/alpaca_orchestrator.py`**
 
 In `_kelly_technical()`, find:
 
@@ -1106,7 +1106,7 @@ Also update the banner in `_print_banner()` — find `Hard take-profit` line and
 
 (Remove the `Hard take-profit` line from the banner, replace with the soft take-profit line above.)
 
-- [ ] **Step 8: Run tests**
+- [x] **Step 8: Run tests**
 
 ```bash
 python -m pytest tests/test_exit_advisor.py -v
@@ -1114,7 +1114,7 @@ python -m pytest tests/test_exit_advisor.py -v
 
 Expected: All pass.
 
-- [ ] **Step 9: Run full test suite**
+- [x] **Step 9: Run full test suite**
 
 ```bash
 python -m pytest tests/ -v --ignore=tests/backtester
@@ -1200,7 +1200,7 @@ python -m pytest tests/ -v --ignore=tests/backtester
 
 Expected: All pass.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add src/exit_advisor.py src/alpaca_orchestrator.py tests/test_exit_advisor.py tests/test_technical_signals.py
@@ -1215,7 +1215,7 @@ git commit -m "feat: recalibrate exit thresholds for crypto volatility — softe
 - Modify: `src/alpaca_orchestrator.py`
 - Modify: `tests/test_technical_signals.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `tests/test_technical_signals.py`:
 
@@ -1297,7 +1297,7 @@ class TestVolumeContextFilter:
             )
 ```
 
-- [ ] **Step 2: Run tests to confirm they fail**
+- [x] **Step 2: Run tests to confirm they fail**
 
 ```bash
 python -m pytest tests/test_technical_signals.py::TestVolumeContextFilter -v
@@ -1305,7 +1305,7 @@ python -m pytest tests/test_technical_signals.py::TestVolumeContextFilter -v
 
 Expected: FAIL — `_apply_volume_context_filter` does not exist.
 
-- [ ] **Step 3: Add `_apply_volume_context_filter()` to `src/alpaca_orchestrator.py`**
+- [x] **Step 3: Add `_apply_volume_context_filter()` to `src/alpaca_orchestrator.py`**
 
 Add after `_get_btc_regime`:
 
@@ -1348,7 +1348,7 @@ def _apply_volume_context_filter(signals: list) -> list:
     return updated
 ```
 
-- [ ] **Step 4: Wire into the scan loop**
+- [x] **Step 4: Wire into the scan loop**
 
 In `main()`, find the line:
 
@@ -1365,7 +1365,7 @@ Add the filter call immediately after `scan_assets` returns:
                 signals = _apply_volume_context_filter(signals)
 ```
 
-- [ ] **Step 5: Run tests**
+- [x] **Step 5: Run tests**
 
 ```bash
 python -m pytest tests/test_technical_signals.py::TestVolumeContextFilter -v
@@ -1373,7 +1373,7 @@ python -m pytest tests/test_technical_signals.py::TestVolumeContextFilter -v
 
 Expected: PASS.
 
-- [ ] **Step 6: Run full test suite**
+- [x] **Step 6: Run full test suite**
 
 ```bash
 python -m pytest tests/ -v --ignore=tests/backtester
@@ -1381,7 +1381,7 @@ python -m pytest tests/ -v --ignore=tests/backtester
 
 Expected: All pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/alpaca_orchestrator.py tests/test_technical_signals.py
@@ -1392,17 +1392,17 @@ git commit -m "feat: volume context filter — suppress spike signal when 4+ ass
 
 ### Task 7b: Deploy Batch 2
 
-- [ ] **Step 1: Push to main**
+- [x] **Step 1: Push to main**
 
 ```bash
 git push origin main
 ```
 
-- [ ] **Step 2: Confirm Coolify redeploys both bots**
+- [x] **Step 2: Confirm Coolify redeploys both bots**
 
 Trigger redeploy for UUIDs `qjyla085qflghz7h0dpsk7mh` (Bot A) and `v147jk2s2sm0n7aov83ph8y2` (Bot B) at https://coolify.titaniumlabs.us if auto-deploy is not configured.
 
-- [ ] **Step 3: Monitor logs for correct behavior**
+- [x] **Step 3: Monitor logs for correct behavior**
 
 Confirm in `data/bot_output.log`:
 - Regime line printed every cycle: `Market regime: NORMAL (BTC RSI 1h=XX.X, 4h=XX.X)`

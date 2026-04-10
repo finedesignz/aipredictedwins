@@ -1788,7 +1788,7 @@ git commit -m "feat: add /bots page with bot list, add/edit drawer, enable/disab
 - Create: `dashboard/web/app/chat/page.tsx`
 - Create: `dashboard/web/components/chat/ChatWidget.tsx`
 
-- [ ] **Step 1: Write ChatWidget.tsx**
+- [x] **Step 1: Write ChatWidget.tsx**
 
 ```typescript
 // dashboard/web/components/chat/ChatWidget.tsx
@@ -1941,7 +1941,7 @@ export default function ChatWidget() {
 }
 ```
 
-- [ ] **Step 2: Write /chat page**
+- [x] **Step 2: Write /chat page**
 
 ```typescript
 // dashboard/web/app/chat/page.tsx
@@ -1956,13 +1956,13 @@ export default function ChatPage() {
 }
 ```
 
-- [ ] **Step 3: Add nav links in layout/NavWrapper**
+- [x] **Step 3: Add nav links in layout/NavWrapper**
 
 In `dashboard/web/app/NavWrapper.tsx` or wherever the nav links are defined, add:
 - `/bots` — "Bots"
 - `/chat` — "Chat"
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add dashboard/web/app/chat/ dashboard/web/components/chat/
