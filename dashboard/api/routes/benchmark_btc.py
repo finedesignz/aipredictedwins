@@ -39,8 +39,8 @@ def _fetch_btc_bars(start: datetime) -> list:
     req = urllib.request.Request(
         url,
         headers={
-            "APCA-API-KEY-ID": _ALPACA_KEY,
-            "APCA-API-SECRET-KEY": _ALPACA_SECRET,
+            "APCA-API-KEY-ID": key,
+            "APCA-API-SECRET-KEY": secret,
             "Accept": "application/json",
         },
     )
