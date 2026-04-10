@@ -59,6 +59,7 @@ class OpenPosition(BaseModel):
     confluence_score: float  # mapped from mirofish_prob * 5
     trailing_stop: Optional[float] = None
     opened_at: str         # mapped from timestamp
+    bot: Optional[str] = None  # "Agent A" or "Agent B"
 
 
 class ClosedPosition(BaseModel):
@@ -101,6 +102,7 @@ class TradeRecord(BaseModel):
     closed_at: Optional[str] = None
     simulation_id: Optional[str] = None
     notes: Optional[str] = None
+    bot: Optional[str] = None  # "Agent A" or "Agent B"
 
 
 # -- Signals ------------------------------------------------------------------

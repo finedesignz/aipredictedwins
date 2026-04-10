@@ -12,7 +12,11 @@ const SYMBOLS = ["BTC/USD", "ETH/USD", "SOL/USD", "XRP/USD", "ADA/USD", "AVAX/US
 
 export default function TradesPage() {
   const [symbol, setSymbol] = useState<string>("");
-  const [dateFrom, setDateFrom] = useState<string>("");
+  const [dateFrom, setDateFrom] = useState<string>(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 30);
+    return d.toISOString().slice(0, 10);
+  });
   const [dateTo, setDateTo] = useState<string>("");
 
   const qs = buildQueryString({ symbol, date_from: dateFrom, date_to: dateTo });

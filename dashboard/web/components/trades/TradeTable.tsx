@@ -109,6 +109,19 @@ const columns = [
       return <Badge variant={variant}>{status.toUpperCase()}</Badge>;
     },
   }),
+  columnHelper.accessor("bot", {
+    header: "Bot",
+    cell: (info) => {
+      const val = info.getValue();
+      if (!val) return <span className="text-xs text-text-muted">--</span>;
+      const isB = val.includes("B");
+      return (
+        <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${isB ? "bg-warning-amber/15 text-warning-amber" : "bg-accent-blue/15 text-accent-blue"}`}>
+          {isB ? "B" : "A"}
+        </span>
+      );
+    },
+  }),
 ];
 
 interface TradeTableProps {

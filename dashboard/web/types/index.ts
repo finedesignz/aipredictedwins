@@ -25,6 +25,7 @@ export interface Position {
   confluence_score: number;
   trailing_stop: number | null;
   opened_at: string;
+  bot?: string;
 }
 
 export interface ClosedPosition {
@@ -56,6 +57,7 @@ export interface Trade {
   status: "open" | "closed" | "cancelled";
   close_reason: string | null;
   notes: string | null;
+  bot?: string;
 }
 
 export interface Signal {
@@ -130,6 +132,13 @@ export interface BotSettings {
 export interface EquityPoint {
   timestamp: string;
   equity: number;
+  bot?: string;
+}
+
+export interface EquityData {
+  agentA: EquityPoint[];
+  agentB: EquityPoint[];
+  combined: EquityPoint[];
 }
 
 export interface APIResponse<T> {

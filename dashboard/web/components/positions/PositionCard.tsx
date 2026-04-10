@@ -23,6 +23,11 @@ export default function PositionCard({ position }: PositionCardProps) {
           <Badge variant={position.side === "long" ? "bullish" : "bearish"}>
             {position.side.toUpperCase()}
           </Badge>
+          {position.bot && (
+            <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${position.bot.includes("B") ? "bg-warning-amber/15 text-warning-amber" : "bg-accent-blue/15 text-accent-blue"}`}>
+              {position.bot.includes("B") ? "B" : "A"}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-1 text-text-muted">
           <Clock className="h-3 w-3" aria-hidden="true" />

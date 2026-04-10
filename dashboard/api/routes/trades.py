@@ -1,32 +1,38 @@
 """
 Trade history endpoints.
 
-GET /api/trades      -- all alpaca_trades with filtering
+GET /api/trades      -- all alpaca_trades from both bots with filtering
 GET /api/trades/csv  -- CSV export of filtered trades
 """
 
 import csv
 import io
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
 
-from db import get_db, rows_to_list
-from models import Envelope, Meta, TradeRecord
+from db import query_both
 
 router = APIRouter(prefix="/api/trades", tags=["trades"])
 
 
-def _build_trade_query(
+def _default_date_from() -> str:
+    """Return ISO date string 30 days ago (default lookback)."""
+    thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
+    return thirty_days_ago.strftime("%Y-%m-%d")
+
+
+def _fetch_trades(
     status: Optional[str],
     symbol: Optional[str],
     date_from: Optional[str],
     date_to: Optional[str],
     limit: int,
     offset: int,
-) -> tuple[str, list]:
-    """Build a parameterized query for alpaca_trades with filters."""
+) -> list[dict]:
+    """Fetch trades from both bots with filters applied."""
     clauses: list[str] = []
     params: list = []
 
@@ -43,9 +49,7 @@ def _build_trade_query(
         clauses.append("timestamp <= ?")
         params.append(date_to)
 
-    where = ""
-    if clauses:
-        where = "WHERE " + " AND ".join(clauses)
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
 
     query = f"""
         SELECT id, timestamp, symbol, asset_class, side, qty,
@@ -55,27 +59,27 @@ def _build_trade_query(
         FROM alpaca_trades
         {where}
         ORDER BY timestamp DESC
-        LIMIT ? OFFSET ?
     """
-    params.extend([limit, offset])
-    return query, params
+
+    rows = query_both(query, tuple(params))
+    rows.sort(key=lambda r: r.get("timestamp") or "", reverse=True)
+    return rows[offset: offset + limit]
 
 
-@router.get("", response_model=Envelope[list[TradeRecord]])
+@router.get("")
 def get_trades(
     status: Optional[str] = Query(None, description="Filter by status: open, closed, stopped, target_hit"),
     symbol: Optional[str] = Query(None, description="Filter by symbol, e.g. BTC/USD"),
-    date_from: Optional[str] = Query(None, description="Start date (ISO format)"),
+    date_from: Optional[str] = Query(None, description="Start date (ISO format). Defaults to 30 days ago."),
     date_to: Optional[str] = Query(None, description="End date (ISO format)"),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(200, ge=1, le=1000),
     offset: int = Query(0, ge=0),
 ):
-    """Return all alpaca trades with optional filtering and pagination."""
-    query, params = _build_trade_query(status, symbol, date_from, date_to, limit, offset)
-    with get_db() as conn:
-        rows = conn.execute(query, params).fetchall()
-    data = rows_to_list(rows)
-    return Envelope(data=data, meta=Meta(count=len(data)))
+    """Return all alpaca trades from both bots with optional filtering and pagination."""
+    # Default to last 30 days if no date_from provided
+    effective_date_from = date_from if date_from else _default_date_from()
+    rows = _fetch_trades(status, symbol, effective_date_from, date_to, limit, offset)
+    return {"data": rows, "meta": {"timestamp": datetime.now(timezone.utc).isoformat(), "count": len(rows)}}
 
 
 @router.get("/csv")
@@ -87,10 +91,9 @@ def export_trades_csv(
     limit: int = Query(10000, ge=1, le=100000),
     offset: int = Query(0, ge=0),
 ):
-    """Export filtered trades as a CSV file download."""
-    query, params = _build_trade_query(status, symbol, date_from, date_to, limit, offset)
-    with get_db() as conn:
-        rows = conn.execute(query, params).fetchall()
+    """Export filtered trades from both bots as a CSV file download."""
+    effective_date_from = date_from if date_from else _default_date_from()
+    rows = _fetch_trades(status, symbol, effective_date_from, date_to, limit, offset)
 
     if not rows:
         return StreamingResponse(
@@ -99,12 +102,12 @@ def export_trades_csv(
             headers={"Content-Disposition": "attachment; filename=trades.csv"},
         )
 
-    columns = rows[0].keys()
+    columns = list(rows[0].keys())
     output = io.StringIO()
     writer = csv.DictWriter(output, fieldnames=columns)
     writer.writeheader()
     for row in rows:
-        writer.writerow(dict(row))
+        writer.writerow(row)
 
     output.seek(0)
     return StreamingResponse(

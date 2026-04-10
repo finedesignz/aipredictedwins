@@ -1,7 +1,7 @@
 "use client";
 
 import { useAPI } from "@/hooks/useAPI";
-import type { Portfolio, Position, EquityPoint } from "@/types";
+import type { Portfolio, Position, EquityData } from "@/types";
 import HeroKPI from "@/components/kpi/HeroKPI";
 import MetricCard from "@/components/kpi/MetricCard";
 import EquityCurve from "@/components/charts/EquityCurve";
@@ -22,7 +22,7 @@ export default function OverviewPage() {
     "/api/positions/open",
     30000
   );
-  const { data: equityData } = useAPI<EquityPoint[]>("/api/equity");
+  const { data: equityData } = useAPI<EquityData>("/api/equity");
 
   return (
     <div className="space-y-6">
@@ -105,7 +105,10 @@ export default function OverviewPage() {
       </div>
 
       {/* Equity curve */}
-      <EquityCurve data={equityData ?? []} />
+      <EquityCurve
+        agentA={equityData?.agentA ?? []}
+        agentB={equityData?.agentB ?? []}
+      />
 
       {/* Two-column: positions + activity */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">

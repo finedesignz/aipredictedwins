@@ -18,6 +18,8 @@ from typing import Generator
 # DATA_DIR is set by supervisord.conf to /app/data in production
 _DATA_DIR = os.environ.get("DATA_DIR", "data")
 DB_PATH = os.environ.get("DB_PATH", os.path.join(_DATA_DIR, "trades.db"))
+# Bot B database — mounted at /app/data-b in production (empty string = not configured)
+DB_PATH_B = os.environ.get("DB_PATH_B", "")
 
 _EMPTY_SCHEMA = """
 CREATE TABLE IF NOT EXISTS alpaca_trades (
@@ -89,6 +91,37 @@ def get_db() -> Generator[sqlite3.Connection, None, None]:
         yield conn
     finally:
         conn.close()
+
+
+@contextmanager
+def get_db_b() -> Generator[sqlite3.Connection, None, None]:
+    """Yield a connection to Bot B's database (or empty fallback)."""
+    if DB_PATH_B and os.path.exists(DB_PATH_B):
+        conn = sqlite3.connect(f"file:{DB_PATH_B}?mode=ro", uri=True)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA query_only=ON")
+    else:
+        conn = _make_empty_db()
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
+def query_both(sql: str, params: tuple = ()) -> list[dict]:
+    """Run a query against both bots' databases and return combined rows.
+
+    Each row dict gets an injected ``bot`` key: "Agent A" or "Agent B".
+    """
+    results = []
+    for bot_name, db_ctx in [("Agent A", get_db), ("Agent B", get_db_b)]:
+        with db_ctx() as conn:
+            rows = conn.execute(sql, params).fetchall()
+            for row in rows_to_list(rows):
+                row["bot"] = bot_name
+                results.append(row)
+    return results
 
 
 def row_to_dict(row: sqlite3.Row) -> dict:
