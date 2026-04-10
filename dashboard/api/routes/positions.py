@@ -17,11 +17,11 @@ router = APIRouter(prefix="/api/positions", tags=["positions"])
 
 
 def _sqlite_open(db_ctx) -> dict[str, dict]:
-    """Return a dict keyed by symbol of open SQLite records (for metadata)."""
+    """Return a dict keyed by normalised symbol (no slash) of open SQLite records."""
     with db_ctx() as conn:
         rows = conn.execute(
             """
-            SELECT id, timestamp, symbol, mirofish_prob, stop_loss
+            SELECT id, timestamp, symbol, mirofish_prob, market_sentiment, stop_loss
             FROM alpaca_trades
             WHERE status = 'open'
             ORDER BY timestamp DESC
@@ -29,10 +29,27 @@ def _sqlite_open(db_ctx) -> dict[str, dict]:
         ).fetchall()
     by_symbol: dict[str, dict] = {}
     for r in rows_to_list(rows):
-        sym = r.get("symbol", "")
+        # Normalise: "BTC/USD" → "BTCUSD" to match Alpaca's format
+        sym = r.get("symbol", "").replace("/", "")
         if sym not in by_symbol:
             by_symbol[sym] = r
     return by_symbol
+
+
+def _parse_confluence(meta: dict) -> float:
+    """Extract confluence score (0-5) from SQLite metadata.
+
+    The bot stores it as market_sentiment = "technical_confluence_4".
+    Falls back to mirofish_prob * 5 if that pattern isn't present.
+    """
+    ms = meta.get("market_sentiment") or ""
+    if ms.startswith("technical_confluence_"):
+        try:
+            return float(ms.split("_")[-1])
+        except (ValueError, IndexError):
+            pass
+    prob = meta.get("mirofish_prob") or 0.0
+    return round(float(prob) * 5, 1)
 
 
 @router.get("/open", response_model=Envelope[list[OpenPosition]])
@@ -55,8 +72,9 @@ def get_open_positions_live():
     ]:
         for pos in alpaca_positions:
             symbol = pos["symbol"]
-            meta = sqlite_meta.get(symbol, {})
-            prob = meta.get("mirofish_prob") or 0.0
+            # Normalise Alpaca symbol for lookup ("BTC/USD" → "BTCUSD")
+            lookup_key = symbol.replace("/", "")
+            meta = sqlite_meta.get(lookup_key, {})
 
             data.append(OpenPosition(
                 id=meta.get("id") or next(uid),
@@ -67,7 +85,7 @@ def get_open_positions_live():
                 quantity=pos["qty"],
                 unrealized_pnl=pos["unrealized_pnl"],
                 unrealized_pnl_percent=pos["unrealized_pnl_percent"],
-                confluence_score=round(prob * 5, 1),
+                confluence_score=_parse_confluence(meta),
                 trailing_stop=meta.get("stop_loss"),
                 opened_at=meta.get("timestamp") or "",
                 bot=bot_label,
