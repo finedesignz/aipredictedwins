@@ -14,6 +14,7 @@ import json
 import logging
 import sqlite3
 import subprocess
+import time
 from pathlib import Path
 
 log = logging.getLogger(__name__)
@@ -23,6 +24,99 @@ DEFAULT_MODEL = "claude-sonnet-4-6"
 
 # Timeout for CLI calls (seconds)
 DEFAULT_TIMEOUT = 90
+
+# Path to Claude credentials file
+_CREDENTIALS_PATH = Path("/root/.claude/.credentials.json")
+
+# Minimum milliseconds before expiry to trigger a proactive refresh
+_REFRESH_THRESHOLD_MS = 5 * 60 * 1000  # 5 minutes
+
+
+def _refresh_oauth_token() -> bool:
+    """Attempt to refresh the Claude OAuth access token using the refresh token.
+
+    Returns True if the credentials file was updated with a fresh token.
+    This calls the platform.claude.com token endpoint directly.
+    """
+    log.info("Attempting Claude OAuth token refresh...")
+    try:
+        creds_text = _CREDENTIALS_PATH.read_text()
+        creds = json.loads(creds_text)
+        oa = creds.get("claudeAiOauth", {})
+        refresh_token = oa.get("refreshToken", "")
+        if not refresh_token:
+            log.warning("No refresh token found — cannot refresh")
+            return False
+    except Exception as exc:
+        log.warning("Cannot read credentials for refresh: %s", exc)
+        return False
+
+    # Use Node.js (always available in our container) to call the token endpoint
+    node_script = r"""
+const https = require('https');
+const fs = require('fs');
+const credsPath = '/root/.claude/.credentials.json';
+const creds = JSON.parse(fs.readFileSync(credsPath, 'utf8'));
+const rt = creds.claudeAiOauth.refreshToken;
+const clientId = '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
+const data = new URLSearchParams({grant_type:'refresh_token',refresh_token:rt,client_id:clientId}).toString();
+const opts = {
+  hostname: 'platform.claude.com',
+  port: 443,
+  path: '/v1/oauth/token',
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/x-www-form-urlencoded',
+    'Content-Length': Buffer.byteLength(data),
+    'User-Agent': 'claude-code/2.1.100',
+  }
+};
+const req = https.request(opts, res => {
+  let body = '';
+  res.on('data', d => body += d);
+  res.on('end', () => {
+    if (res.statusCode === 200) {
+      const tok = JSON.parse(body);
+      creds.claudeAiOauth.accessToken = tok.access_token;
+      if (tok.refresh_token) creds.claudeAiOauth.refreshToken = tok.refresh_token;
+      creds.claudeAiOauth.expiresAt = Date.now() + (tok.expires_in || 3600) * 1000;
+      fs.writeFileSync(credsPath, JSON.stringify(creds));
+      process.stdout.write('REFRESHED:' + creds.claudeAiOauth.accessToken.slice(0, 20));
+    } else {
+      process.stdout.write('FAILED:' + res.statusCode + ':' + body.slice(0, 100));
+    }
+  });
+});
+req.on('error', e => process.stdout.write('ERROR:' + e.message));
+req.write(data);
+req.end();
+"""
+    try:
+        result = subprocess.run(
+            ["node", "-e", node_script],
+            capture_output=True, text=True, timeout=15
+        )
+        out = result.stdout.strip()
+        if out.startswith("REFRESHED:"):
+            log.info("Claude OAuth token refreshed successfully")
+            return True
+        else:
+            log.warning("Claude OAuth token refresh failed: %s", out[:200])
+            return False
+    except Exception as exc:
+        log.warning("Claude OAuth token refresh error: %s", exc)
+        return False
+
+
+def _token_is_expired() -> bool:
+    """Check if the stored Claude access token is expired or expiring soon."""
+    try:
+        creds = json.loads(_CREDENTIALS_PATH.read_text())
+        expires_at_ms = creds.get("claudeAiOauth", {}).get("expiresAt", 0)
+        now_ms = int(time.time() * 1000)
+        return now_ms >= (expires_at_ms - _REFRESH_THRESHOLD_MS)
+    except Exception:
+        return False
 
 
 class LLMCache:
@@ -119,6 +213,11 @@ class ClaudeLLM:
                 log.debug("Claude LLM cache HIT for model=%s (%d chars)", self.model, len(cached))
                 return cached
 
+        # Proactively refresh the token if it's expired or expiring soon
+        if _token_is_expired():
+            log.info("Claude access token is expired/expiring — attempting refresh before call")
+            _refresh_oauth_token()
+
         cmd = [
             "claude",
             "-p", prompt,
@@ -148,8 +247,36 @@ class ClaudeLLM:
             data = json.loads(result.stdout)
 
             if data.get("is_error"):
-                log.error("Claude CLI error: %s", data.get("result", "unknown error"))
-                return None
+                error_msg = data.get("result", "unknown error")
+                # If 401 auth error, try token refresh and retry once
+                if "401" in error_msg or "authentication" in error_msg.lower():
+                    log.warning("Got 401 auth error — attempting token refresh and retry")
+                    if _refresh_oauth_token():
+                        # Retry the call with fresh token
+                        result = subprocess.run(
+                            cmd,
+                            capture_output=True,
+                            text=True,
+                            timeout=self.timeout,
+                            env=None,
+                        )
+                        if result.returncode == 0 and result.stdout.strip():
+                            data = json.loads(result.stdout)
+                            if not data.get("is_error"):
+                                # Fall through to success path below
+                                pass
+                            else:
+                                log.error("Claude CLI error after refresh: %s", data.get("result", "unknown"))
+                                return None
+                        else:
+                            log.error("Claude CLI failed after refresh (exit %d)", result.returncode)
+                            return None
+                    else:
+                        log.error("Token refresh failed — cannot recover from 401")
+                        return None
+                else:
+                    log.error("Claude CLI error: %s", error_msg)
+                    return None
 
             response_text = data.get("result", "")
             cost = data.get("total_cost_usd", 0)
