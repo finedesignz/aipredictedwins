@@ -9,6 +9,7 @@ import {
   Tooltip,
   ResponsiveContainer,
   ReferenceLine,
+  CartesianGrid,
 } from "recharts";
 import { useAPI } from "@/hooks/useAPI";
 import type { AlpacaEquityData, EquityPoint } from "@/types";
@@ -42,20 +43,29 @@ interface TTProps { active?: boolean; payload?: TooltipItem[]; label?: string }
 function CustomTooltip({ active, payload, label }: TTProps) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="rounded-lg border border-border-primary bg-bg-card p-3 shadow-lg min-w-[150px]">
+    <div className="rounded-lg border border-border-primary bg-bg-card p-3 shadow-lg min-w-[165px]">
       {label && (
         <p className="text-xs text-text-muted mb-2">
           {new Date(label).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
         </p>
       )}
-      {payload.map((item) => (
-        <div key={item.name} className="flex items-center justify-between gap-4">
-          <span className="text-xs font-medium" style={{ color: item.color }}>{item.name}</span>
-          <span className="font-mono-nums text-xs font-semibold text-text-primary">
-            ${item.value.toLocaleString("en-US", { minimumFractionDigits: 0 })}
-          </span>
-        </div>
-      ))}
+      {payload.map((item) => {
+        const pct = ((item.value - START_EQUITY) / START_EQUITY) * 100;
+        const isPos = pct >= 0;
+        return (
+          <div key={item.name} className="flex items-center justify-between gap-4 mt-1">
+            <span className="text-xs font-medium" style={{ color: item.color }}>{item.name}</span>
+            <div className="text-right">
+              <span className="font-mono-nums text-xs font-semibold text-text-primary block">
+                ${item.value.toLocaleString("en-US", { minimumFractionDigits: 0 })}
+              </span>
+              <span className={`font-mono-nums text-xs ${isPos ? "text-profit-green" : "text-loss-red"}`}>
+                {isPos ? "+" : ""}{pct.toFixed(2)}%
+              </span>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -172,7 +182,8 @@ export default function EquityCurve({
         </div>
       ) : (
         <ResponsiveContainer width="100%" height={260}>
-          <LineChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+          <LineChart data={chartData} margin={{ top: 4, right: 52, bottom: 0, left: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" strokeOpacity={0.5} vertical={false} />
             <XAxis
               dataKey="timestamp"
               tickFormatter={formatAxisDate}
@@ -182,7 +193,10 @@ export default function EquityCurve({
               dy={8}
               interval="preserveStartEnd"
             />
+            {/* Left axis — dollar value */}
             <YAxis
+              yAxisId="dollar"
+              orientation="left"
               domain={[minY, maxY]}
               tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}k`}
               axisLine={false}
@@ -191,14 +205,28 @@ export default function EquityCurve({
               dx={-4}
               width={52}
             />
+            {/* Right axis — % return */}
+            <YAxis
+              yAxisId="pct"
+              orientation="right"
+              domain={[((minY - START_EQUITY) / START_EQUITY) * 100, ((maxY - START_EQUITY) / START_EQUITY) * 100]}
+              tickFormatter={(v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`}
+              axisLine={false}
+              tickLine={false}
+              tick={{ fill: "#64748b", fontSize: 11 }}
+              dx={4}
+              width={52}
+            />
             <Tooltip content={<CustomTooltip />} />
             <ReferenceLine
+              yAxisId="dollar"
               y={START_EQUITY}
               stroke="#64748b"
               strokeDasharray="4 4"
               strokeOpacity={0.4}
             />
             <Line
+              yAxisId="dollar"
               type="monotone"
               dataKey="a"
               name="Agent A"
@@ -208,6 +236,7 @@ export default function EquityCurve({
               connectNulls
             />
             <Line
+              yAxisId="dollar"
               type="monotone"
               dataKey="b"
               name="Agent B"
