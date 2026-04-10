@@ -14,7 +14,18 @@ export default function PositionCard({ position }: PositionCardProps) {
   const pnlColor = isProfit ? "text-profit-green" : "text-loss-red";
 
   return (
-    <div className="rounded-lg border border-border-primary bg-bg-card p-4 transition-colors hover:bg-bg-card-hover">
+    <div className="relative rounded-lg border border-border-primary bg-bg-card p-4 transition-colors hover:bg-bg-card-hover">
+      {position.bot && (
+        <span
+          className="absolute top-2 right-2 text-[10px] font-bold px-1.5 py-0.5 rounded"
+          style={{
+            background: position.bot === "A" || position.bot === "Agent A" ? "rgba(96,165,250,0.15)" : "rgba(251,191,36,0.15)",
+            color: position.bot === "A" || position.bot === "Agent A" ? "#60a5fa" : "#fbbf24",
+          }}
+        >
+          {position.bot === "Agent A" ? "A" : position.bot === "Agent B" ? "B" : position.bot}
+        </span>
+      )}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <span className="font-mono-nums text-sm font-semibold text-text-primary">
@@ -23,11 +34,6 @@ export default function PositionCard({ position }: PositionCardProps) {
           <Badge variant={position.side === "long" ? "bullish" : "bearish"}>
             {position.side.toUpperCase()}
           </Badge>
-          {position.bot && (
-            <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${position.bot.includes("B") ? "bg-warning-amber/15 text-warning-amber" : "bg-accent-blue/15 text-accent-blue"}`}>
-              {position.bot.includes("B") ? "B" : "A"}
-            </span>
-          )}
         </div>
         <div className="flex items-center gap-1 text-text-muted">
           <Clock className="h-3 w-3" aria-hidden="true" />
