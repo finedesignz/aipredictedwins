@@ -3,6 +3,7 @@ import "./globals.css";
 import AuthGuard from "@/components/auth/AuthGuard";
 import NavWrapper from "./NavWrapper";
 import { BotFilterProvider } from "@/context/BotFilterContext";
+import ChatSidebar from "@/components/chat/ChatSidebar";
 
 export const metadata: Metadata = {
   title: "AI Predicted Wins",
@@ -43,6 +44,7 @@ export default function RootLayout({
             </main>
           </AuthGuard>
         </BotFilterProvider>
+        <ChatSidebar />
       </body>
     </html>
   );
