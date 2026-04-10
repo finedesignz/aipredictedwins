@@ -158,3 +158,58 @@ async def activity_stream():
     - risk_decision: PROCEED/VETO from the risk gate
     """
     return EventSourceResponse(_event_generator())
+
+
+@router.get("/recent")
+def activity_recent(since: str = "", limit: int = 50):
+    """Polling alternative to SSE — returns recent activity events as JSON.
+
+    since: ISO timestamp string; only events after this time are returned.
+           Omit to get the last `limit` events regardless of time.
+    limit: max events to return (default 50, capped at 200).
+    """
+    limit = min(limit, 200)
+    now = datetime.now(timezone.utc).isoformat()
+
+    events: list[dict] = []
+    try:
+        conn = _get_readonly_conn()
+        try:
+            # Anchor: if no since, look back 24 h so the feed isn't empty on first load
+            if not since:
+                from datetime import timedelta
+                since_dt = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+            else:
+                since_dt = since
+
+            trades = _fetch_new_trades(conn, since_dt)
+            for t in trades:
+                events.append({
+                    "id": f"trade_{t['id']}",
+                    "type": "trade_placed",
+                    "message": f"Opened {t['side'].upper()} {t['qty']} {t['symbol']} @ ${t['entry_price']:.2f}",
+                    "detail": None,
+                    "timestamp": t.get("timestamp", now),
+                })
+
+            closed = _fetch_closed_positions(conn, since_dt)
+            for p in closed:
+                pnl = p.get("pnl") or 0
+                sign = "+" if pnl >= 0 else ""
+                events.append({
+                    "id": f"closed_{p['id']}",
+                    "type": "trade_closed",
+                    "message": f"Closed {p['symbol']} ({p['status']}) P&L {sign}${pnl:.2f}",
+                    "detail": None,
+                    "timestamp": p.get("closed_at", now),
+                })
+        finally:
+            conn.close()
+    except Exception:
+        pass
+
+    # Sort newest-first, cap to limit
+    events.sort(key=lambda e: e.get("timestamp") or "", reverse=True)
+    events = events[:limit]
+
+    return {"data": events, "meta": {"count": len(events), "timestamp": now}}
