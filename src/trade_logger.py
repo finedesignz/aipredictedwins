@@ -1,188 +1,46 @@
 """
-SQLite trade logging module for the Kalshi + Alpaca trading bot.
+TradeLogger — thin shim over src.db (Postgres).
 
-Tracks Kalshi trades, Alpaca trades (stocks/crypto), daily statistics,
-and simulation results with raw sqlite3.
+The public API is identical to the old SQLite implementation so all
+call sites (orchestrator, risk_gate, exit_advisor) work unchanged.
+
+BOT_ID env var must be set to 'A' or 'B' before instantiating.
 """
 
-import csv
 import os
-import sqlite3
-from datetime import datetime, timezone
+from src import db as _db
 
 
 class TradeLogger:
-    """Manages a SQLite database for trade logging, stats, and simulation tracking."""
-
     def __init__(self, db_path: str = "data/trades.db"):
-        os.makedirs(os.path.dirname(db_path), exist_ok=True)
-        self.db_path = db_path
-        self._init_db()
+        # db_path is ignored — kept for backward compat with call sites
+        self.bot_id = os.environ.get("BOT_ID", "")
+        if self.bot_id not in ("A", "B"):
+            raise ValueError(
+                f"BOT_ID env var must be 'A' or 'B', got {self.bot_id!r}. "
+                "Set BOT_ID=A or BOT_ID=B before starting the bot."
+            )
 
-    def _get_conn(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA foreign_keys=ON")
-        return conn
+    # ── Alpaca trades ──────────────────────────────────────────────────
 
-    def _init_db(self):
-        conn = self._get_conn()
-        try:
-            conn.executescript("""
-                CREATE TABLE IF NOT EXISTS trades (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp TEXT NOT NULL,
-                    kalshi_ticker TEXT NOT NULL,
-                    event_title TEXT NOT NULL,
-                    side TEXT NOT NULL,
-                    contracts INTEGER NOT NULL,
-                    entry_price_cents INTEGER NOT NULL,
-                    mirofish_prob REAL NOT NULL,
-                    kalshi_price_at_entry REAL NOT NULL,
-                    gap REAL NOT NULL,
-                    kelly_pct REAL NOT NULL,
-                    dollar_amount REAL NOT NULL,
-                    status TEXT DEFAULT 'open',
-                    exit_price_cents INTEGER,
-                    pnl REAL,
-                    resolution_date TEXT,
-                    simulation_id TEXT,
-                    notes TEXT
-                );
+    def log_alpaca_trade(self, trade_data: dict) -> int:
+        return _db.log_alpaca_trade(self.bot_id, trade_data)
 
-                CREATE TABLE IF NOT EXISTS daily_stats (
-                    date TEXT PRIMARY KEY,
-                    trades_placed INTEGER,
-                    trades_resolved INTEGER,
-                    wins INTEGER,
-                    losses INTEGER,
-                    daily_pnl REAL,
-                    cumulative_pnl REAL,
-                    bankroll REAL,
-                    accuracy REAL
-                );
+    def update_alpaca_trade(
+        self, trade_id: int, status: str, exit_price: float = None, pnl: float = None
+    ):
+        _db.update_alpaca_trade(self.bot_id, trade_id, status, exit_price, pnl)
 
-                CREATE TABLE IF NOT EXISTS simulations (
-                    id TEXT PRIMARY KEY,
-                    timestamp TEXT NOT NULL,
-                    kalshi_ticker TEXT NOT NULL,
-                    event_title TEXT NOT NULL,
-                    agent_count INTEGER,
-                    rounds INTEGER,
-                    mirofish_prob REAL,
-                    kalshi_price_at_sim REAL,
-                    gap REAL,
-                    estimated_cost REAL,
-                    traded BOOLEAN DEFAULT FALSE
-                );
+    def get_open_alpaca_positions(self) -> list[dict]:
+        return _db.get_open_alpaca_positions(self.bot_id)
 
-                CREATE INDEX IF NOT EXISTS idx_trades_status ON trades(status);
-                CREATE INDEX IF NOT EXISTS idx_trades_ticker ON trades(kalshi_ticker);
-                CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades(timestamp);
-                CREATE INDEX IF NOT EXISTS idx_simulations_ticker ON simulations(kalshi_ticker);
-                CREATE INDEX IF NOT EXISTS idx_simulations_timestamp ON simulations(timestamp);
+    def get_alpaca_accuracy(self, last_n: int = None) -> dict:
+        return _db.get_alpaca_accuracy(self.bot_id, last_n)
 
-                CREATE TABLE IF NOT EXISTS alpaca_trades (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp TEXT NOT NULL,
-                    symbol TEXT NOT NULL,
-                    asset_class TEXT NOT NULL,
-                    side TEXT NOT NULL,
-                    qty REAL NOT NULL,
-                    entry_price REAL NOT NULL,
-                    mirofish_prob REAL NOT NULL,
-                    market_sentiment TEXT,
-                    target_price REAL,
-                    stop_loss REAL,
-                    status TEXT DEFAULT 'open',
-                    exit_price REAL,
-                    pnl REAL,
-                    closed_at TEXT,
-                    simulation_id TEXT,
-                    notes TEXT
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_alpaca_status ON alpaca_trades(status);
-                CREATE INDEX IF NOT EXISTS idx_alpaca_symbol ON alpaca_trades(symbol);
-                CREATE INDEX IF NOT EXISTS idx_alpaca_timestamp ON alpaca_trades(timestamp);
-
-                CREATE TABLE IF NOT EXISTS validations (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp TEXT NOT NULL,
-                    kalshi_ticker TEXT NOT NULL,
-                    event_title TEXT NOT NULL,
-                    mirofish_prob REAL NOT NULL,
-                    kalshi_price REAL NOT NULL,
-                    gap REAL NOT NULL,
-                    proposed_side TEXT NOT NULL,
-                    decision TEXT NOT NULL,
-                    confidence REAL,
-                    adjusted_probability REAL,
-                    size_multiplier REAL DEFAULT 1.0,
-                    sentiment_report TEXT,
-                    news_report TEXT,
-                    contrarian_report TEXT,
-                    risk_assessment TEXT,
-                    veto_reason TEXT,
-                    trade_id INTEGER
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_validations_ticker ON validations(kalshi_ticker);
-                CREATE INDEX IF NOT EXISTS idx_validations_decision ON validations(decision);
-                CREATE INDEX IF NOT EXISTS idx_validations_timestamp ON validations(timestamp);
-
-                CREATE TABLE IF NOT EXISTS screenings (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp TEXT NOT NULL,
-                    kalshi_ticker TEXT NOT NULL,
-                    event_title TEXT NOT NULL,
-                    quick_probability REAL NOT NULL,
-                    quick_confidence TEXT,
-                    kalshi_price REAL NOT NULL,
-                    gap REAL NOT NULL,
-                    promoted_to_full_sim BOOLEAN DEFAULT FALSE
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_screenings_ticker ON screenings(kalshi_ticker);
-                CREATE INDEX IF NOT EXISTS idx_screenings_timestamp ON screenings(timestamp);
-            """)
-            conn.commit()
-        finally:
-            conn.close()
+    # ── Legacy Kalshi trades ───────────────────────────────────────────
 
     def log_trade(self, trade_data: dict) -> int:
-        """Insert a new trade record. Returns the trade ID."""
-        timestamp = datetime.now(timezone.utc).isoformat()
-        conn = self._get_conn()
-        try:
-            cursor = conn.execute(
-                """
-                INSERT INTO trades (
-                    timestamp, kalshi_ticker, event_title, side, contracts,
-                    entry_price_cents, mirofish_prob, kalshi_price_at_entry,
-                    gap, kelly_pct, dollar_amount, simulation_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    timestamp,
-                    trade_data["kalshi_ticker"],
-                    trade_data["event_title"],
-                    trade_data["side"],
-                    trade_data["contracts"],
-                    trade_data["entry_price_cents"],
-                    trade_data["mirofish_prob"],
-                    trade_data["kalshi_price_at_entry"],
-                    trade_data["gap"],
-                    trade_data["kelly_pct"],
-                    trade_data["dollar_amount"],
-                    trade_data.get("simulation_id"),
-                ),
-            )
-            conn.commit()
-            return cursor.lastrowid
-        finally:
-            conn.close()
+        return _db.log_trade(self.bot_id, trade_data)
 
     def update_trade(
         self,
@@ -191,25 +49,25 @@ class TradeLogger:
         exit_price_cents: int = None,
         pnl: float = None,
     ):
-        """Update a trade's status, exit price, and P&L."""
-        resolution_date = (
-            datetime.now(timezone.utc).isoformat()
-            if status in ("won", "lost", "sold")
-            else None
-        )
-        conn = self._get_conn()
-        try:
-            conn.execute(
-                """
-                UPDATE trades
-                SET status = ?, exit_price_cents = ?, pnl = ?, resolution_date = ?
-                WHERE id = ?
-                """,
-                (status, exit_price_cents, pnl, resolution_date, trade_id),
-            )
-            conn.commit()
-        finally:
-            conn.close()
+        _db.update_trade(self.bot_id, trade_id, status, exit_price_cents, pnl)
+
+    def get_open_positions(self) -> list[dict]:
+        # Legacy Kalshi open positions (trades table)
+        from src.db import connection
+        with connection() as conn:
+            return conn.execute(
+                "SELECT * FROM trades WHERE bot_id = %s AND status = 'open' ORDER BY timestamp DESC",
+                (self.bot_id,),
+            ).fetchall()
+
+    def get_accuracy(self, last_n: int = None) -> dict:
+        return _db.get_accuracy(self.bot_id, last_n)
+
+    def get_daily_summary(self) -> dict:
+        return _db.get_daily_summary(self.bot_id)
+
+    def get_simulated_tickers_today(self) -> set[str]:
+        return _db.get_simulated_tickers_today(self.bot_id)
 
     def log_simulation(
         self,
@@ -219,356 +77,18 @@ class TradeLogger:
         kalshi_price: float,
         estimated_cost: float,
     ):
-        """Log a simulation result."""
-        timestamp = datetime.now(timezone.utc).isoformat()
-        gap = mirofish_prob - kalshi_price
-        conn = self._get_conn()
-        try:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO simulations (
-                    id, timestamp, kalshi_ticker, event_title,
-                    agent_count, rounds, mirofish_prob,
-                    kalshi_price_at_sim, gap, estimated_cost
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    sim_id,
-                    timestamp,
-                    market.get("ticker", ""),
-                    market.get("title", market.get("event_title", "")),
-                    market.get("agent_count"),
-                    market.get("rounds"),
-                    mirofish_prob,
-                    kalshi_price,
-                    gap,
-                    estimated_cost,
-                ),
-            )
-            conn.commit()
-        finally:
-            conn.close()
+        _db.log_simulation(self.bot_id, sim_id, market, mirofish_prob, kalshi_price, estimated_cost)
 
-    def get_open_positions(self) -> list[dict]:
-        """Return all trades with status 'open'."""
-        conn = self._get_conn()
-        try:
-            rows = conn.execute(
-                "SELECT * FROM trades WHERE status = 'open' ORDER BY timestamp DESC"
-            ).fetchall()
-            return [dict(row) for row in rows]
-        finally:
-            conn.close()
-
-    def get_accuracy(self, last_n: int = None) -> dict:
-        """Return accuracy and P&L statistics for resolved trades."""
-        conn = self._get_conn()
-        try:
-            if last_n:
-                rows = conn.execute(
-                    """
-                    SELECT status, pnl, gap FROM trades
-                    WHERE status IN ('won', 'lost')
-                    ORDER BY resolution_date DESC
-                    LIMIT ?
-                    """,
-                    (last_n,),
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    """
-                    SELECT status, pnl, gap FROM trades
-                    WHERE status IN ('won', 'lost')
-                    ORDER BY resolution_date DESC
-                    """
-                ).fetchall()
-
-            total_trades = conn.execute(
-                "SELECT COUNT(*) FROM trades"
-            ).fetchone()[0]
-
-            resolved = len(rows)
-            wins = sum(1 for r in rows if r["status"] == "won")
-            losses = sum(1 for r in rows if r["status"] == "lost")
-            total_pnl = sum(r["pnl"] or 0.0 for r in rows)
-            avg_gap = (
-                sum(r["gap"] for r in rows) / resolved if resolved > 0 else 0.0
-            )
-            win_rate = wins / resolved if resolved > 0 else 0.0
-
-            return {
-                "total_trades": total_trades,
-                "resolved": resolved,
-                "wins": wins,
-                "losses": losses,
-                "win_rate": win_rate,
-                "total_pnl": total_pnl,
-                "avg_gap": avg_gap,
-            }
-        finally:
-            conn.close()
-
-    def get_daily_summary(self) -> dict:
-        """Return today's trading stats."""
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        conn = self._get_conn()
-        try:
-            placed = conn.execute(
-                "SELECT COUNT(*) FROM trades WHERE timestamp LIKE ?",
-                (f"{today}%",),
-            ).fetchone()[0]
-
-            resolved_rows = conn.execute(
-                """
-                SELECT status, pnl FROM trades
-                WHERE resolution_date LIKE ? AND status IN ('won', 'lost')
-                """,
-                (f"{today}%",),
-            ).fetchall()
-
-            resolved = len(resolved_rows)
-            wins = sum(1 for r in resolved_rows if r["status"] == "won")
-            losses = sum(1 for r in resolved_rows if r["status"] == "lost")
-            daily_pnl = sum(r["pnl"] or 0.0 for r in resolved_rows)
-            accuracy = wins / resolved if resolved > 0 else 0.0
-
-            return {
-                "date": today,
-                "trades_placed": placed,
-                "trades_resolved": resolved,
-                "wins": wins,
-                "losses": losses,
-                "daily_pnl": daily_pnl,
-                "accuracy": accuracy,
-            }
-        finally:
-            conn.close()
-
-    def get_simulated_tickers_today(self) -> set[str]:
-        """Return set of tickers already simulated today (for deduplication)."""
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        conn = self._get_conn()
-        try:
-            rows = conn.execute(
-                "SELECT DISTINCT kalshi_ticker FROM simulations WHERE timestamp LIKE ?",
-                (f"{today}%",),
-            ).fetchall()
-            return {row["kalshi_ticker"] for row in rows}
-        finally:
-            conn.close()
-
-    # ── Alpaca trades ────────────────────────────────────────────────────
-
-    def log_alpaca_trade(self, trade_data: dict) -> int:
-        """Insert a new Alpaca trade record. Returns the trade ID.
-
-        Expected keys in trade_data:
-            symbol, asset_class, side, qty, entry_price, mirofish_prob
-        Optional keys:
-            market_sentiment, target_price, stop_loss, simulation_id, notes
-        """
-        timestamp = datetime.now(timezone.utc).isoformat()
-        conn = self._get_conn()
-        try:
-            cursor = conn.execute(
-                """
-                INSERT INTO alpaca_trades (
-                    timestamp, symbol, asset_class, side, qty,
-                    entry_price, mirofish_prob, market_sentiment,
-                    target_price, stop_loss, simulation_id, notes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    timestamp,
-                    trade_data["symbol"],
-                    trade_data["asset_class"],
-                    trade_data["side"],
-                    trade_data["qty"],
-                    trade_data["entry_price"],
-                    trade_data["mirofish_prob"],
-                    trade_data.get("market_sentiment"),
-                    trade_data.get("target_price"),
-                    trade_data.get("stop_loss"),
-                    trade_data.get("simulation_id"),
-                    trade_data.get("notes"),
-                ),
-            )
-            conn.commit()
-            return cursor.lastrowid
-        finally:
-            conn.close()
-
-    def update_alpaca_trade(
-        self,
-        trade_id: int,
-        status: str,
-        exit_price: float = None,
-        pnl: float = None,
-    ):
-        """Update an Alpaca trade's status, exit price, and P&L."""
-        closed_at = (
-            datetime.now(timezone.utc).isoformat()
-            if status in ("closed", "stopped", "target_hit")
-            else None
-        )
-        conn = self._get_conn()
-        try:
-            conn.execute(
-                """
-                UPDATE alpaca_trades
-                SET status = ?, exit_price = ?, pnl = ?, closed_at = ?
-                WHERE id = ?
-                """,
-                (status, exit_price, pnl, closed_at, trade_id),
-            )
-            conn.commit()
-        finally:
-            conn.close()
-
-    def get_open_alpaca_positions(self) -> list[dict]:
-        """Return all Alpaca trades with status 'open'."""
-        conn = self._get_conn()
-        try:
-            rows = conn.execute(
-                "SELECT * FROM alpaca_trades WHERE status = 'open' ORDER BY timestamp DESC"
-            ).fetchall()
-            return [dict(row) for row in rows]
-        finally:
-            conn.close()
-
-    def get_alpaca_accuracy(self, last_n: int = None) -> dict:
-        """Return accuracy and P&L statistics for closed Alpaca trades."""
-        conn = self._get_conn()
-        try:
-            base_query = """
-                SELECT status, pnl, symbol, asset_class FROM alpaca_trades
-                WHERE status IN ('closed', 'stopped', 'target_hit')
-                ORDER BY closed_at DESC
-            """
-            if last_n:
-                rows = conn.execute(base_query + " LIMIT ?", (last_n,)).fetchall()
-            else:
-                rows = conn.execute(base_query).fetchall()
-
-            total_trades = conn.execute(
-                "SELECT COUNT(*) FROM alpaca_trades"
-            ).fetchone()[0]
-
-            resolved = len(rows)
-            wins = sum(1 for r in rows if (r["pnl"] or 0) > 0)
-            losses = sum(1 for r in rows if (r["pnl"] or 0) <= 0)
-            total_pnl = sum(r["pnl"] or 0.0 for r in rows)
-            win_rate = wins / resolved if resolved > 0 else 0.0
-            avg_pnl = total_pnl / resolved if resolved > 0 else 0.0
-
-            # Breakdown by asset class
-            crypto_pnl = sum(r["pnl"] or 0.0 for r in rows if r["asset_class"] == "crypto")
-            stock_pnl = sum(r["pnl"] or 0.0 for r in rows if r["asset_class"] == "us_equity")
-
-            return {
-                "total_trades": total_trades,
-                "resolved": resolved,
-                "wins": wins,
-                "losses": losses,
-                "win_rate": win_rate,
-                "total_pnl": total_pnl,
-                "avg_pnl": avg_pnl,
-                "crypto_pnl": crypto_pnl,
-                "stock_pnl": stock_pnl,
-            }
-        finally:
-            conn.close()
-
-    # ── Validations (TradingAgents Gate) ─────────────────────────────
+    # ── Validations ────────────────────────────────────────────────────
 
     def log_validation(self, data: dict) -> int:
-        """Log a TradingAgents Gate validation result. Returns the validation ID.
-
-        Expected keys in data:
-            kalshi_ticker, event_title, mirofish_prob, kalshi_price, gap,
-            proposed_side, decision
-        Optional keys:
-            confidence, adjusted_probability, size_multiplier,
-            sentiment_report, news_report, contrarian_report,
-            risk_assessment, veto_reason, trade_id
-        """
-        timestamp = datetime.now(timezone.utc).isoformat()
-        conn = self._get_conn()
-        try:
-            cursor = conn.execute(
-                """
-                INSERT INTO validations (
-                    timestamp, kalshi_ticker, event_title, mirofish_prob,
-                    kalshi_price, gap, proposed_side, decision, confidence,
-                    adjusted_probability, size_multiplier, sentiment_report,
-                    news_report, contrarian_report, risk_assessment,
-                    veto_reason, trade_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    timestamp,
-                    data["kalshi_ticker"],
-                    data["event_title"],
-                    data["mirofish_prob"],
-                    data["kalshi_price"],
-                    data["gap"],
-                    data["proposed_side"],
-                    data["decision"],
-                    data.get("confidence"),
-                    data.get("adjusted_probability"),
-                    data.get("size_multiplier", 1.0),
-                    data.get("sentiment_report"),
-                    data.get("news_report"),
-                    data.get("contrarian_report"),
-                    data.get("risk_assessment"),
-                    data.get("veto_reason"),
-                    data.get("trade_id"),
-                ),
-            )
-            conn.commit()
-            return cursor.lastrowid
-        finally:
-            conn.close()
+        return _db.log_validation(self.bot_id, data)
 
     def log_screening(self, data: dict) -> int:
-        """Log a quick screening result. Returns the screening ID.
-
-        Expected keys in data:
-            kalshi_ticker, event_title, quick_probability, kalshi_price, gap
-        Optional keys:
-            quick_confidence, promoted_to_full_sim
-        """
-        timestamp = datetime.now(timezone.utc).isoformat()
-        conn = self._get_conn()
-        try:
-            cursor = conn.execute(
-                """
-                INSERT INTO screenings (
-                    timestamp, kalshi_ticker, event_title, quick_probability,
-                    quick_confidence, kalshi_price, gap, promoted_to_full_sim
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    timestamp,
-                    data["kalshi_ticker"],
-                    data["event_title"],
-                    data["quick_probability"],
-                    data.get("quick_confidence"),
-                    data["kalshi_price"],
-                    data["gap"],
-                    data.get("promoted_to_full_sim", False),
-                ),
-            )
-            conn.commit()
-            return cursor.lastrowid
-        finally:
-            conn.close()
+        return _db.log_screening(self.bot_id, data)
 
     def log_veto(self, market: dict, signal: dict, validation: dict) -> int:
-        """Log a vetoed trade for audit trail. Returns the validation ID.
-
-        Convenience wrapper around log_validation for VETO decisions.
-        """
+        """Convenience wrapper — builds validation dict and calls log_validation."""
         return self.log_validation({
             "kalshi_ticker": market.get("ticker", ""),
             "event_title": market.get("title", market.get("event_title", "")),
@@ -588,38 +108,22 @@ class TradeLogger:
         })
 
     def get_veto_history(self, last_n: int = 20) -> list[dict]:
-        """Return the most recent VETO decisions for review."""
-        conn = self._get_conn()
-        try:
-            rows = conn.execute(
-                """
-                SELECT * FROM validations
-                WHERE decision = 'VETO'
-                ORDER BY timestamp DESC
-                LIMIT ?
-                """,
-                (last_n,),
-            ).fetchall()
-            return [dict(row) for row in rows]
-        finally:
-            conn.close()
+        return _db.get_veto_history(self.bot_id, last_n)
 
     def export_csv(self, filepath: str):
-        """Export all trades to a CSV file."""
-        os.makedirs(os.path.dirname(filepath) or ".", exist_ok=True)
-        conn = self._get_conn()
-        try:
+        """Export all legacy Kalshi trades to CSV."""
+        import csv
+        import os as _os
+        from src.db import connection
+        _os.makedirs(_os.path.dirname(filepath) or ".", exist_ok=True)
+        with connection() as conn:
             rows = conn.execute(
-                "SELECT * FROM trades ORDER BY timestamp"
+                "SELECT * FROM trades WHERE bot_id = %s ORDER BY timestamp",
+                (self.bot_id,),
             ).fetchall()
-            if not rows:
-                return
-
-            columns = rows[0].keys()
-            with open(filepath, "w", newline="", encoding="utf-8") as f:
-                writer = csv.DictWriter(f, fieldnames=columns)
-                writer.writeheader()
-                for row in rows:
-                    writer.writerow(dict(row))
-        finally:
-            conn.close()
+        if not rows:
+            return
+        with open(filepath, "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+            writer.writeheader()
+            writer.writerows(rows)
