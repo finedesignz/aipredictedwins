@@ -12,7 +12,7 @@ import os
 import json
 import urllib.request
 import urllib.error
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Query
 from models import Envelope, Meta
 
@@ -51,7 +51,9 @@ def _fetch_portfolio_history(api_key: str, secret_key: str, days: int) -> list[d
         # Skip null or zero values (Alpaca returns 0 for days before account opened)
         if not eq:
             continue
-        iso = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+        # Truncate to date-only ISO so timestamps align with SPY bars
+        day = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d")
+        iso = f"{day}T00:00:00+00:00"
         points.append({"timestamp": iso, "equity": round(float(eq), 2)})
 
     return points
@@ -77,34 +79,42 @@ def _fetch_account(api_key: str, secret_key: str) -> dict:
         return {}
 
 
-def _fetch_sp500(days: int) -> list[dict]:
-    """Fetch S&P 500 daily closes from Yahoo Finance and normalize to $100k start."""
+def _fetch_sp500(api_key: str, secret_key: str, days: int) -> list[dict]:
+    """Fetch SPY daily bars from Alpaca market data API, normalized to $100k start."""
+    if not api_key or not secret_key:
+        return []
     try:
-        # Yahoo Finance chart endpoint — no API key needed
-        url = f"https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=1d&range={days}d"
+        start = (datetime.now(timezone.utc) - timedelta(days=days + 5)).strftime("%Y-%m-%d")
+        url = (
+            f"https://data.alpaca.markets/v2/stocks/SPY/bars"
+            f"?timeframe=1Day&start={start}&limit={days + 10}&feed=iex"
+        )
         req = urllib.request.Request(
             url,
-            headers={"User-Agent": "Mozilla/5.0"},
+            headers={
+                "APCA-API-KEY-ID": api_key,
+                "APCA-API-SECRET-KEY": secret_key,
+                "Accept": "application/json",
+            },
         )
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode())
 
-        result = data["chart"]["result"][0]
-        timestamps = result.get("timestamp", [])
-        closes = result["indicators"]["quote"][0].get("close", [])
-
-        # Filter out None closes
-        pairs = [(ts, c) for ts, c in zip(timestamps, closes) if c is not None]
-        if not pairs:
+        bars = data.get("bars", [])
+        if not bars:
             return []
 
-        # Normalize: first close maps to $100k
-        first_close = pairs[0][1]
+        # Keep only the most recent `days` bars
+        bars = bars[-days:]
+
+        first_close = bars[0]["c"]
         points = []
-        for ts, close in pairs:
+        for bar in bars:
+            close = bar["c"]
             normalized = round((close / first_close) * 100_000.0, 2)
-            iso = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
-            points.append({"timestamp": iso, "equity": normalized})
+            # bar timestamp is like "2024-01-02T05:00:00Z" — truncate to date for alignment
+            ts = bar["t"][:10] + "T00:00:00+00:00"
+            points.append({"timestamp": ts, "equity": normalized})
         return points
     except Exception:
         return []
@@ -132,7 +142,7 @@ def get_alpaca_equity(days: int = Query(30, ge=1, le=90)):
         b_points = []
         errors.append(f"Agent B: {e}")
 
-    sp500_points = _fetch_sp500(days)
+    sp500_points = _fetch_sp500(key_a, sec_a, days)
 
     # Current account equity
     acct_a = _fetch_account(key_a, sec_a)
