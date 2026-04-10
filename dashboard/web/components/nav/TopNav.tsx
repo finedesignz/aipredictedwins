@@ -27,7 +27,7 @@ const navLinks = [
 ];
 
 interface TopNavProps {
-  mode?: "paper" | "live";
+  mode?: string;
   equity?: number;
 }
 

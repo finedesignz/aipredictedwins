@@ -1,7 +1,7 @@
 "use client";
 
 interface ModeBadgeProps {
-  mode: "paper" | "live";
+  mode: string;
 }
 
 export default function ModeBadge({ mode }: ModeBadgeProps) {
