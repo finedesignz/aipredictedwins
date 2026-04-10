@@ -16,7 +16,7 @@ from src.config import Config
 from src.alpaca_client import AlpacaClient
 from src.trade_logger import TradeLogger
 from src.risk_gate import RiskGate
-from src.exit_advisor import ExitAdvisor, HARD_STOP_PCT, HARD_TAKE_PROFIT_PCT
+from src.exit_advisor import ExitAdvisor, HARD_STOP_PCT, SOFT_TAKE_PROFIT_PCT
 from src.technical_signals import scan_assets
 from src.alpaca_orchestrator import (
     PositionMonitor,
@@ -356,7 +356,7 @@ class BotThread(threading.Thread):
                     "entry_price": price,
                     "mirofish_prob": signal.confluence_score / 5.0,
                     "market_sentiment": f"technical_confluence_{signal.confluence_score}",
-                    "target_price": price * (1 + HARD_TAKE_PROFIT_PCT),
+                    "target_price": price * (1 + SOFT_TAKE_PROFIT_PCT),
                     "stop_loss": price * (1 + HARD_STOP_PCT),
                     "simulation_id": f"tech_{symbol}_{int(time.time())}",
                     "notes": (
