@@ -249,7 +249,8 @@ def analyze(symbol: str, bars: list[dict]) -> Signal | None:
         rsi_signal = "neutral"
 
     # RSI hard block: reject overbought entries above ceiling
-    RSI_ENTRY_CEILING = 72.0
+    import os as _os
+    RSI_ENTRY_CEILING = float(_os.environ.get("RSI_ENTRY_CEILING", "72.0"))
     if rsi_value > RSI_ENTRY_CEILING:
         log.debug(
             "BLOCKED %s: RSI=%.1f > %.0f ceiling (overbought entry rejected)",

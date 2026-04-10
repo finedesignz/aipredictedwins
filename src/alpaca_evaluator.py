@@ -21,10 +21,17 @@ TOP_STOCK_TICKERS = [
     "GOOGL", "MSFT", "AMD", "COIN", "MSTR",
 ]
 
-TOP_CRYPTO_TICKERS = [
-    "BTC/USD", "ETH/USD", "SOL/USD", "XRP/USD",
-    "ADA/USD", "AVAX/USD", "DOT/USD", "LINK/USD",
-]
+def _load_crypto_universe() -> list[str]:
+    import os
+    raw = os.environ.get("CRYPTO_UNIVERSE", "")
+    if raw:
+        return [s.strip() for s in raw.split(",") if s.strip()]
+    return [
+        "BTC/USD", "ETH/USD", "SOL/USD", "XRP/USD",
+        "ADA/USD", "AVAX/USD", "DOT/USD", "LINK/USD",
+    ]
+
+TOP_CRYPTO_TICKERS = _load_crypto_universe()
 
 # ---------------------------------------------------------------------------
 # Sentiment/simulation fitness tiers

@@ -11,6 +11,7 @@ Hard thresholds (-4%, +10%) trigger immediate exit regardless.
 
 import json
 import logging
+import os
 import re
 from dataclasses import dataclass
 
@@ -18,11 +19,11 @@ from src.claude_llm import ClaudeLLM
 
 log = logging.getLogger(__name__)
 
-# Thresholds
-SOFT_STOP_PCT = -0.02       # -2% triggers LLM consultation
-SOFT_TAKE_PROFIT_PCT = 0.05  # +5% triggers LLM consultation
-HARD_STOP_PCT = -0.04        # -4% immediate exit
-HARD_TAKE_PROFIT_PCT = 0.10  # +10% immediate exit
+# Thresholds — all overridable via env vars
+SOFT_STOP_PCT        = float(os.environ.get("SOFT_STOP_PCT",        "-0.02"))
+SOFT_TAKE_PROFIT_PCT = float(os.environ.get("SOFT_TAKE_PROFIT_PCT", "0.05"))
+HARD_STOP_PCT        = float(os.environ.get("HARD_STOP_PCT",        "-0.04"))
+HARD_TAKE_PROFIT_PCT = float(os.environ.get("HARD_TAKE_PROFIT_PCT", "0.10"))
 
 # Trailing stop — once position is up >= TRAIL_ACTIVATION, the stop follows
 # the high-water mark minus TRAIL_DISTANCE. Locks in gains automatically.
