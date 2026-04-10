@@ -1,15 +1,16 @@
 """
 Settings endpoint.
-
-GET /api/settings -- bot config, system health, paper trading progress.
+GET /api/settings?bot=A|B|both
 """
 
 import os
+from typing import Literal
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
-from db import DB_PATH, get_db
+from db import get_db
 from models import Envelope, HealthStatus, Meta, SettingsData
+from alpaca import get_account_health
 
 router = APIRouter(prefix="/api", tags=["settings"])
 
@@ -21,47 +22,68 @@ _SKIP_RISK_GATE = os.environ.get("SKIP_RISK_GATE", "").lower() in ("1", "true", 
 
 
 @router.get("/settings", response_model=Envelope[SettingsData])
-def get_settings():
-    """Return bot status, health, and paper trading progress."""
+def get_settings(bot: Literal["A", "B", "both"] = Query("both")):
+    # Build bot_id filter
+    bot_ids = ["A", "B"] if bot == "both" else [bot]
 
-    # -- DB size ---------------------------------------------------------------
-    db_size_mb = 0.0
-    try:
-        db_size_mb = round(os.path.getsize(DB_PATH) / (1024 * 1024), 2)
-    except OSError:
-        pass
-    db_exists = os.path.exists(DB_PATH)
-
-    # -- Paper trading stats from DB -------------------------------------------
     with get_db() as conn:
-        total_trades = conn.execute(
-            "SELECT COUNT(*) FROM alpaca_trades"
-        ).fetchone()[0]
+        # Total trades
+        if bot == "both":
+            total_trades = conn.execute(
+                "SELECT COUNT(*) AS n FROM alpaca_trades WHERE bot_id IN ('A','B')"
+            ).fetchone()["n"]
+        else:
+            total_trades = conn.execute(
+                "SELECT COUNT(*) AS n FROM alpaca_trades WHERE bot_id = %s", (bot,)
+            ).fetchone()["n"]
 
-        closed_rows = conn.execute(
-            """
-            SELECT pnl FROM alpaca_trades
-            WHERE status IN ('closed', 'stopped', 'target_hit')
-            """
-        ).fetchall()
+        # Closed trades
+        if bot == "both":
+            closed_rows = conn.execute(
+                """SELECT pnl FROM alpaca_trades
+                   WHERE bot_id IN ('A','B')
+                     AND status IN ('closed', 'stopped', 'target_hit')"""
+            ).fetchall()
+        else:
+            closed_rows = conn.execute(
+                """SELECT pnl FROM alpaca_trades
+                   WHERE bot_id = %s
+                     AND status IN ('closed', 'stopped', 'target_hit')""",
+                (bot,),
+            ).fetchall()
 
-        last_row = conn.execute(
-            "SELECT timestamp FROM alpaca_trades ORDER BY timestamp DESC LIMIT 1"
-        ).fetchone()
+        # Last cycle
+        if bot == "both":
+            last_row = conn.execute(
+                "SELECT timestamp FROM alpaca_trades ORDER BY timestamp DESC LIMIT 1"
+            ).fetchone()
+        else:
+            last_row = conn.execute(
+                "SELECT timestamp FROM alpaca_trades WHERE bot_id = %s ORDER BY timestamp DESC LIMIT 1",
+                (bot,),
+            ).fetchone()
 
-        resolved = len(closed_rows)
-        wins = sum(1 for r in closed_rows if (r["pnl"] or 0) > 0)
-        total_pnl = sum(r["pnl"] or 0.0 for r in closed_rows)
-        win_rate_pct = round(wins / resolved * 100, 1) if resolved > 0 else 0.0
-        equity = 100_000.0 + total_pnl
-
+    resolved = len(closed_rows)
+    wins = sum(1 for r in closed_rows if (r["pnl"] or 0) > 0)
+    total_pnl = sum(r["pnl"] or 0.0 for r in closed_rows)
+    win_rate_pct = round(wins / resolved * 100, 1) if resolved > 0 else 0.0
+    equity = 100_000.0 * len(bot_ids) + total_pnl
     last_cycle = last_row["timestamp"] if last_row else None
 
+    # Health checks
+    alpaca_status = get_account_health()
+    try:
+        with get_db() as conn:
+            conn.execute("SELECT 1")
+        db_ok = True
+    except Exception:
+        db_ok = False
+
     health = HealthStatus(
-        claude_cli=True,   # bot is writing trades → CLI is working
-        alpaca_api=True,   # bot is writing trades → Alpaca is connected
-        database=db_exists,
-        db_size_mb=db_size_mb,
+        claude_cli=True,
+        alpaca_api=(alpaca_status in ("ok", "unknown")),
+        database=db_ok,
+        db_size_mb=0.0,
     )
 
     data = SettingsData(
