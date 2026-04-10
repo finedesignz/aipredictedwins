@@ -35,3 +35,6 @@ BEGIN
         ALTER TABLE bots ADD CONSTRAINT bots_bot_id_unique UNIQUE (bot_id);
     END IF;
 END$$;
+
+-- 5. Enforce NOT NULL on bot_id now that all rows are backfilled
+ALTER TABLE bots ALTER COLUMN bot_id SET NOT NULL;

@@ -31,11 +31,16 @@ def run_migrations(database_url: str) -> None:
 
             print(f"  [apply] {sql_file.name}")
             sql = sql_file.read_text()
-            conn.execute(sql)
-            conn.execute(
-                "INSERT INTO _migrations (filename) VALUES (%s)",
-                (sql_file.name,)
-            )
+            with conn.transaction():
+                # Use raw libpq exec for multi-statement SQL (psycopg3 cursor.execute doesn't support multiple statements)
+                result = conn.pgconn.exec_(sql.encode())
+                # Status 1 = PGRES_COMMAND_OK, 2 = PGRES_TUPLES_OK
+                if result.status not in (1, 2):
+                    raise RuntimeError(f"Migration {sql_file.name} failed: {result.error_message.decode()}")
+                conn.execute(
+                    "INSERT INTO _migrations (filename) VALUES (%s)",
+                    (sql_file.name,)
+                )
             print(f"  [done] {sql_file.name}")
 
 
