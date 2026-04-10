@@ -4,14 +4,17 @@ Trade Memory & Learning System
 Tracks every trade decision with full context, analyzes outcomes,
 extracts lessons, and adjusts strategy parameters dynamically.
 
-Uses SQLite -- no vector DB dependency.
+Backed by Postgres via src.db — no SQLite dependency.
+
+BOT_ID env var must be set to 'A' or 'B' before instantiating.
 """
 
 import json
 import logging
 import os
-import sqlite3
 from datetime import datetime, timezone
+
+from src.db import connection
 
 log = logging.getLogger(__name__)
 
@@ -20,88 +23,18 @@ class TradeMemory:
     """Self-learning trade memory that stores context, finds patterns, and advises
     future trades based on historical outcomes.
 
-    Sits on top of the existing trades.db used by TradeLogger.  Creates three
-    additional tables (trade_lessons, trade_context, strategy_scores) without
-    touching existing tables.
+    Uses the shared Postgres pool from src.db.  Tables: trade_lessons,
+    trade_context, strategy_scores (all with bot_id column).
     """
 
     def __init__(self, db_path: str = "data/trades.db"):
-        os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
-        self.db_path = db_path
-        self._init_memory_tables()
-
-    # ------------------------------------------------------------------
-    # Database helpers
-    # ------------------------------------------------------------------
-
-    def _get_conn(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA foreign_keys=ON")
-        return conn
-
-    def _init_memory_tables(self):
-        conn = self._get_conn()
-        try:
-            conn.executescript("""
-                CREATE TABLE IF NOT EXISTS trade_lessons (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp TEXT NOT NULL,
-                    lesson_type TEXT NOT NULL,
-                    symbol TEXT,
-                    signal_type TEXT,
-                    lesson TEXT NOT NULL,
-                    confidence REAL,
-                    sample_size INTEGER,
-                    applies_to TEXT,
-                    active BOOLEAN DEFAULT TRUE
-                );
-
-                CREATE TABLE IF NOT EXISTS trade_context (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    trade_id INTEGER,
-                    timestamp TEXT NOT NULL,
-                    symbol TEXT NOT NULL,
-                    signal_type TEXT,
-                    sentiment REAL,
-                    confidence TEXT,
-                    price_at_entry REAL,
-                    price_change_24h REAL,
-                    volume_24h REAL,
-                    trajectory TEXT,
-                    bull_arguments TEXT,
-                    bear_arguments TEXT,
-                    similar_past_trades TEXT,
-                    outcome TEXT,
-                    pnl REAL,
-                    lesson_generated BOOLEAN DEFAULT FALSE
-                );
-
-                CREATE TABLE IF NOT EXISTS strategy_scores (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    updated_at TEXT NOT NULL,
-                    signal_type TEXT NOT NULL,
-                    symbol TEXT,
-                    win_rate REAL,
-                    avg_pnl REAL,
-                    total_trades INTEGER,
-                    recommended_threshold REAL,
-                    recommended_position_pct REAL,
-                    active BOOLEAN DEFAULT TRUE
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_tc_symbol ON trade_context(symbol);
-                CREATE INDEX IF NOT EXISTS idx_tc_signal ON trade_context(signal_type);
-                CREATE INDEX IF NOT EXISTS idx_tc_outcome ON trade_context(outcome);
-                CREATE INDEX IF NOT EXISTS idx_tc_trade_id ON trade_context(trade_id);
-                CREATE INDEX IF NOT EXISTS idx_tl_signal ON trade_lessons(signal_type);
-                CREATE INDEX IF NOT EXISTS idx_tl_active ON trade_lessons(active);
-                CREATE INDEX IF NOT EXISTS idx_ss_signal ON strategy_scores(signal_type);
-            """)
-            conn.commit()
-        finally:
-            conn.close()
+        # db_path is ignored — kept for backward compat with call sites
+        self.bot_id = os.environ.get("BOT_ID", "")
+        if self.bot_id not in ("A", "B"):
+            raise ValueError(
+                f"BOT_ID env var must be 'A' or 'B', got {self.bot_id!r}. "
+                "Set BOT_ID=A or BOT_ID=B before starting the bot."
+            )
 
     # ------------------------------------------------------------------
     # Recording
@@ -129,18 +62,19 @@ class TradeMemory:
         similar_ids = [t["id"] for t in similar[:10]]
 
         timestamp = datetime.now(timezone.utc).isoformat()
-        conn = self._get_conn()
-        try:
+        with connection() as conn:
             cursor = conn.execute(
                 """
                 INSERT INTO trade_context (
-                    trade_id, timestamp, symbol, signal_type, sentiment,
+                    bot_id, trade_id, timestamp, symbol, signal_type, sentiment,
                     confidence, price_at_entry, price_change_24h, volume_24h,
                     trajectory, bull_arguments, bear_arguments,
                     similar_past_trades, outcome
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open')
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'open')
+                RETURNING id
                 """,
                 (
+                    self.bot_id,
                     trade_data.get("trade_id"),
                     timestamp,
                     symbol,
@@ -156,15 +90,13 @@ class TradeMemory:
                     json.dumps(similar_ids),
                 ),
             )
-            conn.commit()
-            context_id = cursor.lastrowid
-            log.info(
-                "Recorded trade context #%d for %s (%s) -- %d similar past trades",
-                context_id, symbol, signal_type, len(similar),
-            )
-            return context_id
-        finally:
-            conn.close()
+            row = cursor.fetchone()
+            context_id = row["id"]
+        log.info(
+            "Recorded trade context #%d for %s (%s) -- %d similar past trades",
+            context_id, symbol, signal_type, len(similar),
+        )
+        return context_id
 
     def find_similar_trades(
         self,
@@ -188,8 +120,7 @@ class TradeMemory:
         price_lo = price_change - 2.0
         price_hi = price_change + 2.0
 
-        conn = self._get_conn()
-        try:
+        with connection() as conn:
             results = []
             seen_ids = set()
 
@@ -198,19 +129,19 @@ class TradeMemory:
                 """
                 SELECT tc.*, 3 AS relevance_weight
                 FROM trade_context tc
-                WHERE tc.symbol = ?
-                  AND tc.signal_type = ?
-                  AND tc.sentiment BETWEEN ? AND ?
+                WHERE tc.bot_id = %s
+                  AND tc.symbol = %s
+                  AND tc.signal_type = %s
+                  AND tc.sentiment BETWEEN %s AND %s
                 ORDER BY tc.timestamp DESC
                 LIMIT 10
                 """,
-                (symbol, signal_type, sentiment_lo, sentiment_hi),
+                (self.bot_id, symbol, signal_type, sentiment_lo, sentiment_hi),
             ).fetchall()
             for row in rows:
-                d = dict(row)
-                if d["id"] not in seen_ids:
-                    results.append(d)
-                    seen_ids.add(d["id"])
+                if row["id"] not in seen_ids:
+                    results.append(dict(row))
+                    seen_ids.add(row["id"])
 
             # Tier 2: same asset class + signal match
             if is_crypto:
@@ -222,50 +153,44 @@ class TradeMemory:
                 f"""
                 SELECT tc.*, 2 AS relevance_weight
                 FROM trade_context tc
-                WHERE {class_filter}
-                  AND tc.signal_type = ?
-                  AND tc.sentiment BETWEEN ? AND ?
-                  AND tc.price_change_24h BETWEEN ? AND ?
+                WHERE tc.bot_id = %s
+                  AND {class_filter}
+                  AND tc.signal_type = %s
+                  AND tc.sentiment BETWEEN %s AND %s
+                  AND tc.price_change_24h BETWEEN %s AND %s
                 ORDER BY tc.timestamp DESC
                 LIMIT 10
                 """,
-                (signal_type, sentiment_lo, sentiment_hi, price_lo, price_hi),
+                (self.bot_id, signal_type, sentiment_lo, sentiment_hi, price_lo, price_hi),
             ).fetchall()
             for row in rows:
-                d = dict(row)
-                if d["id"] not in seen_ids:
-                    results.append(d)
-                    seen_ids.add(d["id"])
+                if row["id"] not in seen_ids:
+                    results.append(dict(row))
+                    seen_ids.add(row["id"])
 
             # Tier 3: any asset + same signal within sentiment range
             rows = conn.execute(
                 """
                 SELECT tc.*, 1 AS relevance_weight
                 FROM trade_context tc
-                WHERE tc.signal_type = ?
-                  AND tc.sentiment BETWEEN ? AND ?
+                WHERE tc.bot_id = %s
+                  AND tc.signal_type = %s
+                  AND tc.sentiment BETWEEN %s AND %s
                 ORDER BY tc.timestamp DESC
                 LIMIT 10
                 """,
-                (signal_type, sentiment_lo, sentiment_hi),
+                (self.bot_id, signal_type, sentiment_lo, sentiment_hi),
             ).fetchall()
             for row in rows:
-                d = dict(row)
-                if d["id"] not in seen_ids:
-                    results.append(d)
-                    seen_ids.add(d["id"])
+                if row["id"] not in seen_ids:
+                    results.append(dict(row))
+                    seen_ids.add(row["id"])
 
-            # Sort by relevance weight desc, then recency
-            results.sort(key=lambda r: (-r["relevance_weight"], r["timestamp"]), reverse=False)
-            # Actually: highest weight first, then most recent first within weight
-            results.sort(key=lambda r: (-r["relevance_weight"], ""), reverse=False)
-            # Stable sort by timestamp desc within each weight group
-            results.sort(key=lambda r: r["timestamp"], reverse=True)
-            results.sort(key=lambda r: r["relevance_weight"], reverse=True)
+        # Sort by relevance weight desc, then recency
+        results.sort(key=lambda r: r["timestamp"], reverse=True)
+        results.sort(key=lambda r: r["relevance_weight"], reverse=True)
 
-            return results[:10]
-        finally:
-            conn.close()
+        return results[:10]
 
     def update_trade_outcome(self, trade_id: int, outcome: str, pnl: float):
         """Called when a trade closes. Updates the context record.
@@ -275,21 +200,17 @@ class TradeMemory:
             outcome: "win" or "loss".
             pnl: Realized profit/loss in dollars.
         """
-        conn = self._get_conn()
-        try:
+        with connection() as conn:
             conn.execute(
                 """
                 UPDATE trade_context
-                SET outcome = ?, pnl = ?
-                WHERE trade_id = ?
+                SET outcome = %s, pnl = %s
+                WHERE bot_id = %s AND trade_id = %s
                 """,
-                (outcome, pnl, trade_id),
+                (outcome, pnl, self.bot_id, trade_id),
             )
-            conn.commit()
-            log.info("Updated trade context for trade_id=%d: outcome=%s pnl=$%.2f",
-                     trade_id, outcome, pnl)
-        finally:
-            conn.close()
+        log.info("Updated trade context for trade_id=%d: outcome=%s pnl=$%.2f",
+                 trade_id, outcome, pnl)
 
     # ------------------------------------------------------------------
     # Learning
@@ -304,8 +225,7 @@ class TradeMemory:
 
         Returns list of newly created lesson dicts.
         """
-        conn = self._get_conn()
-        try:
+        with connection() as conn:
             # Get all closed trades without lessons yet, grouped by pattern
             rows = conn.execute(
                 """
@@ -313,9 +233,11 @@ class TradeMemory:
                        price_at_entry, price_change_24h, volume_24h, trajectory,
                        outcome, pnl
                 FROM trade_context
-                WHERE outcome IN ('win', 'loss')
+                WHERE bot_id = %s
+                  AND outcome IN ('win', 'loss')
                 ORDER BY signal_type, symbol
-                """
+                """,
+                (self.bot_id,),
             ).fetchall()
 
             if not rows:
@@ -366,17 +288,18 @@ class TradeMemory:
                 conn.execute(
                     """
                     INSERT INTO trade_lessons (
-                        timestamp, lesson_type, symbol, signal_type, lesson,
+                        bot_id, timestamp, lesson_type, symbol, signal_type, lesson,
                         confidence, sample_size, applies_to, active
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, TRUE)
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE)
                     """,
                     (
+                        self.bot_id,
                         timestamp,
                         lesson_type,
                         symbol,
                         signal_type,
                         lesson_text,
-                        min(analysis["win_rate"], 1.0 - analysis["win_rate"]) * 2,  # confidence based on clarity
+                        min(analysis["win_rate"], 1.0 - analysis["win_rate"]) * 2,
                         analysis["sample_size"],
                         applies_to,
                     ),
@@ -417,11 +340,12 @@ class TradeMemory:
                 conn.execute(
                     """
                     INSERT INTO trade_lessons (
-                        timestamp, lesson_type, symbol, signal_type, lesson,
+                        bot_id, timestamp, lesson_type, symbol, signal_type, lesson,
                         confidence, sample_size, applies_to, active
-                    ) VALUES (?, 'threshold', NULL, ?, ?, ?, ?, ?, TRUE)
+                    ) VALUES (%s, %s, 'threshold', NULL, %s, %s, %s, %s, %s, TRUE)
                     """,
                     (
+                        self.bot_id,
                         timestamp,
                         signal_type,
                         lesson_text,
@@ -445,15 +369,13 @@ class TradeMemory:
                 """
                 UPDATE trade_context
                 SET lesson_generated = TRUE
-                WHERE outcome IN ('win', 'loss') AND lesson_generated = FALSE
-                """
+                WHERE bot_id = %s AND outcome IN ('win', 'loss') AND lesson_generated = FALSE
+                """,
+                (self.bot_id,),
             )
-            conn.commit()
 
-            log.info("Generated %d new lessons from trade patterns", len(new_lessons))
-            return new_lessons
-        finally:
-            conn.close()
+        log.info("Generated %d new lessons from trade patterns", len(new_lessons))
+        return new_lessons
 
     def _analyze_pattern(self, trades: list[dict]) -> dict:
         """For a group of similar trades, calculate statistics and
@@ -477,12 +399,11 @@ class TradeMemory:
             avg_win_sentiment = 0.5
 
         # Recommended threshold: midpoint between average sentiment and neutral
-        # If wins happen at higher sentiment, raise the threshold
         recommended_threshold = (avg_win_sentiment + 0.50) / 2.0
 
         # Position sizing recommendation based on win rate
         if win_rate >= 0.60:
-            recommended_position_pct = 0.05  # max allowed
+            recommended_position_pct = 0.05
         elif win_rate >= 0.50:
             recommended_position_pct = 0.04
         elif win_rate >= 0.40:
@@ -490,9 +411,8 @@ class TradeMemory:
         elif win_rate >= 0.30:
             recommended_position_pct = 0.02
         else:
-            recommended_position_pct = 0.0  # don't trade
+            recommended_position_pct = 0.0
 
-        # Common conditions
         sentiments = [t.get("sentiment", 0.5) for t in trades]
         price_changes = [t.get("price_change_24h", 0) or 0 for t in trades]
 
@@ -587,110 +507,101 @@ class TradeMemory:
         """Return adjusted thresholds based on what signal types are
         actually working, derived from closed trade outcomes.
         """
-        conn = self._get_conn()
-        try:
+        with connection() as conn:
             rows = conn.execute(
                 """
                 SELECT signal_type, outcome, pnl
                 FROM trade_context
-                WHERE outcome IN ('win', 'loss')
-                """
+                WHERE bot_id = %s AND outcome IN ('win', 'loss')
+                """,
+                (self.bot_id,),
             ).fetchall()
 
-            if not rows:
-                # No data -- return safe defaults
-                return {
-                    "bullish_threshold": 0.53,
-                    "bearish_threshold": 0.47,
-                    "min_position_pct": 0.02,
-                    "max_position_pct": 0.05,
-                    "signal_scores": {},
-                }
-
-            # Group by signal_type
-            signal_stats: dict[str, dict] = {}
-            for row in rows:
-                st = row["signal_type"] or "unknown"
-                if st not in signal_stats:
-                    signal_stats[st] = {"wins": 0, "losses": 0, "total_pnl": 0.0}
-                if row["outcome"] == "win":
-                    signal_stats[st]["wins"] += 1
-                else:
-                    signal_stats[st]["losses"] += 1
-                signal_stats[st]["total_pnl"] += row["pnl"] or 0.0
-
-            signal_scores = {}
-            for st, stats in signal_stats.items():
-                total = stats["wins"] + stats["losses"]
-                wr = stats["wins"] / total if total > 0 else 0.0
-                signal_scores[st] = {
-                    "win_rate": round(wr, 3),
-                    "trades": total,
-                    "avg_pnl": round(stats["total_pnl"] / total, 2) if total > 0 else 0.0,
-                    "recommended": wr >= 0.40 and total >= 3,
-                }
-
-            # Adjust thresholds based on overall performance
-            total_trades = sum(s["wins"] + s["losses"] for s in signal_stats.values())
-            total_wins = sum(s["wins"] for s in signal_stats.values())
-            overall_wr = total_wins / total_trades if total_trades > 0 else 0.5
-
-            # If we're winning a lot, we can be slightly less selective
-            # If we're losing, raise the bar
-            if overall_wr > 0.55 and total_trades >= 10:
-                bullish_threshold = 0.51
-                bearish_threshold = 0.49
-            elif overall_wr < 0.40 and total_trades >= 10:
-                bullish_threshold = 0.58
-                bearish_threshold = 0.42
-            else:
-                bullish_threshold = 0.53
-                bearish_threshold = 0.47
-
-            # Position sizing: tighten if losing, loosen if winning
-            if overall_wr > 0.55:
-                min_pos = 0.02
-                max_pos = 0.05
-            elif overall_wr < 0.40:
-                min_pos = 0.01
-                max_pos = 0.03
-            else:
-                min_pos = 0.02
-                max_pos = 0.04
-
+        if not rows:
             return {
-                "bullish_threshold": bullish_threshold,
-                "bearish_threshold": bearish_threshold,
-                "min_position_pct": min_pos,
-                "max_position_pct": max_pos,
-                "signal_scores": signal_scores,
-                "overall_win_rate": round(overall_wr, 3),
-                "total_closed_trades": total_trades,
+                "bullish_threshold": 0.53,
+                "bearish_threshold": 0.47,
+                "min_position_pct": 0.02,
+                "max_position_pct": 0.05,
+                "signal_scores": {},
             }
-        finally:
-            conn.close()
+
+        # Group by signal_type
+        signal_stats: dict[str, dict] = {}
+        for row in rows:
+            st = row["signal_type"] or "unknown"
+            if st not in signal_stats:
+                signal_stats[st] = {"wins": 0, "losses": 0, "total_pnl": 0.0}
+            if row["outcome"] == "win":
+                signal_stats[st]["wins"] += 1
+            else:
+                signal_stats[st]["losses"] += 1
+            signal_stats[st]["total_pnl"] += row["pnl"] or 0.0
+
+        signal_scores = {}
+        for st, stats in signal_stats.items():
+            total = stats["wins"] + stats["losses"]
+            wr = stats["wins"] / total if total > 0 else 0.0
+            signal_scores[st] = {
+                "win_rate": round(wr, 3),
+                "trades": total,
+                "avg_pnl": round(stats["total_pnl"] / total, 2) if total > 0 else 0.0,
+                "recommended": wr >= 0.40 and total >= 3,
+            }
+
+        total_trades = sum(s["wins"] + s["losses"] for s in signal_stats.values())
+        total_wins = sum(s["wins"] for s in signal_stats.values())
+        overall_wr = total_wins / total_trades if total_trades > 0 else 0.5
+
+        if overall_wr > 0.55 and total_trades >= 10:
+            bullish_threshold = 0.51
+            bearish_threshold = 0.49
+        elif overall_wr < 0.40 and total_trades >= 10:
+            bullish_threshold = 0.58
+            bearish_threshold = 0.42
+        else:
+            bullish_threshold = 0.53
+            bearish_threshold = 0.47
+
+        if overall_wr > 0.55:
+            min_pos = 0.02
+            max_pos = 0.05
+        elif overall_wr < 0.40:
+            min_pos = 0.01
+            max_pos = 0.03
+        else:
+            min_pos = 0.02
+            max_pos = 0.04
+
+        return {
+            "bullish_threshold": bullish_threshold,
+            "bearish_threshold": bearish_threshold,
+            "min_position_pct": min_pos,
+            "max_position_pct": max_pos,
+            "signal_scores": signal_scores,
+            "overall_win_rate": round(overall_wr, 3),
+            "total_closed_trades": total_trades,
+        }
 
     def _get_active_lessons(self, symbol: str, signal_type: str) -> list[dict]:
         """Retrieve active lessons that apply to the given symbol/signal."""
-        conn = self._get_conn()
-        try:
+        with connection() as conn:
             rows = conn.execute(
                 """
                 SELECT * FROM trade_lessons
-                WHERE active = TRUE
+                WHERE bot_id = %s
+                  AND active = TRUE
                   AND (
-                    (symbol = ? AND signal_type = ?)
-                    OR (symbol IS NULL AND signal_type = ?)
-                    OR (symbol = ? AND signal_type IS NULL)
+                    (symbol = %s AND signal_type = %s)
+                    OR (symbol IS NULL AND signal_type = %s)
+                    OR (symbol = %s AND signal_type IS NULL)
                   )
                 ORDER BY sample_size DESC, timestamp DESC
                 LIMIT 10
                 """,
-                (symbol, signal_type, signal_type, symbol),
+                (self.bot_id, symbol, signal_type, signal_type, symbol),
             ).fetchall()
             return [dict(r) for r in rows]
-        finally:
-            conn.close()
 
     # ------------------------------------------------------------------
     # Scoring
@@ -702,10 +613,12 @@ class TradeMemory:
         Called after lessons are generated to keep the strategy_scores table
         current.  Existing scores are deactivated and replaced.
         """
-        conn = self._get_conn()
-        try:
-            # Deactivate all existing scores
-            conn.execute("UPDATE strategy_scores SET active = FALSE")
+        with connection() as conn:
+            # Deactivate all existing scores for this bot
+            conn.execute(
+                "UPDATE strategy_scores SET active = FALSE WHERE bot_id = %s",
+                (self.bot_id,),
+            )
 
             # Calculate per signal_type (all symbols)
             rows = conn.execute(
@@ -715,9 +628,10 @@ class TradeMemory:
                        SUM(CASE WHEN outcome = 'win' THEN 1 ELSE 0 END) AS wins,
                        AVG(pnl) AS avg_pnl
                 FROM trade_context
-                WHERE outcome IN ('win', 'loss')
+                WHERE bot_id = %s AND outcome IN ('win', 'loss')
                 GROUP BY signal_type
-                """
+                """,
+                (self.bot_id,),
             ).fetchall()
 
             timestamp = datetime.now(timezone.utc).isoformat()
@@ -727,7 +641,6 @@ class TradeMemory:
                 wins = row["wins"]
                 wr = wins / total if total > 0 else 0.0
 
-                # Threshold and position recommendations
                 if wr >= 0.60:
                     rec_threshold = 0.51
                     rec_pos = 0.05
@@ -744,12 +657,12 @@ class TradeMemory:
                 conn.execute(
                     """
                     INSERT INTO strategy_scores (
-                        updated_at, signal_type, symbol, win_rate, avg_pnl,
+                        bot_id, updated_at, signal_type, symbol, win_rate, avg_pnl,
                         total_trades, recommended_threshold,
                         recommended_position_pct, active
-                    ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, TRUE)
+                    ) VALUES (%s, %s, %s, NULL, %s, %s, %s, %s, %s, TRUE)
                     """,
-                    (timestamp, row["signal_type"], wr, row["avg_pnl"],
+                    (self.bot_id, timestamp, row["signal_type"], wr, row["avg_pnl"],
                      total, rec_threshold, rec_pos),
                 )
 
@@ -761,10 +674,11 @@ class TradeMemory:
                        SUM(CASE WHEN outcome = 'win' THEN 1 ELSE 0 END) AS wins,
                        AVG(pnl) AS avg_pnl
                 FROM trade_context
-                WHERE outcome IN ('win', 'loss')
+                WHERE bot_id = %s AND outcome IN ('win', 'loss')
                 GROUP BY signal_type, symbol
                 HAVING COUNT(*) >= 2
-                """
+                """,
+                (self.bot_id,),
             ).fetchall()
 
             for row in rows:
@@ -788,26 +702,22 @@ class TradeMemory:
                 conn.execute(
                     """
                     INSERT INTO strategy_scores (
-                        updated_at, signal_type, symbol, win_rate, avg_pnl,
+                        bot_id, updated_at, signal_type, symbol, win_rate, avg_pnl,
                         total_trades, recommended_threshold,
                         recommended_position_pct, active
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, TRUE)
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE)
                     """,
-                    (timestamp, row["signal_type"], row["symbol"], wr,
+                    (self.bot_id, timestamp, row["signal_type"], row["symbol"], wr,
                      row["avg_pnl"], total, rec_threshold, rec_pos),
                 )
 
-            conn.commit()
-            log.info("Strategy scores updated")
-        finally:
-            conn.close()
+        log.info("Strategy scores updated")
 
     def get_strategy_report(self) -> str:
         """Return a human-readable report of what strategies are working
         and what are not.
         """
-        conn = self._get_conn()
-        try:
+        with connection() as conn:
             # Overall stats
             overall = conn.execute(
                 """
@@ -818,7 +728,9 @@ class TradeMemory:
                        AVG(CASE WHEN outcome IN ('win', 'loss') THEN pnl END) AS avg_pnl,
                        SUM(CASE WHEN outcome IN ('win', 'loss') THEN pnl ELSE 0 END) AS total_pnl
                 FROM trade_context
-                """
+                WHERE bot_id = %s
+                """,
+                (self.bot_id,),
             ).fetchone()
 
             total = overall["total"] or 0
@@ -844,9 +756,10 @@ class TradeMemory:
             scores = conn.execute(
                 """
                 SELECT * FROM strategy_scores
-                WHERE active = TRUE AND symbol IS NULL
+                WHERE bot_id = %s AND active = TRUE AND symbol IS NULL
                 ORDER BY win_rate DESC
-                """
+                """,
+                (self.bot_id,),
             ).fetchall()
 
             if scores:
@@ -867,9 +780,10 @@ class TradeMemory:
             symbol_scores = conn.execute(
                 """
                 SELECT * FROM strategy_scores
-                WHERE active = TRUE AND symbol IS NOT NULL
+                WHERE bot_id = %s AND active = TRUE AND symbol IS NOT NULL
                 ORDER BY win_rate DESC
-                """
+                """,
+                (self.bot_id,),
             ).fetchall()
 
             if symbol_scores:
@@ -899,10 +813,11 @@ class TradeMemory:
             lessons = conn.execute(
                 """
                 SELECT * FROM trade_lessons
-                WHERE active = TRUE
+                WHERE bot_id = %s AND active = TRUE
                 ORDER BY sample_size DESC
                 LIMIT 10
-                """
+                """,
+                (self.bot_id,),
             ).fetchall()
 
             if lessons:
@@ -912,19 +827,17 @@ class TradeMemory:
                     lines.append(f"  [{l['lesson_type']:9s}] {l['lesson']}")
                 lines.append("")
 
-            # Dynamic thresholds
-            thresholds = self.get_dynamic_thresholds()
-            lines.append("DYNAMIC THRESHOLDS (recommended):")
-            lines.append("-" * 50)
-            lines.append(f"  Bullish threshold : {thresholds['bullish_threshold']:.2f}")
-            lines.append(f"  Bearish threshold : {thresholds['bearish_threshold']:.2f}")
-            lines.append(f"  Min position %    : {thresholds['min_position_pct']:.1%}")
-            lines.append(f"  Max position %    : {thresholds['max_position_pct']:.1%}")
-            lines.append("=" * 60)
+        # Dynamic thresholds (calls connection internally)
+        thresholds = self.get_dynamic_thresholds()
+        lines.append("DYNAMIC THRESHOLDS (recommended):")
+        lines.append("-" * 50)
+        lines.append(f"  Bullish threshold : {thresholds['bullish_threshold']:.2f}")
+        lines.append(f"  Bearish threshold : {thresholds['bearish_threshold']:.2f}")
+        lines.append(f"  Min position %    : {thresholds['min_position_pct']:.1%}")
+        lines.append(f"  Max position %    : {thresholds['max_position_pct']:.1%}")
+        lines.append("=" * 60)
 
-            return "\n".join(lines)
-        finally:
-            conn.close()
+        return "\n".join(lines)
 
 
 def _sanitize_trade(trade: dict) -> dict:
