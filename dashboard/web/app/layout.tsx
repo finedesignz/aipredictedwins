@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import AuthGuard from "@/components/auth/AuthGuard";
 import NavWrapper from "./NavWrapper";
+import { BotFilterProvider } from "@/context/BotFilterContext";
 
 export const metadata: Metadata = {
   title: "AI Predicted Wins",
@@ -34,12 +35,14 @@ export default function RootLayout({
         >
           Skip to main content
         </a>
-        <AuthGuard>
-          <NavWrapper />
-          <main id="main-content" className="mx-auto max-w-7xl px-4 py-6">
-            {children}
-          </main>
-        </AuthGuard>
+        <BotFilterProvider>
+          <AuthGuard>
+            <NavWrapper />
+            <main id="main-content" className="mx-auto max-w-7xl px-4 py-6">
+              {children}
+            </main>
+          </AuthGuard>
+        </BotFilterProvider>
       </body>
     </html>
   );
