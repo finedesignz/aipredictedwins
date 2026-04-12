@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAPI } from "@/hooks/useAPI";
 import type { Position, ClosedPosition } from "@/types";
 import PositionCard from "@/components/positions/PositionCard";
@@ -14,12 +14,25 @@ export default function PositionsPage() {
   const [activeTab, setActiveTab] = useState<Tab>("open");
   const { botParam } = useBotFilter();
 
-  const { data: openPositions, loading: openLoading, error: openError } = useAPI<Position[]>(
+  const { data: openPositions, loading: openLoading, error: openError, refetch: refetchOpen } = useAPI<Position[]>(
     `/api/positions/open?bot=${botParam}`,
     30000
   );
-  const { data: closedPositions, loading: closedLoading, error: closedError } =
+  const { data: closedPositions, loading: closedLoading, error: closedError, refetch: refetchClosed } =
     useAPI<ClosedPosition[]>(`/api/positions/closed?bot=${botParam}`);
+
+  // Automatically reconcile orphaned DB trades against Alpaca on mount
+  useEffect(() => {
+    fetch("/api/positions/reconcile", { method: "POST" })
+      .then((r) => r.json())
+      .then((json) => {
+        if ((json?.data?.reconciled ?? 0) > 0) {
+          refetchOpen();
+          refetchClosed();
+        }
+      })
+      .catch(() => {/* silent — reconcile is best-effort */});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="space-y-6">
