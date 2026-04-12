@@ -5,9 +5,11 @@ import type { Signal } from "@/types";
 import SignalTable from "@/components/signals/SignalTable";
 import ErrorBanner from "@/components/shared/ErrorBanner";
 import { formatRelativeTime } from "@/lib/format";
+import { useBotFilter } from "@/context/BotFilterContext";
 
 export default function SignalsPage() {
-  const { data: signals, loading, error } = useAPI<Signal[]>("/api/signals", 30000);
+  const { botParam } = useBotFilter();
+  const { data: signals, loading, error } = useAPI<Signal[]>(`/api/signals?bot=${botParam}`, 30000);
 
   const lastScanned =
     signals && signals.length > 0 ? signals[0].scanned_at : null;

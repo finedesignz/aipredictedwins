@@ -75,9 +75,16 @@ app = FastAPI(
 )
 
 # -- CORS --------------------------------------------------------------------
+_ALLOWED_ORIGINS = [
+    "https://app.aipredictedwins.com",
+    # Allow localhost for local dev
+    "http://localhost:3000",
+    "http://localhost:3001",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

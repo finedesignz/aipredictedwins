@@ -215,18 +215,6 @@ def reconcile_positions():
         for bot_id, (key, sec) in bot_keys.items()
     }
 
-    # Fetch all DB-open trades
-    with get_db() as conn:
-        db_open = conn.execute(
-            "SELECT id, bot_id, symbol, entry_price, qty, side FROM alpaca_trades WHERE status = 'open'"
-        ).fetchall()
-
-    if not db_open:
-        return Envelope(
-            data={"reconciled": 0, "message": "No open trades in DB to reconcile"},
-            meta=Meta(),
-        )
-
     # Find any valid keypair to look up current prices
     any_keys = next(iter(bot_keys.values())) if bot_keys else None
 
@@ -253,7 +241,18 @@ def reconcile_positions():
     reconciled = 0
     details = []
 
+    # Single connection for both read and write to ensure atomicity
     with get_db() as conn:
+        db_open = conn.execute(
+            "SELECT id, bot_id, symbol, entry_price, qty, side FROM alpaca_trades WHERE status = 'open'"
+        ).fetchall()
+
+        if not db_open:
+            return Envelope(
+                data={"reconciled": 0, "message": "No open trades in DB to reconcile"},
+                meta=Meta(),
+            )
+
         for trade in db_open:
             bot_id = trade.get("bot_id", "")
             symbol = trade.get("symbol", "")

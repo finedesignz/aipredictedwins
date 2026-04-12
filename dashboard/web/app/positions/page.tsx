@@ -21,9 +21,16 @@ export default function PositionsPage() {
   const { data: closedPositions, loading: closedLoading, error: closedError, refetch: refetchClosed } =
     useAPI<ClosedPosition[]>(`/api/positions/closed?bot=${botParam}`);
 
-  // Automatically reconcile orphaned DB trades against Alpaca on mount
+  // Reconcile orphaned DB trades against Alpaca on mount.
+  // Throttled to once per 5 minutes via sessionStorage to avoid hammering Alpaca on every navigation.
   useEffect(() => {
-    fetch("/api/positions/reconcile", { method: "POST" })
+    const THROTTLE_KEY = "reconcile_last_run";
+    const THROTTLE_MS = 5 * 60 * 1000;
+    const last = Number(sessionStorage.getItem(THROTTLE_KEY) ?? 0);
+    if (Date.now() - last < THROTTLE_MS) return;
+
+    sessionStorage.setItem(THROTTLE_KEY, String(Date.now()));
+    fetch("/api/positions/reconcile", { method: "POST", credentials: "same-origin" })
       .then((r) => r.json())
       .then((json) => {
         if ((json?.data?.reconciled ?? 0) > 0) {
@@ -32,7 +39,8 @@ export default function PositionsPage() {
         }
       })
       .catch(() => {/* silent — reconcile is best-effort */});
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="space-y-6">

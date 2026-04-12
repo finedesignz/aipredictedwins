@@ -6,6 +6,7 @@ import BotStatusComponent from "@/components/settings/BotStatus";
 import ErrorBanner from "@/components/shared/ErrorBanner";
 
 export default function SettingsPage() {
+  // Settings are system-wide (not per-bot) — no botParam needed
   const { data: settings, loading, error } = useAPI<BotSettings>(
     "/api/settings",
     10000

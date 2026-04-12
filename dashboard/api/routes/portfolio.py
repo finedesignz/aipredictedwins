@@ -83,9 +83,9 @@ def _portfolio_for_bot(conn, bot_id: str, days: int = 30) -> PortfolioData:
         """
         SELECT pnl FROM alpaca_trades
         WHERE bot_id = %s AND status IN ('closed', 'stopped', 'target_hit')
-          AND closed_at LIKE %s
+          AND DATE(closed_at::timestamptz) = %s::date
         """,
-        (bot_id, f"{today}%"),
+        (bot_id, today),
     ).fetchall()
     daily_pnl = sum(r["pnl"] or 0.0 for r in daily_rows)
 
