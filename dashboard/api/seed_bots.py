@@ -72,12 +72,12 @@ def seed_bots() -> None:
                 conn.execute(
                     """
                     INSERT INTO bots (
-                        bot_id, label, alpaca_api_key, alpaca_secret_key,
+                        id, bot_id, label, alpaca_api_key, alpaca_secret_key,
                         kelly_fraction, min_confluence, skip_risk_gate,
                         hard_stop_pct, soft_stop_pct, rsi_ceiling,
                         crypto_universe, max_position_pct, enabled, status
                     ) VALUES (
-                        %(bot_id)s, %(label)s, %(alpaca_api_key)s, %(alpaca_secret_key)s,
+                        %(bot_id)s, %(bot_id)s, %(label)s, %(alpaca_api_key)s, %(alpaca_secret_key)s,
                         %(kelly_fraction)s, %(min_confluence)s, %(skip_risk_gate)s,
                         %(hard_stop_pct)s, %(soft_stop_pct)s, %(rsi_ceiling)s,
                         %(crypto_universe)s, %(max_position_pct)s, TRUE, 'stopped'

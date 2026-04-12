@@ -202,8 +202,7 @@ CREATE INDEX IF NOT EXISTS idx_validations_bot_decision  ON validations   (bot_i
 -- ═════════════════════════════════════════════
 -- SEED ROWS
 -- ═════════════════════════════════════════════
--- Seed rows use bot_id (dashboard schema PK), falling back to id for legacy schemas.
--- ON CONFLICT handles both PK names so this is safe to run on either schema version.
-INSERT INTO bots (bot_id, label)
-VALUES ('A', 'Bot A — Conservative'), ('B', 'Bot B — Aggressive')
-ON CONFLICT (bot_id) DO NOTHING;
+-- id = bot_id (both columns exist after 002_multi_bot migration)
+INSERT INTO bots (id, bot_id, label)
+VALUES ('A', 'A', 'Bot A — Conservative'), ('B', 'B', 'Bot B — Aggressive')
+ON CONFLICT (id) DO NOTHING;
