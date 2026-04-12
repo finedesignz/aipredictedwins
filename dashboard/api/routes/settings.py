@@ -10,7 +10,7 @@ from fastapi import APIRouter, Query
 
 from db import get_db
 from models import Envelope, HealthStatus, Meta, SettingsData
-from alpaca import get_account_health
+from alpaca_health import get_account_health
 
 router = APIRouter(prefix="/api", tags=["settings"])
 
