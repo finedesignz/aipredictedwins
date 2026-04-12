@@ -36,7 +36,7 @@ def seed_bots() -> None:
             "skip_risk_gate": os.environ.get("BOT_A_SKIP_RISK_GATE", "false").lower() == "true",
             "hard_stop_pct": float(os.environ.get("BOT_A_HARD_STOP_PCT", "-0.08")),
             "soft_stop_pct": float(os.environ.get("BOT_A_SOFT_STOP_PCT", "-0.05")),
-            "rsi_ceiling": float(os.environ.get("BOT_A_RSI_CEILING", "65.0")),
+            "rsi_ceiling": float(os.environ.get("BOT_A_RSI_CEILING", "72.0")),
             "crypto_universe": os.environ.get("BOT_A_CRYPTO_UNIVERSE", "BTC/USD,ETH/USD,SOL/USD,XRP/USD"),
             "max_position_pct": float(os.environ.get("BOT_A_MAX_POSITION_PCT", "0.05")),
         })
@@ -54,7 +54,7 @@ def seed_bots() -> None:
             "skip_risk_gate": os.environ.get("BOT_B_SKIP_RISK_GATE", "false").lower() == "true",
             "hard_stop_pct": float(os.environ.get("BOT_B_HARD_STOP_PCT", "-0.08")),
             "soft_stop_pct": float(os.environ.get("BOT_B_SOFT_STOP_PCT", "-0.05")),
-            "rsi_ceiling": float(os.environ.get("BOT_B_RSI_CEILING", "65.0")),
+            "rsi_ceiling": float(os.environ.get("BOT_B_RSI_CEILING", "72.0")),
             "crypto_universe": os.environ.get("BOT_B_CRYPTO_UNIVERSE", "BTC/USD,ETH/USD,SOL/USD,XRP/USD"),
             "max_position_pct": float(os.environ.get("BOT_B_MAX_POSITION_PCT", "0.05")),
         })
