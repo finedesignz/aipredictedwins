@@ -19,12 +19,26 @@ Automated trading system for crypto swing trading on Alpaca. Uses technical indi
 
 ## Infrastructure
 
-- MiroFish: https://app.aipredictedwins.com (Coolify, docker-compose)
-- Gateway: https://gateway.aipredictedwins.com (Coolify, Dockerfile)
-- Kalshi: production API (api.elections.kalshi.com)
-- Alpaca: paper mode (awaiting API keys)
+- Dashboard: https://app.aipredictedwins.com (Coolify, Next.js + FastAPI + BotManager in one container)
+- Alpaca: paper mode — **Bot A and Bot B each have their own separate Alpaca paper account**
 - DNS: Cloudflare zone `aipredictedwins.com`
-- Coolify project: "AI Predicted Wins"
+- Coolify project: "AI Predicted Wins" (UUID: `u7x0xw0y4qvcgeh8vyidsgyi`)
+
+## Alpaca Accounts — ONE ACCOUNT PER BOT (HARD RULE)
+
+**NEVER point two bots at the same Alpaca account.** Each bot must have its own dedicated paper (and eventually live) account:
+
+| Bot | Env var (Coolify) | Account |
+|-----|-------------------|---------|
+| Bot A | `ALPACA_API_KEY_A` / `ALPACA_SECRET_KEY_A` | Bot A's paper account |
+| Bot B | `ALPACA_API_KEY_B` / `ALPACA_SECRET_KEY_B` | Bot B's paper account |
+
+Sharing one account between bots will:
+- Make their equity curves identical (overlay on chart — one becomes invisible)
+- Cause position deduplication to block one bot's trades
+- Corrupt P&L attribution (can't tell which bot made money)
+
+If you need to add a new bot, create a new Alpaca paper account first.
 
 ## Key Files
 
