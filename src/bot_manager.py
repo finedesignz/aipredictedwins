@@ -168,8 +168,12 @@ class BotManager:
             # No trades ever — don't alert (fresh deployment)
             return
 
-        # psycopg3 returns a datetime; calculate age in hours
+        # psycopg3 may return a datetime or a string depending on column type
         import datetime as dt
+        if isinstance(last_trade_ts, str):
+            last_trade_ts = dt.datetime.fromisoformat(
+                last_trade_ts.replace("Z", "+00:00")
+            )
         if hasattr(last_trade_ts, "tzinfo") and last_trade_ts.tzinfo is None:
             last_trade_ts = last_trade_ts.replace(tzinfo=dt.timezone.utc)
         now_dt = dt.datetime.now(dt.timezone.utc)

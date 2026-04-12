@@ -202,10 +202,8 @@ CREATE INDEX IF NOT EXISTS idx_validations_bot_decision  ON validations   (bot_i
 -- ═════════════════════════════════════════════
 -- SEED ROWS
 -- ═════════════════════════════════════════════
-INSERT INTO bots (id, label, starting_equity, config_flags)
-VALUES
-    ('A', 'Bot A — Conservative', 100000.0,
-     '{"kelly_fraction": 0.25, "min_confluence": 3, "skip_risk_gate": false}'::jsonb),
-    ('B', 'Bot B — Aggressive',   100000.0,
-     '{"kelly_fraction": 0.50, "min_confluence": 2, "skip_risk_gate": true}'::jsonb)
-ON CONFLICT (id) DO NOTHING;
+-- Seed rows use bot_id (dashboard schema PK), falling back to id for legacy schemas.
+-- ON CONFLICT handles both PK names so this is safe to run on either schema version.
+INSERT INTO bots (bot_id, label)
+VALUES ('A', 'Bot A — Conservative'), ('B', 'Bot B — Aggressive')
+ON CONFLICT (bot_id) DO NOTHING;
