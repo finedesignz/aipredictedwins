@@ -87,7 +87,19 @@ def seed_bots() -> None:
                 )
                 log.info("Seeded bot %s (%s)", bot["bot_id"], bot["label"])
             else:
-                log.info("Bot %s already exists — skipping", bot["bot_id"])
+                # Always patch keys when they are NULL — handles the case where the
+                # row was seeded before env vars were set on the Coolify app.
+                conn.execute(
+                    """
+                    UPDATE bots SET
+                        alpaca_api_key   = COALESCE(alpaca_api_key,   %(alpaca_api_key)s),
+                        alpaca_secret_key = COALESCE(alpaca_secret_key, %(alpaca_secret_key)s)
+                    WHERE bot_id = %(bot_id)s
+                      AND (alpaca_api_key IS NULL OR alpaca_api_key = '')
+                    """,
+                    bot,
+                )
+                log.info("Bot %s already exists — skipped insert, patched NULL keys if any", bot["bot_id"])
         conn.commit()
 
 
