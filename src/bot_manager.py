@@ -4,6 +4,7 @@
 import logging
 import os
 import threading
+import time
 from psycopg_pool import ConnectionPool
 from psycopg.rows import dict_row
 
@@ -11,6 +12,8 @@ from src.bot_config import BotConfig
 from src.bot_thread import BotThread
 
 log = logging.getLogger(__name__)
+
+_WATCHDOG_INTERVAL = 60  # seconds between dead-thread checks
 
 
 class BotManager:
@@ -21,12 +24,16 @@ class BotManager:
         manager.start_all()
         yield  # app runs
         manager.stop_all()
+
+    A background watchdog thread restarts any enabled bot whose thread has died,
+    so bots always come back after crashes or container restarts.
     """
 
     def __init__(self, db_url: str):
         self._db_url = db_url
         self._threads: dict[str, BotThread] = {}
         self._lock = threading.Lock()
+        self._stopping = threading.Event()
         self._pool = ConnectionPool(
             conninfo=db_url,
             min_size=1,
@@ -34,9 +41,14 @@ class BotManager:
             kwargs={"row_factory": dict_row},
             open=True,
         )
+        self._watchdog = threading.Thread(
+            target=self._watchdog_loop,
+            name="bot-watchdog",
+            daemon=True,
+        )
 
     def start_all(self) -> None:
-        """Read enabled bots from DB and spawn threads."""
+        """Read enabled bots from DB, spawn threads, and start the watchdog."""
         with self._pool.connection() as conn:
             rows = conn.execute(
                 "SELECT * FROM bots WHERE enabled = TRUE "
@@ -50,9 +62,41 @@ class BotManager:
                     self._spawn(cfg)
                 except Exception as exc:
                     log.error("Failed to start bot %s: %s", row.get("bot_id"), exc)
+        self._watchdog.start()
+        log.info("BotManager: watchdog started (interval=%ds)", _WATCHDOG_INTERVAL)
+
+    def _watchdog_loop(self) -> None:
+        """Periodically restart any enabled bot whose thread has died."""
+        while not self._stopping.wait(_WATCHDOG_INTERVAL):
+            try:
+                self._revive_dead_bots()
+            except Exception as exc:
+                log.warning("BotManager watchdog error: %s", exc)
+
+    def _revive_dead_bots(self) -> None:
+        """Check each enabled bot — restart thread if dead."""
+        with self._pool.connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM bots WHERE enabled = TRUE "
+                "AND alpaca_api_key IS NOT NULL AND alpaca_api_key != ''"
+            ).fetchall()
+        with self._lock:
+            for row in rows:
+                bot_id = row.get("bot_id", "")
+                thread = self._threads.get(bot_id)
+                if thread is None or not thread.is_alive():
+                    log.warning(
+                        "BotManager: bot %s thread dead — restarting", bot_id
+                    )
+                    try:
+                        cfg = BotConfig.from_row(row)
+                        self._spawn(cfg)
+                    except Exception as exc:
+                        log.error("Failed to revive bot %s: %s", bot_id, exc)
 
     def stop_all(self) -> None:
-        """Stop all threads (called from FastAPI lifespan on shutdown)."""
+        """Stop watchdog and all bot threads (called from FastAPI lifespan on shutdown)."""
+        self._stopping.set()  # signal watchdog to exit
         with self._lock:
             snapshot = list(self._threads.items())
             self._threads.clear()
