@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useMemo } from "react";
 import {
   LineChart,
   Line,
@@ -14,34 +14,64 @@ import type { EquitySeries, BenchmarkPoint } from "@/types";
 import { useAPI } from "@/hooks/useAPI";
 import { useBotFilter } from "@/context/BotFilterContext";
 
-// ── Days selector ─────────────────────────────────────────────────────────────
-type DayOption = 7 | 14 | 30 | 60 | 90;
-const DAY_OPTIONS: DayOption[] = [7, 14, 30, 60, 90];
+// ── Props ─────────────────────────────────────────────────────────────────────
+interface EquityCurveProps {
+  series: EquitySeries[];
+  weeks: number;
+  onWeeksChange: (w: number) => void;
+}
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
 function daysAgo(n: number): string {
   const d = new Date();
   d.setDate(d.getDate() - n);
   return d.toISOString().slice(0, 10);
 }
 
-// ── Props ─────────────────────────────────────────────────────────────────────
-interface EquityCurveProps {
-  /** Bot equity series from /api/equity — passed in so the parent controls the
-   *  ?days= query param via this component's internal state. */
-  series: EquitySeries[];
-  /** Called when the user changes the day range so the parent can re-fetch equity. */
-  days: DayOption;
-  onDaysChange: (d: DayOption) => void;
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-function formatAxisDate(timestamp: string): string {
-  const d = new Date(timestamp);
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-}
-
 function formatPct(v: number): string {
   return (v >= 0 ? "+" : "") + v.toFixed(1) + "%";
+}
+
+/** Pick an X-axis tick formatter based on the selected week range. */
+function getTickFormatter(weeks: number): (ts: string) => string {
+  const days = weeks * 7;
+  if (days <= 7) {
+    // Hourly: "Mon 9 AM"
+    return (ts) =>
+      new Date(ts).toLocaleString("en-US", {
+        weekday: "short",
+        hour: "numeric",
+        hour12: true,
+      });
+  }
+  if (days < 30) {
+    // Daily: "Apr 12"
+    return (ts) =>
+      new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  }
+  if (days < 90) {
+    // Weekly increments, still show day: "Apr 7"
+    return (ts) =>
+      new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  }
+  // Monthly: "Apr '25"
+  return (ts) =>
+    new Date(ts).toLocaleDateString("en-US", { month: "short", year: "2-digit" });
+}
+
+/** Show time in tooltip only when the timestamp has a non-midnight hour (hourly data). */
+function formatTooltipDate(label: string): string {
+  const d = new Date(label);
+  const hasTime = d.getUTCHours() !== 0 || d.getUTCMinutes() !== 0;
+  if (hasTime) {
+    return d.toLocaleString("en-US", {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      hour12: true,
+    });
+  }
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
 const BOT_COLORS = ["#60a5fa", "#fbbf24", "#34d399", "#f87171", "#a78bfa", "#fb923c"];
@@ -103,13 +133,7 @@ function CustomTooltip({
   return (
     <div className="rounded-lg border border-border-primary bg-bg-card p-3 shadow-lg min-w-[160px]">
       {label && (
-        <p className="text-xs text-text-muted mb-2">
-          {new Date(label).toLocaleDateString("en-US", {
-            month: "short",
-            day: "numeric",
-            year: "numeric",
-          })}
-        </p>
+        <p className="text-xs text-text-muted mb-2">{formatTooltipDate(label)}</p>
       )}
       {payload.map((item) => (
         <div key={item.name} className="flex items-center justify-between gap-4">
@@ -157,18 +181,18 @@ function BotStat({
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
-export default function EquityCurve({ series, days, onDaysChange }: EquityCurveProps) {
+export default function EquityCurve({ series, weeks, onWeeksChange }: EquityCurveProps) {
   const { filter, bots, activeBotIds } = useBotFilter();
 
   // Anchor benchmarks to the bot's first equity point so all lines share origin
   const benchmarkSince = useMemo(() => {
-    if (!series.length) return daysAgo(days);
+    if (!series.length) return daysAgo(weeks * 7);
     const dates = series
       .flatMap((s) => s.points)
       .map((p) => p.timestamp.slice(0, 10))
       .filter(Boolean);
-    return dates.length ? [...dates].sort()[0] : daysAgo(days);
-  }, [series, days]);
+    return dates.length ? [...dates].sort()[0] : daysAgo(weeks * 7);
+  }, [series, weeks]);
 
   // Benchmark data — fetched here so this component is fully self-contained
   const { data: spyData } = useAPI<BenchmarkPoint[]>(
@@ -189,26 +213,30 @@ export default function EquityCurve({ series, days, onDaysChange }: EquityCurveP
   const data = mergeSeries(filteredSeries, filteredSpy, filteredBtc);
   const hasData = data.length > 1;
 
+  const tickFormatter = useMemo(() => getTickFormatter(weeks), [weeks]);
+  // Target ~7 visible ticks; Recharts interval={n} skips n points between each tick.
+  const tickInterval = data.length > 7 ? Math.floor(data.length / 7) : 0;
+
   return (
     <div className="rounded-lg border border-border-primary bg-bg-card p-4">
-      {/* Header: title + day pills + bot stats */}
+      {/* Header: title + week slider + bot stats */}
       <div className="flex flex-wrap items-start justify-between gap-4 mb-5">
         <div className="flex items-center gap-3 self-center">
           <h3 className="text-sm font-medium text-text-secondary">Equity Curve</h3>
-          <div className="flex gap-1" role="group" aria-label="Select time range">
-            {DAY_OPTIONS.map((d) => (
-              <button
-                key={d}
-                onClick={() => onDaysChange(d)}
-                className={`rounded px-2 py-0.5 text-xs font-medium transition-colors ${
-                  days === d
-                    ? "bg-accent-blue/20 text-accent-blue"
-                    : "text-text-muted hover:text-text-secondary"
-                }`}
-              >
-                {d}d
-              </button>
-            ))}
+          <div className="flex items-center gap-2" role="group" aria-label="Select time range">
+            <input
+              type="range"
+              min={1}
+              max={52}
+              value={weeks}
+              onChange={(e) => onWeeksChange(Number(e.target.value))}
+              className="w-28 cursor-pointer"
+              style={{ accentColor: "#60a5fa" }}
+              aria-label={`${weeks} ${weeks === 1 ? "week" : "weeks"}`}
+            />
+            <span className="text-xs text-text-muted min-w-[4.5rem]">
+              {weeks === 1 ? "1 week" : `${weeks} weeks`}
+            </span>
           </div>
         </div>
         <div className="flex flex-wrap gap-6">
@@ -232,7 +260,8 @@ export default function EquityCurve({ series, days, onDaysChange }: EquityCurveP
           <LineChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
             <XAxis
               dataKey="timestamp"
-              tickFormatter={formatAxisDate}
+              tickFormatter={tickFormatter}
+              interval={tickInterval}
               axisLine={false}
               tickLine={false}
               tick={{ fill: "#64748b", fontSize: 11 }}

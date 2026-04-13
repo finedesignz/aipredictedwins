@@ -29,16 +29,18 @@ _DEFAULT_STARTING_EQUITY = 100_000.0
 # ── Alpaca portfolio history ────────────────────────────────────────────────
 
 def _fetch_alpaca_series(api_key: str, secret_key: str, days: int, bot_id: str) -> EquitySeries | None:
-    """Fetch daily equity from Alpaca and return a normalised EquitySeries.
+    """Fetch equity from Alpaca and return a normalised EquitySeries.
 
+    Uses 1H timeframe for ≤7 days so the chart can show hour-level ticks.
     Returns None if the fetch fails or keys are absent.
     """
     if not api_key or not secret_key:
         return None
 
+    timeframe = "1H" if days <= 7 else "1D"
     url = (
         f"{_ALPACA_BASE}/v2/account/portfolio/history"
-        f"?period={days}D&timeframe=1D&extended_hours=false"
+        f"?period={days}D&timeframe={timeframe}&extended_hours=false"
     )
     req = urllib.request.Request(
         url,
@@ -70,10 +72,13 @@ def _fetch_alpaca_series(api_key: str, secret_key: str, days: int, bot_id: str) 
         if not eq:
             continue
         eq = float(eq)
-        day = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d")
+        dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+        # Hourly: preserve full ISO timestamp so the frontend can show hour ticks.
+        # Daily: collapse to midnight so daily grouping is consistent.
+        timestamp = dt.isoformat() if timeframe == "1H" else f"{dt.strftime('%Y-%m-%d')}T00:00:00+00:00"
         return_pct = round((eq - baseline) / baseline * 100, 4)
         points.append(EquityPoint(
-            timestamp=f"{day}T00:00:00+00:00",
+            timestamp=timestamp,
             equity=round(eq, 2),
             return_pct=return_pct,
             bot_id=bot_id,
@@ -133,7 +138,7 @@ def _build_db_series(conn, bot_id: str) -> EquitySeries:
 @router.get("/api/equity")
 def get_equity(
     bot: Literal["A", "B", "both"] = Query("both"),
-    days: int = Query(30, ge=1, le=90),
+    days: int = Query(30, ge=1, le=364),
 ):
     """Return equity series. Primary: Alpaca portfolio history. Fallback: DB."""
     bot_ids = ["A", "B"] if bot == "both" else [bot]
