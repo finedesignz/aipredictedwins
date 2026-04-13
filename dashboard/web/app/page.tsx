@@ -4,7 +4,6 @@ import { useState } from "react";
 import { useAPI } from "@/hooks/useAPI";
 import type { Portfolio, Position, EquityData, MultiBotPortfolio } from "@/types";
 
-type DayOption = 7 | 14 | 30 | 60 | 90;
 import HeroKPI, { type HeroKPIEntry } from "@/components/kpi/HeroKPI";
 import MetricCard, { type MetricCardEntry } from "@/components/kpi/MetricCard";
 import EquityCurve from "@/components/charts/EquityCurve";
@@ -21,17 +20,17 @@ import ErrorBanner from "@/components/shared/ErrorBanner";
 
 export default function OverviewPage() {
   const { botParam, bots, activeBotIds } = useBotFilter();
-  const [days, setDays] = useState<DayOption>(30);
+  const [weeks, setWeeks] = useState<number>(4);
 
   const { data: rawPortfolio, loading: portfolioLoading, error: portfolioError } = useAPI<Portfolio | MultiBotPortfolio>(
-    `/api/portfolio?bot=${botParam}&days=${days}`,
+    `/api/portfolio?bot=${botParam}&days=${weeks * 7}`,
     10000
   );
   const { data: positions } = useAPI<Position[]>(
     `/api/positions/open?bot=${botParam}`,
     30000
   );
-  const { data: equityData } = useAPI<EquityData>(`/api/equity?bot=${botParam}&days=${days}`);
+  const { data: equityData } = useAPI<EquityData>(`/api/equity?bot=${botParam}&days=${weeks * 7}`);
 
   // Build label lookup from DB bots
   const botLabelMap: Record<string, string> = {};
@@ -165,8 +164,8 @@ export default function OverviewPage() {
       {/* Equity curve */}
       <EquityCurve
         series={equityData?.series ?? []}
-        days={days}
-        onDaysChange={setDays}
+        weeks={weeks}
+        onWeeksChange={setWeeks}
       />
 
       {/* Two-column: positions + activity */}
