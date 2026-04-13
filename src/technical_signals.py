@@ -1,12 +1,13 @@
 """
-Technical Signal Engine for crypto swing trading.
+Technical Signal Engine for crypto and equity swing trading.
 
 Computes proven quantitative indicators from OHLCV bar data and
-produces a confluence score (0-5) for trade decisions.
+produces a bullish confluence score (0-5) and a bearish confluence
+score (0-5) for long and short trade decisions respectively.
 
 Indicators:
   1. EMA Crossover (9/21) — trend direction
-  2. ADX (14-period) — trend strength
+  2. ADX (14-period) — trend strength and direction (+DI vs -DI)
   3. RSI (14-period) — overbought/oversold
   4. Volume Spike — institutional interest
   5. VWAP — intraday value reference
@@ -33,7 +34,8 @@ class Signal:
     rsi_signal: str          # "oversold", "overbought", or "neutral"
     volume_spike: bool
     vwap_bullish: bool
-    confluence_score: int    # 0-5: how many indicators are bullish
+    confluence_score: int    # 0-5: how many indicators are bullish (long signal)
+    bearish_score: int       # 0-5: how many indicators are bearish (short signal)
     details: dict            # raw indicator values for logging
 
 
@@ -248,31 +250,20 @@ def analyze(symbol: str, bars: list[dict]) -> Signal | None:
     else:
         rsi_signal = "neutral"
 
-    # RSI hard block: reject overbought entries above ceiling
-    import os as _os
-    RSI_ENTRY_CEILING = float(_os.environ.get("RSI_ENTRY_CEILING", "72.0"))
-    if rsi_value > RSI_ENTRY_CEILING:
-        log.debug(
-            "BLOCKED %s: RSI=%.1f > %.0f ceiling (overbought entry rejected)",
-            symbol, rsi_value, RSI_ENTRY_CEILING,
-        )
-        return None
-
     # --- Volume Spike ---
     vol_spike = _volume_spike(volumes, lookback=20, threshold=1.5)
 
     # --- VWAP ---
     vwap_bull = _vwap_bullish(closes, volumes, vwaps)
 
-    # --- Confluence Score ---
+    # --- Bullish Confluence Score (long signal) ---
     # Each indicator votes independently. In a downtrend, oversold RSI +
     # strong ADX + VWAP is a textbook mean-reversion bounce setup.
     score = 0
     # EMA bullish crossover
     if ema_bullish:
         score += 1
-    # ADX confirms a real trend (not sideways chop) — counts regardless
-    # of direction. High ADX + oversold RSI = bounce candidate.
+    # ADX confirms bullish trend (+DI > -DI and trending)
     if adx_trending:
         score += 1
     # RSI oversold (<35) = buy opportunity regardless of trend
@@ -287,6 +278,23 @@ def analyze(symbol: str, bars: list[dict]) -> Signal | None:
     # Price above VWAP
     if vwap_bull:
         score += 1
+
+    # --- Bearish Confluence Score (short signal, symmetric inverse) ---
+    # adx_bearish: strong downtrend confirmed by -DI > +DI
+    adx_bearish = adx_value > 20 and minus_di > plus_di
+    bear_score = 0
+    if not ema_bullish:           # EMA death cross
+        bear_score += 1
+    if adx_bearish:               # downtrend confirmed by ADX direction
+        bear_score += 1
+    if rsi_value > 70:            # overbought = ripe for short
+        bear_score += 1
+    elif rsi_signal == "neutral" and not ema_bullish:
+        bear_score += 1
+    if vol_spike:                 # volume spike in a downtrend = distribution
+        bear_score += 1
+    if not vwap_bull:             # price below VWAP = bearish
+        bear_score += 1
 
     details = {
         "ema9": round(ema9_latest, 6),
@@ -314,6 +322,7 @@ def analyze(symbol: str, bars: list[dict]) -> Signal | None:
         volume_spike=vol_spike,
         vwap_bullish=vwap_bull,
         confluence_score=score,
+        bearish_score=bear_score,
         details=details,
     )
 
@@ -346,13 +355,14 @@ def scan_assets(alpaca_client, symbols: list[str], timeframe: str = "1Hour", bar
                 continue
 
             signal = analyze(symbol, bars)
-            if signal and signal.confluence_score >= 1:
+            if signal and (signal.confluence_score >= 1 or signal.bearish_score >= 1):
                 signals.append(signal)
                 log.info(
-                    "SIGNAL %s: score=%d ema=%s adx=%.1f rsi=%.1f vol_spike=%s vwap=%s",
-                    symbol, signal.confluence_score, signal.ema_bullish,
-                    signal.adx_value, signal.rsi_value, signal.volume_spike,
-                    signal.vwap_bullish,
+                    "SIGNAL %s: bull=%d bear=%d ema=%s adx=%.1f(+DI=%.1f -DI=%.1f) rsi=%.1f vol_spike=%s vwap=%s",
+                    symbol, signal.confluence_score, signal.bearish_score,
+                    signal.ema_bullish, signal.adx_value,
+                    signal.plus_di, signal.minus_di,
+                    signal.rsi_value, signal.volume_spike, signal.vwap_bullish,
                 )
         except Exception as exc:
             log.warning("Failed to analyze %s: %s", symbol, exc)

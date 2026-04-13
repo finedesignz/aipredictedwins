@@ -231,15 +231,18 @@ class BotThread(threading.Thread):
             return
 
         # -- Layer 1: Technical scan -------------------------------------------
-        log.info("[bot:%s] Layer 1: technical scan (%d symbols)", bot_id, len(cfg.symbols))
+        log.info("[bot:%s] Layer 1: technical scan (%d symbols)", bot_id, len(cfg.all_symbols))
         try:
-            signals = scan_assets(alpaca, cfg.symbols, timeframe="1Hour", bar_count=50)
+            signals = scan_assets(alpaca, cfg.all_symbols, timeframe="1Hour", bar_count=50)
         except Exception as exc:
             log.error("[bot:%s] Technical scan failed: %s", bot_id, exc)
             return
 
-        # Filter: min confluence, dedup open positions, exclude meme coins
-        all_candidates = [
+        # Crypto symbols can only go long (Alpaca doesn't support crypto shorts)
+        crypto_syms = set(cfg.symbols)
+
+        # Long candidates: bullish confluence, RSI below ceiling, not already held, not meme
+        long_candidates = [
             s for s in signals
             if s.confluence_score >= cfg.min_confluence
             and s.symbol not in open_symbols
@@ -247,13 +250,26 @@ class BotThread(threading.Thread):
             and s.rsi_value < cfg.rsi_ceiling
         ]
 
-        candidates = _select_cycle_candidates(all_candidates)
+        # Short candidates: bearish confluence, stocks only (no "/" = not crypto)
+        short_candidates = [
+            s for s in signals
+            if s.bearish_score >= cfg.min_confluence
+            and s.symbol not in open_symbols
+            and s.symbol not in MEME_CRYPTO
+            and "/" not in s.symbol  # stocks only — crypto can't be shorted on Alpaca
+        ]
+
+        long_candidates = _select_cycle_candidates(long_candidates)
+        short_candidates = _select_cycle_candidates(short_candidates)
+
         log.info(
-            "[bot:%s] %d/%d candidates after filtering (confluence>=%d, rsi<%.0f)",
-            bot_id, len(candidates), len(signals), cfg.min_confluence, cfg.rsi_ceiling,
+            "[bot:%s] %d long / %d short candidates (from %d signals, confluence>=%d)",
+            bot_id, len(long_candidates), len(short_candidates), len(signals), cfg.min_confluence,
         )
 
-        if not candidates:
+        candidates = long_candidates  # keep for risk gate below (longs only, shorts bypass gate)
+
+        if not long_candidates and not short_candidates:
             log.info("[bot:%s] No candidates this cycle", bot_id)
             return
 
@@ -307,9 +323,17 @@ class BotThread(threading.Thread):
             except Exception as exc:
                 log.exception("[bot:%s] Risk gate error for %s: %s", bot_id, symbol, exc)
 
-        # -- Layer 3: Size and place orders ------------------------------------
+        # -- Layer 3: Size and place orders (longs + shorts) --------------------
         cycle_exposure = 0.0
+
+        # Build order list: approved longs + short candidates (shorts skip risk gate)
+        orders_to_place: list[tuple[object, str]] = []  # (signal, "long"|"short")
         for state in approved_states:
+            orders_to_place.append((state.signal, "long"))
+        for signal in short_candidates:
+            orders_to_place.append((signal, "short"))
+
+        for signal, direction in orders_to_place:
             # Re-check exposure before each order
             if equity > 0 and (total_exposure + cycle_exposure) / equity >= MAX_TOTAL_EXPOSURE_PCT:
                 log.info(
@@ -318,12 +342,17 @@ class BotThread(threading.Thread):
                 )
                 break
 
-            signal = state.signal
             symbol = signal.symbol
-            price = side_data[symbol]["price"]
+            try:
+                price = alpaca.get_latest_price(symbol)
+            except Exception as exc:
+                log.warning("[bot:%s] Could not get price for %s: %s", bot_id, symbol, exc)
+                continue
 
+            # Use bearish_score for sizing shorts, confluence_score for longs
+            score = signal.bearish_score if direction == "short" else signal.confluence_score
             sizing = _kelly_technical(
-                confluence=signal.confluence_score,
+                confluence=score,
                 current_price=price,
                 bankroll=bankroll,
                 kelly_fraction=cfg.kelly_fraction,
@@ -334,10 +363,13 @@ class BotThread(threading.Thread):
                 log.info("[bot:%s] Skipping %s — position too small", bot_id, symbol)
                 continue
 
+            alpaca_side = "buy" if direction == "long" else "sell"
+            asset_class = "crypto" if "/" in symbol else "us_equity"
+
             log.info(
-                "[bot:%s] Placing BUY %.4f %s @ $%.2f ($%.2f, kelly=%.2f%%, confluence=%d/5%s)",
-                bot_id, sizing["shares"], symbol, price, sizing["dollar_amount"],
-                sizing["adjusted_pct"] * 100, signal.confluence_score,
+                "[bot:%s] Placing %s %.4f %s @ $%.2f ($%.2f, kelly=%.2f%%, score=%d/5%s)",
+                bot_id, alpaca_side.upper(), sizing["shares"], symbol, price,
+                sizing["dollar_amount"], sizing["adjusted_pct"] * 100, score,
                 " CAPPED" if sizing["capped"] else "",
             )
 
@@ -345,25 +377,34 @@ class BotThread(threading.Thread):
                 order = alpaca.place_market_order(
                     symbol=symbol,
                     qty=sizing["shares"],
-                    side="buy",
+                    side=alpaca_side,
                 )
+
+                # For shorts: stop_loss is ABOVE entry, target is BELOW entry
+                if direction == "short":
+                    target = price * (1 + HARD_STOP_PCT)      # cover if rises 5%
+                    stop = price * (1 - SOFT_TAKE_PROFIT_PCT)  # take profit at -8%
+                else:
+                    target = price * (1 + SOFT_TAKE_PROFIT_PCT)
+                    stop = price * (1 + HARD_STOP_PCT)
 
                 logger.log_alpaca_trade({
                     "symbol": symbol,
-                    "asset_class": "crypto",
-                    "side": "buy",
+                    "asset_class": asset_class,
+                    "side": direction,
                     "qty": sizing["shares"],
                     "entry_price": price,
-                    "mirofish_prob": signal.confluence_score / 5.0,
-                    "market_sentiment": f"technical_confluence_{signal.confluence_score}",
-                    "target_price": price * (1 + SOFT_TAKE_PROFIT_PCT),
-                    "stop_loss": price * (1 + HARD_STOP_PCT),
-                    "simulation_id": f"tech_{symbol}_{int(time.time())}",
+                    "mirofish_prob": score / 5.0,
+                    "market_sentiment": f"technical_{direction}_{score}",
+                    "target_price": target,
+                    "stop_loss": stop,
+                    "simulation_id": f"tech_{direction}_{symbol}_{int(time.time())}",
                     "notes": (
                         f"EMA={'bull' if signal.ema_bullish else 'bear'} "
-                        f"ADX={signal.adx_value:.0f} RSI={signal.rsi_value:.0f} "
+                        f"ADX={signal.adx_value:.0f}(+DI={signal.plus_di:.0f}/-DI={signal.minus_di:.0f}) "
+                        f"RSI={signal.rsi_value:.0f} "
                         f"VolSpike={signal.volume_spike} VWAP={'bull' if signal.vwap_bullish else 'bear'} "
-                        f"bot={bot_id}"
+                        f"bot={bot_id} dir={direction}"
                     ),
                 })
 

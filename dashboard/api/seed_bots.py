@@ -37,7 +37,8 @@ def seed_bots() -> None:
             "hard_stop_pct": float(os.environ.get("BOT_A_HARD_STOP_PCT", "-0.08")),
             "soft_stop_pct": float(os.environ.get("BOT_A_SOFT_STOP_PCT", "-0.05")),
             "rsi_ceiling": float(os.environ.get("BOT_A_RSI_CEILING", "72.0")),
-            "crypto_universe": os.environ.get("BOT_A_CRYPTO_UNIVERSE", "BTC/USD,ETH/USD,SOL/USD,XRP/USD"),
+            "crypto_universe": os.environ.get("BOT_A_CRYPTO_UNIVERSE", "BTC/USD,ETH/USD,SOL/USD,XRP/USD,ADA/USD,AVAX/USD,DOT/USD,LINK/USD"),
+            "stock_universe": os.environ.get("BOT_A_STOCK_UNIVERSE", "QQQ,SPY,AAPL,NVDA,MSFT,TSLA,AMZN,META"),
             "max_position_pct": float(os.environ.get("BOT_A_MAX_POSITION_PCT", "0.05")),
         })
 
@@ -55,7 +56,8 @@ def seed_bots() -> None:
             "hard_stop_pct": float(os.environ.get("BOT_B_HARD_STOP_PCT", "-0.08")),
             "soft_stop_pct": float(os.environ.get("BOT_B_SOFT_STOP_PCT", "-0.05")),
             "rsi_ceiling": float(os.environ.get("BOT_B_RSI_CEILING", "72.0")),
-            "crypto_universe": os.environ.get("BOT_B_CRYPTO_UNIVERSE", "BTC/USD,ETH/USD,SOL/USD,XRP/USD"),
+            "crypto_universe": os.environ.get("BOT_B_CRYPTO_UNIVERSE", "BTC/USD,ETH/USD,SOL/USD,XRP/USD,ADA/USD,AVAX/USD,DOT/USD,LINK/USD"),
+            "stock_universe": os.environ.get("BOT_B_STOCK_UNIVERSE", "QQQ,SPY,AAPL,NVDA,MSFT,TSLA,AMZN,META"),
             "max_position_pct": float(os.environ.get("BOT_B_MAX_POSITION_PCT", "0.05")),
         })
 
@@ -75,12 +77,12 @@ def seed_bots() -> None:
                         id, bot_id, label, alpaca_api_key, alpaca_secret_key,
                         kelly_fraction, min_confluence, skip_risk_gate,
                         hard_stop_pct, soft_stop_pct, rsi_ceiling,
-                        crypto_universe, max_position_pct, enabled, status
+                        crypto_universe, stock_universe, max_position_pct, enabled, status
                     ) VALUES (
                         %(bot_id)s, %(bot_id)s, %(label)s, %(alpaca_api_key)s, %(alpaca_secret_key)s,
                         %(kelly_fraction)s, %(min_confluence)s, %(skip_risk_gate)s,
                         %(hard_stop_pct)s, %(soft_stop_pct)s, %(rsi_ceiling)s,
-                        %(crypto_universe)s, %(max_position_pct)s, TRUE, 'stopped'
+                        %(crypto_universe)s, %(stock_universe)s, %(max_position_pct)s, TRUE, 'stopped'
                     )
                     """,
                     bot,

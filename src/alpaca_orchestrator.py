@@ -66,6 +66,22 @@ console = Console()
 log = logging.getLogger(__name__)
 
 
+def _pnl_threshold(pnl_pct: float) -> str | None:
+    """Map a direction-adjusted P&L percentage to a threshold label.
+
+    Works for both longs and shorts because pnl_pct is already signed
+    correctly: positive = profit, negative = loss.
+    """
+    from src.exit_advisor import HARD_STOP_PCT, SOFT_STOP_PCT, SOFT_TAKE_PROFIT_PCT
+    if pnl_pct <= HARD_STOP_PCT:
+        return "hard_stop"
+    if pnl_pct <= SOFT_STOP_PCT:
+        return "soft_stop"
+    if pnl_pct >= SOFT_TAKE_PROFIT_PCT:
+        return "soft_take_profit"
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Position Monitor — background thread with MiroFish exit intelligence
 # ---------------------------------------------------------------------------
@@ -143,16 +159,27 @@ class PositionMonitor(threading.Thread):
                     log.warning("Skipping %s: entry_price is zero in DB and Alpaca", symbol)
                     continue
 
-            pnl_pct = (current_price - entry_price) / entry_price
-            trade_pnl = (current_price - entry_price) * qty
+            is_short = side in ("short", "sell")
 
-            # Check trailing stop first (it tracks high-water marks every tick)
-            trail_trigger = self._trailing.update(trade_id, entry_price, current_price)
+            # P&L: for shorts, profit when price falls
+            if is_short:
+                pnl_pct = (entry_price - current_price) / entry_price
+                trade_pnl = (entry_price - current_price) * qty
+            else:
+                pnl_pct = (current_price - entry_price) / entry_price
+                trade_pnl = (current_price - entry_price) * qty
+
+            # Trailing stop only for longs (shorts use hard exits only)
+            if not is_short:
+                trail_trigger = self._trailing.update(trade_id, entry_price, current_price)
+            else:
+                trail_trigger = None
+
             if trail_trigger:
                 threshold = trail_trigger
             else:
-                # Check fixed threshold crossings
-                threshold = check_position_thresholds(entry_price, current_price)
+                # Pass pnl_pct directly so thresholds work for both longs and shorts
+                threshold = _pnl_threshold(pnl_pct)
 
             # If tightened to breakeven, exit if below entry
             if not threshold and trade_id in self._tightened and current_price < entry_price:
