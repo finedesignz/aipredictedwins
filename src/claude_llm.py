@@ -31,13 +31,27 @@ _CREDENTIALS_PATH = Path("/root/.claude/.credentials.json")
 # Minimum milliseconds before expiry to trigger a proactive refresh
 _REFRESH_THRESHOLD_MS = 5 * 60 * 1000  # 5 minutes
 
+# Module-level cooldown: don't hammer the token endpoint more than once per 10 min
+_last_refresh_attempt: float = 0.0
+_REFRESH_COOLDOWN_SECONDS = 600  # 10 minutes between refresh attempts
+
 
 def _refresh_oauth_token() -> bool:
     """Attempt to refresh the Claude OAuth access token using the refresh token.
 
     Returns True if the credentials file was updated with a fresh token.
     This calls the platform.claude.com token endpoint directly.
+
+    Rate-limited: only attempts once per _REFRESH_COOLDOWN_SECONDS to avoid
+    429 errors from hammering the token endpoint on every LLM call.
     """
+    global _last_refresh_attempt
+    now = time.time()
+    if now - _last_refresh_attempt < _REFRESH_COOLDOWN_SECONDS:
+        log.debug("Skipping token refresh — cooldown active (%.0fs remaining)",
+                  _REFRESH_COOLDOWN_SECONDS - (now - _last_refresh_attempt))
+        return False
+    _last_refresh_attempt = now
     log.info("Attempting Claude OAuth token refresh...")
     try:
         creds_text = _CREDENTIALS_PATH.read_text()
@@ -102,6 +116,11 @@ req.end();
             return True
         else:
             log.warning("Claude OAuth token refresh failed: %s", out[:200])
+            # On 429, extend the cooldown to 30 min so we stop hammering the endpoint
+            if "429" in out:
+                global _last_refresh_attempt
+                _last_refresh_attempt = time.time() + 1800 - _REFRESH_COOLDOWN_SECONDS
+                log.warning("Token refresh rate-limited (429) — backing off 30 minutes")
             return False
     except Exception as exc:
         log.warning("Claude OAuth token refresh error: %s", exc)
