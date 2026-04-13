@@ -28,6 +28,25 @@ _DEFAULT_STARTING_EQUITY = 100_000.0
 
 # ── Alpaca portfolio history ────────────────────────────────────────────────
 
+def _fetch_live_equity(api_key: str, secret_key: str) -> float | None:
+    """Return real-time account equity from /v2/account (no history lag)."""
+    req = urllib.request.Request(
+        f"{_ALPACA_BASE}/v2/account",
+        headers={
+            "APCA-API-KEY-ID": api_key,
+            "APCA-API-SECRET-KEY": secret_key,
+            "Accept": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode())
+        raw = data.get("equity") or data.get("portfolio_value")
+        return float(raw) if raw else None
+    except Exception:
+        return None
+
+
 def _fetch_alpaca_series(api_key: str, secret_key: str, days: int, bot_id: str) -> EquitySeries | None:
     """Fetch equity from Alpaca and return a normalised EquitySeries.
 
@@ -86,6 +105,20 @@ def _fetch_alpaca_series(api_key: str, secret_key: str, days: int, bot_id: str) 
 
     if not points:
         return None
+
+    # Alpaca's portfolio history API lags ~1-2 days. Append a live "today"
+    # point from /v2/account so the chart always extends to the current moment.
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    if timeframe == "1D" and points[-1].timestamp[:10] < today:
+        live_eq = _fetch_live_equity(api_key, secret_key)
+        if live_eq is not None:
+            return_pct = round((live_eq - baseline) / baseline * 100, 4)
+            points.append(EquityPoint(
+                timestamp=f"{today}T00:00:00+00:00",
+                equity=round(live_eq, 2),
+                return_pct=return_pct,
+                bot_id=bot_id,
+            ))
 
     return EquitySeries(bot_id=bot_id, points=points)
 
