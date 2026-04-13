@@ -379,6 +379,39 @@ def log_screening(bot_id: str, data: dict) -> int:
         return row["id"]
 
 
+def persist_scan_signals(bot_id: str, signals: list) -> None:
+    """Replace the latest scan results for this bot in the signals table.
+
+    Deletes any existing rows for the bot and inserts fresh signal rows.
+    Called by BotThread after each technical scan so the dashboard shows live data.
+    """
+    if not signals:
+        return
+    now = datetime.now(timezone.utc).isoformat()
+    with connection() as conn:
+        conn.execute("DELETE FROM signals WHERE bot_id = %s", (bot_id,))
+        conn.executemany(
+            """
+            INSERT INTO signals (scanned_at, bot_id, symbol, ema_bullish, adx_value,
+                                 rsi_value, volume_spike, vwap_bullish, confluence_score)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            [
+                (
+                    now, bot_id,
+                    s.symbol,
+                    s.ema_bullish,
+                    s.adx_value,
+                    s.rsi_value,
+                    s.volume_spike,
+                    s.vwap_bullish,
+                    s.confluence_score,
+                )
+                for s in signals
+            ],
+        )
+
+
 def get_veto_history(bot_id: str, last_n: int = 20) -> list[dict]:
     with connection() as conn:
         return conn.execute(

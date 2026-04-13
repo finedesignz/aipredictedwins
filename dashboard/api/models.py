@@ -211,10 +211,11 @@ class BotFull(BaseModel):
     label: str
     kelly_fraction: float = 0.25
     min_confluence: int = 3
-    hard_stop_pct: float = -0.08
-    soft_stop_pct: float = -0.05
-    rsi_ceiling: float = 65.0
-    crypto_universe: str = "BTC/USD,ETH/USD,SOL/USD,XRP/USD"
+    hard_stop_pct: float = -0.05
+    soft_stop_pct: float = -0.03
+    rsi_ceiling: float = 72.0
+    crypto_universe: str = "BTC/USD,ETH/USD,SOL/USD,XRP/USD,ADA/USD,AVAX/USD,DOT/USD,LINK/USD"
+    stock_universe: Optional[str] = "QQQ,SPY,AAPL,NVDA,MSFT,TSLA,AMZN,META"
     skip_risk_gate: bool = False
     max_position_pct: float = 0.05
     enabled: bool = True
@@ -230,10 +231,11 @@ class BotCreate(BaseModel):
     alpaca_secret_key: str
     kelly_fraction: float = 0.25
     min_confluence: int = 3
-    hard_stop_pct: float = -0.08
-    soft_stop_pct: float = -0.05
-    rsi_ceiling: float = 65.0
-    crypto_universe: str = "BTC/USD,ETH/USD,SOL/USD,XRP/USD"
+    hard_stop_pct: float = -0.05
+    soft_stop_pct: float = -0.03
+    rsi_ceiling: float = 72.0
+    crypto_universe: str = "BTC/USD,ETH/USD,SOL/USD,XRP/USD,ADA/USD,AVAX/USD,DOT/USD,LINK/USD"
+    stock_universe: str = "QQQ,SPY,AAPL,NVDA,MSFT,TSLA,AMZN,META"
     skip_risk_gate: bool = False
     max_position_pct: float = 0.05
 
@@ -248,6 +250,7 @@ class BotUpdate(BaseModel):
     soft_stop_pct: Optional[float] = None
     rsi_ceiling: Optional[float] = None
     crypto_universe: Optional[str] = None
+    stock_universe: Optional[str] = None
     skip_risk_gate: Optional[bool] = None
     max_position_pct: Optional[float] = None
     enabled: Optional[bool] = None

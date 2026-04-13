@@ -72,6 +72,7 @@ export interface Signal {
   confluence_score: number;
   action: "BUY" | "WATCH" | "SKIP";
   scanned_at: string;
+  bot_id?: string;
 }
 
 export interface RiskDecision {
@@ -174,6 +175,7 @@ export interface BotFull {
   soft_stop_pct: number;
   rsi_ceiling: number;
   crypto_universe: string;
+  stock_universe: string | null;
   skip_risk_gate: boolean;
   max_position_pct: number;
   enabled: boolean;
