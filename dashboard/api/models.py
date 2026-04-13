@@ -265,3 +265,4 @@ class MultiBotPortfolio(BaseModel):
 class BenchmarkPoint(BaseModel):
     timestamp: str
     return_pct: float
+    price: Optional[float] = None   # actual close price (SPY share price or BTC/USD)
