@@ -50,13 +50,71 @@ function getTickFormatter(weeks: number): (ts: string) => string {
       new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric" });
   }
   if (days < 90) {
-    // Weekly increments, still show day: "Apr 7"
+    // Weekly: "Apr 7"
     return (ts) =>
       new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric" });
   }
-  // Monthly: "Apr '25"
+  // Monthly: "Apr '26"
   return (ts) =>
     new Date(ts).toLocaleDateString("en-US", { month: "short", year: "2-digit" });
+}
+
+/**
+ * Compute explicit tick timestamps so each period label appears exactly once.
+ * - Monthly (>90d): first data point of each calendar month
+ * - Weekly  (30-90d): first data point of each calendar week (Sun)
+ * - Daily   (7-30d): first data point of each calendar day
+ * - Hourly  (≤7d): every 6th hour mark (use interval fallback instead)
+ */
+function computeTicks(data: MergedPoint[], weeks: number): string[] | undefined {
+  if (data.length === 0) return undefined;
+  const days = weeks * 7;
+
+  if (days > 90) {
+    // One tick per month
+    const seen = new Set<string>();
+    return data
+      .filter((p) => {
+        const key = p.timestamp.slice(0, 7); // "2026-03"
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .map((p) => p.timestamp);
+  }
+
+  if (days >= 30) {
+    // One tick per week — keep first point whose ISO week differs from previous
+    const seen = new Set<string>();
+    return data
+      .filter((p) => {
+        const d = new Date(p.timestamp);
+        // Sun-anchored week key: "2026-W14"
+        const jan1 = new Date(d.getUTCFullYear(), 0, 1);
+        const week = Math.ceil(((d.getTime() - jan1.getTime()) / 86400000 + jan1.getUTCDay() + 1) / 7);
+        const key = `${d.getUTCFullYear()}-W${week}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .map((p) => p.timestamp);
+  }
+
+  if (days >= 7) {
+    // One tick per day
+    const seen = new Set<string>();
+    return data
+      .filter((p) => {
+        const key = p.timestamp.slice(0, 10);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .map((p) => p.timestamp);
+  }
+
+  // Hourly: fall back to interval-based thinning
+  return undefined;
 }
 
 /** Show time in tooltip only when the timestamp has a non-midnight hour (hourly data). */
@@ -79,7 +137,9 @@ const BOT_COLORS = ["#60a5fa", "#fbbf24", "#34d399", "#f87171", "#a78bfa", "#fb9
 interface MergedPoint {
   timestamp: string;
   spy_pct?: number;
+  spy_price?: number;
   btc_pct?: number;
+  btc_price?: number;
   [key: string]: number | string | undefined;
 }
 
@@ -100,11 +160,13 @@ function mergeSeries(
   for (const p of spy) {
     const existing = map.get(p.timestamp) ?? { timestamp: p.timestamp };
     existing.spy_pct = p.return_pct;
+    if (p.price != null) existing.spy_price = p.price;
     map.set(p.timestamp, existing);
   }
   for (const p of btc) {
     const existing = map.get(p.timestamp) ?? { timestamp: p.timestamp };
     existing.btc_pct = p.return_pct;
+    if (p.price != null) existing.btc_price = p.price;
     map.set(p.timestamp, existing);
   }
 
@@ -118,6 +180,13 @@ interface TooltipPayloadItem {
   value: number;
   name: string;
   color: string;
+  dataKey: string;
+  payload: MergedPoint;
+}
+
+function formatPrice(price: number): string {
+  if (price >= 1000) return "$" + price.toLocaleString("en-US", { maximumFractionDigits: 0 });
+  return "$" + price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function CustomTooltip({
@@ -135,20 +204,27 @@ function CustomTooltip({
       {label && (
         <p className="text-xs text-text-muted mb-2">{formatTooltipDate(label)}</p>
       )}
-      {payload.map((item) => (
-        <div key={item.name} className="flex items-center justify-between gap-4">
-          <span className="text-xs font-medium" style={{ color: item.color }}>
-            {item.name}
-          </span>
-          <span
-            className={`font-mono-nums text-xs font-semibold ${
-              item.value >= 0 ? "text-profit-green" : "text-loss-red"
-            }`}
-          >
-            {formatPct(item.value)}
-          </span>
-        </div>
-      ))}
+      {payload.map((item) => {
+        const isSpy = item.dataKey === "spy_pct";
+        const isBtc = item.dataKey === "btc_pct";
+        const price = isSpy ? item.payload.spy_price : isBtc ? item.payload.btc_price : undefined;
+        return (
+          <div key={item.name} className="flex items-center justify-between gap-4">
+            <span className="text-xs font-medium" style={{ color: item.color }}>
+              {item.name}
+            </span>
+            <span className="font-mono-nums text-xs font-semibold text-text-secondary">
+              {price != null ? (
+                formatPrice(price)
+              ) : (
+                <span className={item.value >= 0 ? "text-profit-green" : "text-loss-red"}>
+                  {formatPct(item.value)}
+                </span>
+              )}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -214,8 +290,9 @@ export default function EquityCurve({ series, weeks, onWeeksChange }: EquityCurv
   const hasData = data.length > 1;
 
   const tickFormatter = useMemo(() => getTickFormatter(weeks), [weeks]);
-  // Target ~7 visible ticks; Recharts interval={n} skips n points between each tick.
-  const tickInterval = data.length > 7 ? Math.floor(data.length / 7) : 0;
+  const ticks = useMemo(() => computeTicks(data, weeks), [data, weeks]);
+  // Hourly fallback: thin to ~7 ticks when computeTicks returns undefined
+  const tickInterval = ticks ? 0 : data.length > 7 ? Math.floor(data.length / 7) : 0;
 
   return (
     <div className="rounded-lg border border-border-primary bg-bg-card p-4">
@@ -261,7 +338,8 @@ export default function EquityCurve({ series, weeks, onWeeksChange }: EquityCurv
             <XAxis
               dataKey="timestamp"
               tickFormatter={tickFormatter}
-              interval={tickInterval}
+              ticks={ticks}
+              interval={ticks ? 0 : tickInterval}
               axisLine={false}
               tickLine={false}
               tick={{ fill: "#64748b", fontSize: 11 }}

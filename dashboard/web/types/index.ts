@@ -154,6 +154,7 @@ export interface EquityResponse {
 export interface BenchmarkPoint {
   timestamp: string;
   return_pct: number;
+  price?: number;   // actual close price: SPY share price or BTC/USD
 }
 
 export interface BotInfo {

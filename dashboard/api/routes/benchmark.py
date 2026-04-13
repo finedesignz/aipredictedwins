@@ -65,6 +65,7 @@ def get_spy_benchmark(
         BenchmarkPoint(
             timestamp=f"{b['date']}T00:00:00+00:00",
             return_pct=round((b["close"] - base_close) / base_close * 100, 4),
+            price=round(b["close"], 2),
         ).model_dump()
         for b in bars
     ]

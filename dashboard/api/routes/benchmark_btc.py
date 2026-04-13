@@ -87,6 +87,7 @@ def get_btc_benchmark(
         points.append(BenchmarkPoint(
             timestamp=ts,
             return_pct=return_pct,
+            price=round(bar["c"], 2),
         ).model_dump())
 
     _btc_cache[cache_key] = {"data": points, "ts": now}
