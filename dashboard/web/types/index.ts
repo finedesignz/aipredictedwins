@@ -79,20 +79,14 @@ export interface RiskDecision {
   id: string;
   timestamp: string;
   symbol: string;
-  confluence_score: number;
+  event_title: string;
+  confluence: number;           // 0-5 scaled score (mirofish_prob * 5)
   decision: "PROCEED" | "VETO";
-  veto_count: number;
-  reasoning: string;
-  scenarios: RiskScenario[];
-}
-
-export interface RiskScenario {
-  analyst: string;
-  scenario: string;
-  likelihood: "high" | "medium" | "low";
-  impact: "high" | "medium" | "low";
-  vote: "PROCEED" | "VETO";
-  reasoning: string;
+  confidence: number | null;
+  risk_assessment: string | null;
+  veto_reason: string | null;
+  proposed_side: string | null;
+  mirofish_prob: number | null;
 }
 
 export interface ActivityEvent {

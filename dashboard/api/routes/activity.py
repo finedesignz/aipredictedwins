@@ -106,8 +106,11 @@ async def _event_generator():
                         "timestamp": val.get("timestamp", now),
                     }),
                 }
-        except Exception:
-            pass
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning("SSE activity poll error: %s", exc)
+            # Don't advance last_check on error — retry the same window next cycle
+            continue
 
         last_check = now
 

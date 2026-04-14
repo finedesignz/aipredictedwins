@@ -101,6 +101,8 @@ def create_bot(body: BotCreate, request: Request):
         except Exception:
             pass  # manager unavailable; thread can be started later
 
+    if row is None:
+        raise HTTPException(status_code=500, detail="Bot created but could not be fetched")
     # Return without keys
     safe_row = {k: v for k, v in row.items() if k not in ("alpaca_api_key", "alpaca_secret_key")}
     return Envelope(data=_enrich(safe_row, mgr))

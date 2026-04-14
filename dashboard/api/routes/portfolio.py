@@ -47,7 +47,7 @@ def _fetch_alpaca_account(api_key: str, secret_key: str) -> dict:
 def _portfolio_for_bot(conn, bot_id: str, days: int = 30) -> PortfolioData:
     # Starting equity from registry
     bot_row = conn.execute(
-        "SELECT starting_equity FROM bots WHERE id = %s", (bot_id,)
+        "SELECT starting_equity FROM bots WHERE bot_id = %s", (bot_id,)
     ).fetchone()
     starting_equity = bot_row["starting_equity"] if bot_row else _DEFAULT_STARTING_EQUITY
 
