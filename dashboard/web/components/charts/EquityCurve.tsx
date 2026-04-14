@@ -32,7 +32,9 @@ function formatPct(v: number): string {
   return (v >= 0 ? "+" : "") + v.toFixed(1) + "%";
 }
 
-/** Pick an X-axis tick formatter based on the selected week range. */
+/** Pick an X-axis tick formatter based on the selected week range.
+ *  All formatters use timeZone:"UTC" so UTC-midnight timestamps never slip
+ *  back a calendar day in the user's local timezone. */
 function getTickFormatter(weeks: number): (ts: string) => string {
   const days = weeks * 7;
   if (days <= 7) {
@@ -42,21 +44,32 @@ function getTickFormatter(weeks: number): (ts: string) => string {
         weekday: "short",
         hour: "numeric",
         hour12: true,
+        timeZone: "UTC",
       });
   }
   if (days < 30) {
     // Daily: "Apr 12"
     return (ts) =>
-      new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      new Date(ts).toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        timeZone: "UTC",
+      });
   }
   if (days < 90) {
     // Weekly: "Apr 7"
     return (ts) =>
-      new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      new Date(ts).toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        timeZone: "UTC",
+      });
   }
-  // Monthly: "Apr '26"
+  // Monthly: just the month name — "Mar", "Apr".
+  // Avoid year-suffix formats like "Mar '26" which render as "Mar 26"
+  // in some environments and look like a day number.
   return (ts) =>
-    new Date(ts).toLocaleDateString("en-US", { month: "short", year: "2-digit" });
+    new Date(ts).toLocaleDateString("en-US", { month: "short", timeZone: "UTC" });
 }
 
 /**
@@ -117,7 +130,7 @@ function computeTicks(data: MergedPoint[], weeks: number): string[] | undefined 
   return undefined;
 }
 
-/** Show time in tooltip only when the timestamp has a non-midnight hour (hourly data). */
+/** Show time in tooltip only when the timestamp has a non-midnight UTC hour (hourly data). */
 function formatTooltipDate(label: string): string {
   const d = new Date(label);
   const hasTime = d.getUTCHours() !== 0 || d.getUTCMinutes() !== 0;
@@ -127,9 +140,15 @@ function formatTooltipDate(label: string): string {
       day: "numeric",
       hour: "numeric",
       hour12: true,
+      timeZone: "UTC",
     });
   }
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  return d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  });
 }
 
 const BOT_COLORS = ["#60a5fa", "#fbbf24", "#34d399", "#f87171", "#a78bfa", "#fb923c"];
@@ -154,6 +173,7 @@ function mergeSeries(
     for (const p of s.points) {
       const existing = map.get(p.timestamp) ?? { timestamp: p.timestamp };
       existing[`bot_${s.bot_id}_pct`] = p.return_pct;
+      existing[`bot_${s.bot_id}_equity`] = p.equity;
       map.set(p.timestamp, existing);
     }
   }
@@ -207,20 +227,25 @@ function CustomTooltip({
       {payload.map((item) => {
         const isSpy = item.dataKey === "spy_pct";
         const isBtc = item.dataKey === "btc_pct";
-        const price = isSpy ? item.payload.spy_price : isBtc ? item.payload.btc_price : undefined;
+        const isBot = item.dataKey.startsWith("bot_") && item.dataKey.endsWith("_pct");
+        const price = isSpy
+          ? item.payload.spy_price
+          : isBtc
+          ? item.payload.btc_price
+          : isBot
+          ? (item.payload[item.dataKey.replace("_pct", "_equity")] as number | undefined)
+          : undefined;
+        const pctColor = item.value >= 0 ? "text-profit-green" : "text-loss-red";
         return (
           <div key={item.name} className="flex items-center justify-between gap-4">
             <span className="text-xs font-medium" style={{ color: item.color }}>
               {item.name}
             </span>
-            <span className="font-mono-nums text-xs font-semibold text-text-secondary">
-              {price != null ? (
-                formatPrice(price)
-              ) : (
-                <span className={item.value >= 0 ? "text-profit-green" : "text-loss-red"}>
-                  {formatPct(item.value)}
-                </span>
+            <span className="font-mono-nums text-xs font-semibold flex items-center gap-1.5">
+              {price != null && (
+                <span className="text-text-secondary">{formatPrice(price)}</span>
               )}
+              <span className={pctColor}>{formatPct(item.value)}</span>
             </span>
           </div>
         );
@@ -280,13 +305,25 @@ export default function EquityCurve({ series, weeks, onWeeksChange }: EquityCurv
     300_000
   );
 
-  const filteredSeries = series.filter((s) => activeBotIds.includes(s.bot_id));
   const showSpy = filter.spy !== false;
   const showBtc = filter.btc !== false;
+  const filteredSeries = useMemo(
+    () => series.filter((s) => activeBotIds.includes(s.bot_id)),
+    [series, activeBotIds]
+  );
   const filteredSpy = showSpy ? (spyData ?? []) : [];
   const filteredBtc = showBtc ? (btcData ?? []) : [];
 
-  const data = mergeSeries(filteredSeries, filteredSpy, filteredBtc);
+  const data = useMemo(
+    () =>
+      mergeSeries(
+        series.filter((s) => activeBotIds.includes(s.bot_id)),
+        showSpy ? (spyData ?? []) : [],
+        showBtc ? (btcData ?? []) : []
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [series, activeBotIds, spyData, btcData, showSpy, showBtc]
+  );
   const hasData = data.length > 1;
 
   const tickFormatter = useMemo(() => getTickFormatter(weeks), [weeks]);
