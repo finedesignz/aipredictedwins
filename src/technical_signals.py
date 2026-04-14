@@ -249,8 +249,9 @@ def analyze(symbol: str, bars: list[dict]) -> Signal | None:
         rsi_signal = "neutral"
 
     # RSI hard block: reject overbought entries above ceiling
+    # Lowered default from 72 to 65 — QC showed avg losing RSI was 70.1
     import os as _os
-    RSI_ENTRY_CEILING = float(_os.environ.get("RSI_ENTRY_CEILING", "72.0"))
+    RSI_ENTRY_CEILING = float(_os.environ.get("RSI_ENTRY_CEILING", "65.0"))
     if rsi_value > RSI_ENTRY_CEILING:
         log.debug(
             "BLOCKED %s: RSI=%.1f > %.0f ceiling (overbought entry rejected)",
@@ -264,29 +265,29 @@ def analyze(symbol: str, bars: list[dict]) -> Signal | None:
     # --- VWAP ---
     vwap_bull = _vwap_bullish(closes, volumes, vwaps)
 
-    # --- Confluence Score ---
-    # Each indicator votes independently. In a downtrend, oversold RSI +
-    # strong ADX + VWAP is a textbook mean-reversion bounce setup.
+    # --- Confluence Score (max 4) ---
+    # QC finding (30 trades): buying overbought breakouts with volume spikes lost 96% of the time.
+    # Winners had RSI 50-64, VolSpike=False, price below VWAP (mean-reversion pullback setup).
+    # New scoring selects pullback entries into a still-bullish trend.
     score = 0
-    # EMA bullish crossover
+    # 1. EMA bullish crossover — trend direction
     if ema_bullish:
         score += 1
-    # ADX confirms a real trend (not sideways chop) — counts regardless
-    # of direction. High ADX + oversold RSI = bounce candidate.
+    # 2. ADX confirms real trend strength (+DI > -DI means upward momentum)
     if adx_trending:
         score += 1
-    # RSI oversold (<35) = buy opportunity regardless of trend
-    # RSI neutral (35-65) with bullish trend = also counts
-    if rsi_value < 35:
+    # 3. RSI < 50 — price showing relative weakness/dip (buy the pullback, not the top)
+    #    Previous: RSI neutral (35-70) + EMA_bullish also counted → was letting in RSI 65-70
+    #    QC: avg losing RSI was 70.1; all wins had RSI ≤ 64
+    if rsi_value < 50:
         score += 1
-    elif rsi_signal == "neutral" and ema_bullish:
+    # 4. Price below VWAP = mean-reversion pullback entry (good risk/reward)
+    #    Previous: scored for price ABOVE VWAP → systematically caught overextended entries
+    #    QC: all 3 wins had VWAP=bear; most losses had VWAP=bull
+    if not vwap_bull:
         score += 1
-    # Volume spike confirms interest
-    if vol_spike:
-        score += 1
-    # Price above VWAP
-    if vwap_bull:
-        score += 1
+    # Volume spike intentionally removed from scoring:
+    #    QC: VolSpike=True trades went 0-for-17 (exhaustion/distribution, not accumulation)
 
     details = {
         "ema9": round(ema9_latest, 6),
@@ -295,6 +296,7 @@ def analyze(symbol: str, bars: list[dict]) -> Signal | None:
         "plus_di": round(plus_di, 2),
         "minus_di": round(minus_di, 2),
         "rsi": round(rsi_value, 2),
+        "vwap_bull": vwap_bull,
         "volume_spike_ratio": round(
             volumes[-1] / (sum(volumes[-21:-1]) / 20) if len(volumes) >= 21 and sum(volumes[-21:-1]) > 0 else 0, 2
         ),
