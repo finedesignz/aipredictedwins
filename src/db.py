@@ -390,26 +390,27 @@ def persist_scan_signals(bot_id: str, signals: list) -> None:
     now = datetime.now(timezone.utc).isoformat()
     with connection() as conn:
         conn.execute("DELETE FROM signals WHERE bot_id = %s", (bot_id,))
-        conn.executemany(
-            """
-            INSERT INTO signals (scanned_at, bot_id, symbol, ema_bullish, adx_value,
-                                 rsi_value, volume_spike, vwap_bullish, confluence_score)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """,
-            [
-                (
-                    now, bot_id,
-                    s.symbol,
-                    s.ema_bullish,
-                    s.adx_value,
-                    s.rsi_value,
-                    s.volume_spike,
-                    s.vwap_bullish,
-                    s.confluence_score,
-                )
-                for s in signals
-            ],
-        )
+        with conn.cursor() as cur:
+            cur.executemany(
+                """
+                INSERT INTO signals (scanned_at, bot_id, symbol, ema_bullish, adx_value,
+                                     rsi_value, volume_spike, vwap_bullish, confluence_score)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                [
+                    (
+                        now, bot_id,
+                        s.symbol,
+                        s.ema_bullish,
+                        s.adx_value,
+                        s.rsi_value,
+                        s.volume_spike,
+                        s.vwap_bullish,
+                        s.confluence_score,
+                    )
+                    for s in signals
+                ],
+            )
 
 
 def get_veto_history(bot_id: str, last_n: int = 20) -> list[dict]:
