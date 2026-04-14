@@ -331,6 +331,19 @@ export default function EquityCurve({ series, weeks, onWeeksChange }: EquityCurv
   // Hourly fallback: thin to ~7 ticks when computeTicks returns undefined
   const tickInterval = ticks ? 0 : data.length > 7 ? Math.floor(data.length / 7) : 0;
 
+  // Actual date range of the displayed data — shown next to the slider so the
+  // user can tell when the requested range exceeds available history.
+  const dataRange = useMemo(() => {
+    if (data.length < 2) return null;
+    const fmt = (ts: string) =>
+      new Date(ts).toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        timeZone: "UTC",
+      });
+    return `${fmt(data[0].timestamp)} – ${fmt(data[data.length - 1].timestamp)}`;
+  }, [data]);
+
   return (
     <div className="rounded-lg border border-border-primary bg-bg-card p-4">
       {/* Header: title + week slider + bot stats */}
@@ -348,8 +361,11 @@ export default function EquityCurve({ series, weeks, onWeeksChange }: EquityCurv
               style={{ accentColor: "#60a5fa" }}
               aria-label={`${weeks} ${weeks === 1 ? "week" : "weeks"}`}
             />
-            <span className="text-xs text-text-muted min-w-[4.5rem]">
+            <span className="text-xs text-text-muted">
               {weeks === 1 ? "1 week" : `${weeks} weeks`}
+              {dataRange && (
+                <span className="ml-1.5 text-text-muted/60">{dataRange}</span>
+              )}
             </span>
           </div>
         </div>
