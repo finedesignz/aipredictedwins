@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import React, { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import type { RiskDecision } from "@/types";
 import { formatTimestamp } from "@/lib/format";
@@ -63,13 +63,13 @@ export default function DecisionTable({ data, filter }: DecisionTableProps) {
               scope="col"
               className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-text-muted"
             >
-              Vetoes
+              Confidence
             </th>
             <th
               scope="col"
               className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-text-muted"
             >
-              Reasoning
+              Notes
             </th>
           </tr>
         </thead>
@@ -77,9 +77,8 @@ export default function DecisionTable({ data, filter }: DecisionTableProps) {
           {filtered.map((decision) => {
             const isExpanded = expandedId === decision.id;
             return (
-              <>
+              <React.Fragment key={decision.id}>
                 <tr
-                  key={decision.id}
                   className="border-b border-border-subtle bg-bg-card hover:bg-bg-card-hover transition-colors cursor-pointer"
                   onClick={() =>
                     setExpandedId(isExpanded ? null : decision.id)
@@ -106,7 +105,7 @@ export default function DecisionTable({ data, filter }: DecisionTableProps) {
                   </td>
                   <td className="px-4 py-3">
                     <span className="font-mono-nums text-sm text-text-secondary">
-                      {decision.confluence_score}/5
+                      {decision.confluence}/5
                     </span>
                   </td>
                   <td className="px-4 py-3">
@@ -120,12 +119,12 @@ export default function DecisionTable({ data, filter }: DecisionTableProps) {
                   </td>
                   <td className="px-4 py-3">
                     <span className="font-mono-nums text-sm text-text-secondary">
-                      {decision.veto_count}/5
+                      {decision.confidence != null ? `${Math.round(decision.confidence * 100)}%` : "—"}
                     </span>
                   </td>
                   <td className="px-4 py-3">
                     <span className="text-sm text-text-muted truncate max-w-xs block">
-                      {decision.reasoning}
+                      {decision.veto_reason ?? decision.risk_assessment ?? "—"}
                     </span>
                   </td>
                 </tr>
@@ -136,7 +135,7 @@ export default function DecisionTable({ data, filter }: DecisionTableProps) {
                     </td>
                   </tr>
                 )}
-              </>
+              </React.Fragment>
             );
           })}
         </tbody>

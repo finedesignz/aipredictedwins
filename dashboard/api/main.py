@@ -22,7 +22,6 @@ from routes import (
     activity,
     alpaca,
     benchmark,
-    benchmark_btc,
     bots,
     chat,
     equity,
@@ -172,7 +171,6 @@ async def logout():
 # -- Mount route modules (all require auth) -----------------------------------
 app.include_router(alpaca.router, dependencies=[Depends(verify_token)])
 app.include_router(benchmark.router, dependencies=[Depends(verify_token)])
-app.include_router(benchmark_btc.router, dependencies=[Depends(verify_token)])
 app.include_router(bots.router, dependencies=[Depends(verify_token)])
 app.include_router(chat.router, dependencies=[Depends(verify_token)])
 app.include_router(equity.router, dependencies=[Depends(verify_token)])

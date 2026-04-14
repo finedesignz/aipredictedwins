@@ -177,8 +177,7 @@ class BotThread(threading.Thread):
 
         # Get initial bankroll
         account = alpaca.get_account()
-        starting_bankroll = account.get("equity", alpaca_cfg.starting_bankroll
-                                        if hasattr(alpaca_cfg, "starting_bankroll") else 1000.0)
+        starting_bankroll = account.get("equity", 100_000.0)
 
         cycle_count = 0
 

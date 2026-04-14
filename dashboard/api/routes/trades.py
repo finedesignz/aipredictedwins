@@ -78,13 +78,14 @@ def _fetch_trades(
         r["quantity"] = r.get("qty") or 0.0
         entry = r.get("entry_price")
         exit_ = r.get("exit_price")
+        raw_side = r.get("side", "buy") or "buy"
+        r["side"] = "long" if raw_side.lower() in ("buy", "long") else "short"
         if entry and exit_ and entry != 0:
-            r["pnl_percent"] = round((exit_ - entry) / entry * 100, 4)
+            multiplier = 1.0 if r["side"] == "long" else -1.0
+            r["pnl_percent"] = round((exit_ - entry) / entry * 100 * multiplier, 4)
         else:
             r["pnl_percent"] = None
         r["close_reason"] = r.get("notes")
-        raw_side = r.get("side", "buy") or "buy"
-        r["side"] = "long" if raw_side.lower() in ("buy", "long") else "short"
         r["status"] = r.get("status") or "open"
         result.append(r)
     return result
