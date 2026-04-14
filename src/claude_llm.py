@@ -118,7 +118,6 @@ req.end();
             log.warning("Claude OAuth token refresh failed: %s", out[:200])
             # On 429, extend the cooldown to 30 min so we stop hammering the endpoint
             if "429" in out:
-                global _last_refresh_attempt
                 _last_refresh_attempt = time.time() + 1800 - _REFRESH_COOLDOWN_SECONDS
                 log.warning("Token refresh rate-limited (429) — backing off 30 minutes")
             return False
