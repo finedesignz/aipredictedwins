@@ -28,6 +28,7 @@ from src.alpaca_orchestrator import (
 )
 from src.alpaca_evaluator import MEME_CRYPTO
 from src.pipeline_state import PipelineState
+from src import db as _db
 
 log = logging.getLogger(__name__)
 
@@ -237,6 +238,12 @@ class BotThread(threading.Thread):
         except Exception as exc:
             log.error("[bot:%s] Technical scan failed: %s", bot_id, exc)
             return
+
+        # Persist scan results to DB so the dashboard signals page shows real data
+        try:
+            _db.persist_scan_signals(bot_id, signals)
+        except Exception as exc:
+            log.warning("[bot:%s] Failed to persist scan signals: %s", bot_id, exc)
 
         # Filter: min confluence, dedup open positions, exclude meme coins
         all_candidates = [

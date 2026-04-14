@@ -1,138 +1,106 @@
 """
 Technical signals endpoint.
 
-GET /api/signals -- latest scan results.
+GET /api/signals?bot=A|B|both
 
-TODO: Wire this to real signal data once the technical scanner persists
-scan results to the database. Currently returns placeholder data with
-the correct structure so the frontend can be built in parallel.
+Returns the latest technical scan results written by BotThread after each
+scan cycle. Falls back to an empty list if no scan has run yet.
 """
 
-from datetime import datetime, timezone
-from fastapi import APIRouter
+from typing import Literal
+
+from fastapi import APIRouter, Query
+
+from db import get_db
 from models import Envelope, Meta
 
 router = APIRouter(prefix="/api", tags=["signals"])
 
-_NOW = lambda: datetime.now(timezone.utc).isoformat()
 
-# Placeholder until technical scanner persists scan results to the database.
-# Shape matches the frontend Signal type exactly.
-_PLACEHOLDER_SIGNALS = [
-    {
-        "symbol": "BTC/USD",
-        "ema_signal": "bullish",
-        "adx_value": 28.5,
-        "adx_signal": "bullish",
-        "rsi_value": 55.2,
-        "rsi_signal": "neutral",
-        "volume_spike": False,
-        "vwap_signal": "bullish",
-        "confluence_score": 3,
-        "action": "WATCH",
-        "scanned_at": None,
-    },
-    {
-        "symbol": "ETH/USD",
-        "ema_signal": "bullish",
-        "adx_value": 32.1,
-        "adx_signal": "bullish",
-        "rsi_value": 48.7,
-        "rsi_signal": "neutral",
-        "volume_spike": True,
-        "vwap_signal": "bullish",
-        "confluence_score": 4,
-        "action": "BUY",
-        "scanned_at": None,
-    },
-    {
-        "symbol": "SOL/USD",
-        "ema_signal": "bearish",
-        "adx_value": 18.3,
-        "adx_signal": "neutral",
-        "rsi_value": 62.1,
-        "rsi_signal": "neutral",
-        "volume_spike": False,
-        "vwap_signal": "bearish",
-        "confluence_score": 1,
-        "action": "SKIP",
-        "scanned_at": None,
-    },
-    {
-        "symbol": "XRP/USD",
-        "ema_signal": "bullish",
-        "adx_value": 25.0,
-        "adx_signal": "bullish",
-        "rsi_value": 51.4,
-        "rsi_signal": "neutral",
-        "volume_spike": False,
-        "vwap_signal": "bullish",
-        "confluence_score": 3,
-        "action": "WATCH",
-        "scanned_at": None,
-    },
-    {
-        "symbol": "ADA/USD",
-        "ema_signal": "bearish",
-        "adx_value": 15.2,
-        "adx_signal": "neutral",
-        "rsi_value": 44.8,
-        "rsi_signal": "neutral",
-        "volume_spike": False,
-        "vwap_signal": "bearish",
-        "confluence_score": 0,
-        "action": "SKIP",
-        "scanned_at": None,
-    },
-    {
-        "symbol": "AVAX/USD",
-        "ema_signal": "bullish",
-        "adx_value": 22.7,
-        "adx_signal": "bullish",
-        "rsi_value": 58.3,
-        "rsi_signal": "neutral",
-        "volume_spike": True,
-        "vwap_signal": "neutral",
-        "confluence_score": 3,
-        "action": "WATCH",
-        "scanned_at": None,
-    },
-    {
-        "symbol": "DOT/USD",
-        "ema_signal": "bearish",
-        "adx_value": 12.9,
-        "adx_signal": "neutral",
-        "rsi_value": 39.5,
-        "rsi_signal": "neutral",
-        "volume_spike": False,
-        "vwap_signal": "bearish",
-        "confluence_score": 0,
-        "action": "SKIP",
-        "scanned_at": None,
-    },
-    {
-        "symbol": "LINK/USD",
-        "ema_signal": "bullish",
-        "adx_value": 30.4,
-        "adx_signal": "bullish",
-        "rsi_value": 52.8,
-        "rsi_signal": "neutral",
-        "volume_spike": False,
-        "vwap_signal": "bullish",
-        "confluence_score": 3,
-        "action": "WATCH",
-        "scanned_at": None,
-    },
-]
+def _derive_signals(row: dict) -> dict:
+    """Add derived signal fields (ema_signal, adx_signal, etc.) to a raw DB row."""
+    ema_bullish = row.get("ema_bullish") or False
+    adx_value = float(row.get("adx_value") or 0.0)
+    rsi_value = float(row.get("rsi_value") or 50.0)
+    vwap_bullish = row.get("vwap_bullish") or False
+    confluence_score = int(row.get("confluence_score") or 0)
+
+    ema_signal = "bullish" if ema_bullish else "bearish"
+
+    if adx_value >= 25:
+        adx_signal = "bullish"
+    elif adx_value >= 20:
+        adx_signal = "neutral"
+    else:
+        adx_signal = "neutral"
+
+    if rsi_value < 40:
+        rsi_signal = "bullish"
+    elif rsi_value > 70:
+        rsi_signal = "bearish"
+    else:
+        rsi_signal = "neutral"
+
+    vwap_signal = "bullish" if vwap_bullish else "bearish"
+
+    if confluence_score >= 3:
+        action = "BUY"
+    elif confluence_score >= 1:
+        action = "WATCH"
+    else:
+        action = "SKIP"
+
+    scanned_at = row.get("scanned_at")
+    if scanned_at and hasattr(scanned_at, "isoformat"):
+        scanned_at = scanned_at.isoformat()
+
+    return {
+        "symbol": row["symbol"],
+        "ema_signal": ema_signal,
+        "adx_value": adx_value,
+        "adx_signal": adx_signal,
+        "rsi_value": rsi_value,
+        "rsi_signal": rsi_signal,
+        "volume_spike": bool(row.get("volume_spike") or False),
+        "vwap_signal": vwap_signal,
+        "confluence_score": confluence_score,
+        "action": action,
+        "scanned_at": scanned_at,
+        "bot_id": row.get("bot_id"),
+    }
 
 
 @router.get("/signals")
-def get_signals():
-    """Return the latest technical signal scan results.
+def get_signals(bot: Literal["A", "B", "both"] = Query("both")):
+    """Return the latest technical scan results from the signals table.
 
-    TODO: Read from a `signals` table once the bot persists scan data.
-    Currently returns placeholder data for all 8 crypto assets.
+    Each bot writes its scan results after every cycle (~30 min). The response
+    reflects the most recent scan per bot. Returns empty list if no scan has run.
     """
-    now = _NOW()
-    data = [{**s, "scanned_at": s["scanned_at"] or now} for s in _PLACEHOLDER_SIGNALS]
+    bot_ids = ["A", "B"] if bot == "both" else [bot]
+
+    rows = []
+    with get_db() as conn:
+        for bot_id in bot_ids:
+            # Get the timestamp of the most recent scan for this bot
+            latest = conn.execute(
+                "SELECT MAX(scanned_at) AS ts FROM signals WHERE bot_id = %s",
+                (bot_id,),
+            ).fetchone()
+            if not latest or not latest["ts"]:
+                continue
+            # Fetch all signals from that scan batch
+            batch = conn.execute(
+                """
+                SELECT symbol, ema_bullish, adx_value, rsi_value,
+                       volume_spike, vwap_bullish, confluence_score, scanned_at, bot_id
+                FROM signals
+                WHERE bot_id = %s AND scanned_at = %s
+                ORDER BY confluence_score DESC, symbol
+                """,
+                (bot_id, latest["ts"]),
+            ).fetchall()
+            rows.extend(batch)
+
+    data = [_derive_signals(r) for r in rows]
     return Envelope(data=data, meta=Meta(count=len(data)))

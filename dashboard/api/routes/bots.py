@@ -18,7 +18,7 @@ router = APIRouter(prefix="/api", tags=["bots"])
 
 # Columns returned for list/get — never expose raw alpaca keys
 _BOT_COLS = """bot_id, label, kelly_fraction, min_confluence, hard_stop_pct,
-    soft_stop_pct, rsi_ceiling, crypto_universe, skip_risk_gate,
+    soft_stop_pct, rsi_ceiling, crypto_universe, stock_universe, skip_risk_gate,
     max_position_pct, enabled, status, status_detail"""
 
 
@@ -78,13 +78,13 @@ def create_bot(body: BotCreate, request: Request):
             INSERT INTO bots (
                 bot_id, label, alpaca_api_key, alpaca_secret_key,
                 kelly_fraction, min_confluence, hard_stop_pct, soft_stop_pct,
-                rsi_ceiling, crypto_universe, skip_risk_gate, max_position_pct,
-                enabled, status
+                rsi_ceiling, crypto_universe, stock_universe, skip_risk_gate,
+                max_position_pct, enabled, status
             ) VALUES (
                 %(bot_id)s, %(label)s, %(alpaca_api_key)s, %(alpaca_secret_key)s,
                 %(kelly_fraction)s, %(min_confluence)s, %(hard_stop_pct)s, %(soft_stop_pct)s,
-                %(rsi_ceiling)s, %(crypto_universe)s, %(skip_risk_gate)s, %(max_position_pct)s,
-                TRUE, 'stopped'
+                %(rsi_ceiling)s, %(crypto_universe)s, %(stock_universe)s, %(skip_risk_gate)s,
+                %(max_position_pct)s, TRUE, 'stopped'
             )
             """,
             body.model_dump(),
