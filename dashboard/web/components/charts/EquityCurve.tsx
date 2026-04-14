@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useEffect } from "react";
 import {
   LineChart,
   Line,
@@ -257,26 +257,29 @@ function CustomTooltip({
 function BotStat({
   label,
   returnPct,
+  equity,
   color,
 }: {
   label: string;
   returnPct: number;
+  equity: number;
   color: string;
 }) {
   const isPos = returnPct >= 0;
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex items-center gap-2 whitespace-nowrap">
       <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: color }} />
-      <div>
-        <p className="text-xs text-text-muted uppercase tracking-wider">{label}</p>
-        <span
-          className={`font-mono-nums text-sm font-semibold ${
-            isPos ? "text-profit-green" : "text-loss-red"
-          }`}
-        >
-          {formatPct(returnPct)}
-        </span>
-      </div>
+      <span className="text-xs text-text-secondary">{label}</span>
+      {equity > 0 && (
+        <span className="font-mono-nums text-xs text-text-muted">{formatPrice(equity)}</span>
+      )}
+      <span
+        className={`font-mono-nums text-xs font-semibold ${
+          isPos ? "text-profit-green" : "text-loss-red"
+        }`}
+      >
+        {formatPct(returnPct)}
+      </span>
     </div>
   );
 }
@@ -326,6 +329,23 @@ export default function EquityCurve({ series, weeks, onWeeksChange }: EquityCurv
   );
   const hasData = data.length > 1;
 
+  // Cap slider to the actual span of available data
+  const availableWeeks = useMemo(() => {
+    if (data.length < 2) return 0;
+    const ms =
+      new Date(data[data.length - 1].timestamp).getTime() -
+      new Date(data[0].timestamp).getTime();
+    return Math.max(1, Math.round(ms / (7 * 86400000)));
+  }, [data]);
+
+  useEffect(() => {
+    if (availableWeeks > 0 && weeks > availableWeeks) {
+      onWeeksChange(availableWeeks);
+    }
+  }, [availableWeeks, weeks, onWeeksChange]);
+
+  const sliderMax = availableWeeks > 0 ? availableWeeks : 52;
+
   const tickFormatter = useMemo(() => getTickFormatter(weeks), [weeks]);
   const ticks = useMemo(() => computeTicks(data, weeks), [data, weeks]);
   // Hourly fallback: thin to ~7 ticks when computeTicks returns undefined
@@ -333,16 +353,16 @@ export default function EquityCurve({ series, weeks, onWeeksChange }: EquityCurv
 
   return (
     <div className="rounded-lg border border-border-primary bg-bg-card p-4">
-      {/* Header: title + week slider + bot stats */}
-      <div className="flex flex-wrap items-start justify-between gap-4 mb-5">
-        <div className="flex items-center gap-3 self-center">
-          <h3 className="text-sm font-medium text-text-secondary">Equity Curve</h3>
+      {/* Header: title + week slider + bot stats (compact inline) */}
+      <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 mb-5">
+        <div className="flex items-center gap-3">
+          <h3 className="text-sm font-medium text-text-secondary whitespace-nowrap">Equity Curve</h3>
           <div className="flex items-center gap-2" role="group" aria-label="Select time range">
             <input
               type="range"
               min={1}
-              max={52}
-              value={weeks}
+              max={sliderMax}
+              value={Math.min(weeks, sliderMax)}
               onChange={(e) => onWeeksChange(Number(e.target.value))}
               className="w-28 cursor-pointer"
               style={{ accentColor: "#60a5fa" }}
@@ -353,13 +373,14 @@ export default function EquityCurve({ series, weeks, onWeeksChange }: EquityCurv
             </span>
           </div>
         </div>
-        <div className="flex flex-wrap gap-6">
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
           {filteredSeries.map((s, i) => {
             const bot = bots.find((b) => b.bot_id === s.bot_id);
             const label = bot?.label ?? s.bot_id;
             const color = BOT_COLORS[i % BOT_COLORS.length];
             const lastPct = s.points.at(-1)?.return_pct ?? 0;
-            return <BotStat key={s.bot_id} label={label} returnPct={lastPct} color={color} />;
+            const lastEquity = s.points.at(-1)?.equity ?? 0;
+            return <BotStat key={s.bot_id} label={label} returnPct={lastPct} equity={lastEquity} color={color} />;
           })}
         </div>
       </div>
