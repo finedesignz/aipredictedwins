@@ -173,6 +173,7 @@ function mergeSeries(
     for (const p of s.points) {
       const existing = map.get(p.timestamp) ?? { timestamp: p.timestamp };
       existing[`bot_${s.bot_id}_pct`] = p.return_pct;
+      existing[`bot_${s.bot_id}_equity`] = p.equity;
       map.set(p.timestamp, existing);
     }
   }
@@ -226,7 +227,14 @@ function CustomTooltip({
       {payload.map((item) => {
         const isSpy = item.dataKey === "spy_pct";
         const isBtc = item.dataKey === "btc_pct";
-        const price = isSpy ? item.payload.spy_price : isBtc ? item.payload.btc_price : undefined;
+        const isBot = item.dataKey.startsWith("bot_") && item.dataKey.endsWith("_pct");
+        const price = isSpy
+          ? item.payload.spy_price
+          : isBtc
+          ? item.payload.btc_price
+          : isBot
+          ? (item.payload[item.dataKey.replace("_pct", "_equity")] as number | undefined)
+          : undefined;
         const pctColor = item.value >= 0 ? "text-profit-green" : "text-loss-red";
         return (
           <div key={item.name} className="flex items-center justify-between gap-4">
