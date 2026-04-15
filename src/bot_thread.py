@@ -30,6 +30,13 @@ from src.alpaca_evaluator import MEME_CRYPTO
 from src.pipeline_state import PipelineState
 from src import db as _db
 
+try:
+    from src.trade_memory import TradeMemory
+    from src.learning_loop import LearningLoop
+    _HAS_LEARNING = True
+except ImportError:
+    _HAS_LEARNING = False
+
 log = logging.getLogger(__name__)
 
 
@@ -145,13 +152,26 @@ class BotThread(threading.Thread):
         exit_advisor = ExitAdvisor()
         risk_gate = RiskGate(logger=logger)
 
+        # -- Build learning components -----------------------------------------
+        memory = None
+        learning_loop = None
+        if _HAS_LEARNING:
+            try:
+                memory = TradeMemory(bot_id=bot_id)
+                learning_loop = LearningLoop(memory=memory, logger=logger)
+                log.info("[bot:%s] Learning loop initialised", bot_id)
+            except Exception as exc:
+                log.warning("[bot:%s] Could not init learning loop: %s", bot_id, exc)
+                memory = None
+                learning_loop = None
+
         # -- Start position monitor --------------------------------------------
         monitor = PositionMonitor(alpaca, logger, exit_advisor)
         monitor.start()
         log.info("[bot:%s] Position monitor started", bot_id)
 
         try:
-            self._scan_loop(cfg, alpaca, logger, risk_gate, alpaca_cfg)
+            self._scan_loop(cfg, alpaca, logger, risk_gate, alpaca_cfg, memory, learning_loop)
         finally:
             # Always shut down the monitor cleanly
             monitor.stop()
@@ -171,6 +191,8 @@ class BotThread(threading.Thread):
         logger: TradeLogger,
         risk_gate: RiskGate,
         alpaca_cfg: Config,
+        memory=None,
+        learning_loop=None,
     ) -> None:
         """Inner scan/sleep loop — re-reads config each cycle."""
         bot_id = initial_cfg.bot_id
@@ -188,7 +210,7 @@ class BotThread(threading.Thread):
             log.info("[bot:%s] Cycle %d starting", bot_id, cycle_count)
 
             try:
-                self._run_cycle(cfg, alpaca, logger, risk_gate, starting_bankroll, cycle_count)
+                self._run_cycle(cfg, alpaca, logger, risk_gate, starting_bankroll, cycle_count, memory, learning_loop)
             except Exception as exc:
                 log.exception("[bot:%s] Cycle %d failed: %s", bot_id, cycle_count, exc)
                 # Don't crash the thread — log and continue after sleep
@@ -204,9 +226,23 @@ class BotThread(threading.Thread):
         risk_gate: RiskGate,
         starting_bankroll: float,
         cycle_count: int,
+        memory=None,
+        learning_loop=None,
     ) -> None:
         """Execute one full scan → filter → risk-gate → size → order cycle."""
         bot_id = cfg.bot_id
+
+        # -- Run learning cycle before scanning --------------------------------
+        if learning_loop is not None:
+            try:
+                summary = learning_loop.run_cycle()
+                if summary["outcomes_updated"] > 0 or summary["lessons_generated"] > 0:
+                    log.info(
+                        "[bot:%s] Learning: %d outcomes synced, %d new lessons",
+                        bot_id, summary["outcomes_updated"], summary["lessons_generated"],
+                    )
+            except Exception as exc:
+                log.warning("[bot:%s] Learning cycle failed: %s", bot_id, exc)
 
         # -- Check account state -----------------------------------------------
         account = alpaca.get_account()
@@ -327,6 +363,31 @@ class BotThread(threading.Thread):
             signal = state.signal
             symbol = signal.symbol
             price = side_data[symbol]["price"]
+            change_pct = side_data[symbol]["change_pct"]
+            volume_24h = side_data[symbol]["volume_24h"]
+            signal_type = f"technical_confluence_{signal.confluence_score}"
+
+            # -- Memory advisory (layer 3a): consult trade history --------------
+            if memory is not None:
+                try:
+                    advice = memory.get_advice(
+                        symbol=symbol,
+                        signal_type=signal_type,
+                        sentiment=signal.confluence_score / 4.0,
+                        price_change=change_pct,
+                    )
+                    if not advice["should_trade"]:
+                        log.info(
+                            "[bot:%s] MEMORY SKIP %s — %s (WR=%.0f%% over %d trades)",
+                            bot_id, symbol, advice["reasoning"],
+                            (advice.get("win_rate_for_pattern") or 0) * 100,
+                            advice.get("sample_size", 0),
+                        )
+                        continue
+                    if advice.get("sample_size", 0) >= 2:
+                        log.info("[bot:%s] Memory: %s", bot_id, advice["reasoning"])
+                except Exception as exc:
+                    log.warning("[bot:%s] Memory advisory failed for %s: %s", bot_id, symbol, exc)
 
             sizing = _kelly_technical(
                 confluence=signal.confluence_score,
@@ -341,9 +402,10 @@ class BotThread(threading.Thread):
                 continue
 
             log.info(
-                "[bot:%s] Placing BUY %.4f %s @ $%.2f ($%.2f, kelly=%.2f%%, confluence=%d/5%s)",
+                "[bot:%s] Placing BUY %.4f %s @ $%.2f ($%.2f, kelly=%.2f%%, confluence=%d/4 regime=%s%s)",
                 bot_id, sizing["shares"], symbol, price, sizing["dollar_amount"],
                 sizing["adjusted_pct"] * 100, signal.confluence_score,
+                signal.market_regime,
                 " CAPPED" if sizing["capped"] else "",
             )
 
@@ -354,24 +416,51 @@ class BotThread(threading.Thread):
                     side="buy",
                 )
 
-                logger.log_alpaca_trade({
+                trade_id = logger.log_alpaca_trade({
                     "symbol": symbol,
                     "asset_class": "crypto",
                     "side": "buy",
                     "qty": sizing["shares"],
                     "entry_price": price,
-                    "mirofish_prob": signal.confluence_score / 5.0,
-                    "market_sentiment": f"technical_confluence_{signal.confluence_score}",
+                    "mirofish_prob": signal.confluence_score / 4.0,
+                    "market_sentiment": signal_type,
                     "target_price": price * (1 + SOFT_TAKE_PROFIT_PCT),
                     "stop_loss": price * (1 + HARD_STOP_PCT),
                     "simulation_id": f"tech_{symbol}_{int(time.time())}",
                     "notes": (
                         f"EMA={'bull' if signal.ema_bullish else 'bear'} "
                         f"ADX={signal.adx_value:.0f} RSI={signal.rsi_value:.0f} "
+                        f"regime={signal.market_regime} "
                         f"VolSpike={signal.volume_spike} VWAP={'bull' if signal.vwap_bullish else 'bear'} "
                         f"bot={bot_id}"
                     ),
                 })
+
+                # -- Record trade context for learning loop ------------------
+                if memory is not None and trade_id:
+                    try:
+                        memory.record_trade_context({
+                            "trade_id": trade_id,
+                            "symbol": symbol,
+                            "signal_type": signal_type,
+                            "sentiment": signal.confluence_score / 4.0,
+                            "confidence": signal.confluence_score / 4.0,
+                            "price_at_entry": price,
+                            "price_change_24h": change_pct,
+                            "volume_24h": volume_24h,
+                            "trajectory": "up" if signal.ema_bullish else "mixed",
+                            "bull_arguments": [
+                                f"EMA_bull={signal.ema_bullish}",
+                                f"ADX={signal.adx_value:.1f}",
+                                f"regime={signal.market_regime}",
+                            ],
+                            "bear_arguments": [
+                                f"RSI={signal.rsi_value:.1f}",
+                                f"VWAP_bull={signal.vwap_bullish}",
+                            ],
+                        })
+                    except Exception as exc:
+                        log.warning("[bot:%s] Failed to record trade context: %s", bot_id, exc)
 
                 cycle_exposure += sizing["dollar_amount"]
                 bankroll -= sizing["dollar_amount"]

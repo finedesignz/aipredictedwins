@@ -56,7 +56,7 @@ class OpenPosition(BaseModel):
     quantity: float        # mapped from qty
     unrealized_pnl: float = 0.0
     unrealized_pnl_percent: float = 0.0
-    confluence_score: float  # mapped from mirofish_prob * 5
+    confluence_score: float  # mapped from mirofish_prob * 4
     trailing_stop: Optional[float] = None
     opened_at: str         # mapped from timestamp
     bot: Optional[str] = None  # "Agent A" or "Agent B"

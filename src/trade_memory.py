@@ -27,13 +27,14 @@ class TradeMemory:
     trade_context, strategy_scores (all with bot_id column).
     """
 
-    def __init__(self, db_path: str = "data/trades.db"):
-        # db_path is ignored — kept for backward compat with call sites
-        self.bot_id = os.environ.get("BOT_ID", "")
+    def __init__(self, bot_id: str = "", db_path: str = "data/trades.db"):
+        # db_path is ignored — kept for backward compat with call sites.
+        # bot_id kwarg takes priority over BOT_ID env var, matching TradeLogger pattern.
+        self.bot_id = bot_id or os.environ.get("BOT_ID", "")
         if self.bot_id not in ("A", "B"):
             raise ValueError(
-                f"BOT_ID env var must be 'A' or 'B', got {self.bot_id!r}. "
-                "Set BOT_ID=A or BOT_ID=B before starting the bot."
+                f"BOT_ID must be 'A' or 'B', got {self.bot_id!r}. "
+                "Pass bot_id= to __init__ or set the BOT_ID env var."
             )
 
     # ------------------------------------------------------------------

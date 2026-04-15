@@ -33,8 +33,9 @@ class Signal:
     rsi_signal: str          # "oversold", "overbought", or "neutral"
     volume_spike: bool
     vwap_bullish: bool
-    confluence_score: int    # 0-5: how many indicators are bullish
+    confluence_score: int    # 0-4: how many indicators are bullish
     details: dict            # raw indicator values for logging
+    market_regime: str = "ranging"  # "trending", "ranging", or "mixed"
 
 
 # ---------------------------------------------------------------------------
@@ -161,6 +162,23 @@ def _volume_spike(volumes: list[float], lookback: int = 20, threshold: float = 1
     return volumes[-1] > avg_vol * threshold
 
 
+def _detect_regime(adx_value: float, plus_di: float, minus_di: float) -> str:
+    """Classify market regime based on ADX strength and directional spread.
+
+    Returns:
+        "trending"  — ADX > 25 and +DI leads -DI by >= 8 points (strong uptrend)
+        "ranging"   — ADX < 20 (weak/no trend, mean-reversion favoured)
+        "mixed"     — ADX 20-25 (transition, use relaxed pullback logic)
+    """
+    di_spread = plus_di - minus_di
+    if adx_value > 25 and di_spread >= 8:
+        return "trending"
+    elif adx_value < 20:
+        return "ranging"
+    else:
+        return "mixed"
+
+
 def _vwap_bullish(closes: list[float], volumes: list[float], vwaps: list[float]) -> bool:
     """True if the latest close is above the latest VWAP.
 
@@ -237,6 +255,9 @@ def analyze(symbol: str, bars: list[dict]) -> Signal | None:
     # ADX trending: must be strong (>20) AND directionally bullish (+DI > -DI)
     adx_trending = adx_value > 20 and plus_di > minus_di
 
+    # --- Market Regime ---
+    regime = _detect_regime(adx_value, plus_di, minus_di)
+
     # --- RSI (14-period) ---
     rsi_value = _rsi(closes, 14)
     if rsi_value is None:
@@ -265,29 +286,50 @@ def analyze(symbol: str, bars: list[dict]) -> Signal | None:
     # --- VWAP ---
     vwap_bull = _vwap_bullish(closes, volumes, vwaps)
 
-    # --- Confluence Score (max 4) ---
-    # QC finding (30 trades): buying overbought breakouts with volume spikes lost 96% of the time.
-    # Winners had RSI 50-64, VolSpike=False, price below VWAP (mean-reversion pullback setup).
-    # New scoring selects pullback entries into a still-bullish trend.
+    # --- Confluence Score (max 4, regime-aware) ---
+    # Scoring adapts to market regime so the bot captures BOTH pullbacks (ranging)
+    # and momentum breakouts (trending) rather than always waiting for a dip.
+    #
+    # TRENDING regime (ADX > 25, +DI leads by ≥8): momentum entry
+    #   — price above VWAP confirms the trend; RSI 45-65 means "in gear, not overextended"
+    # RANGING regime (ADX < 20): mean-reversion pullback entry (original QC logic)
+    #   — RSI < 50 = dip; below VWAP = good entry vs fair value
+    # MIXED (ADX 20-25): relaxed pullback; RSI < 55 threshold
     score = 0
-    # 1. EMA bullish crossover — trend direction
-    if ema_bullish:
-        score += 1
-    # 2. ADX confirms real trend strength (+DI > -DI means upward momentum)
-    if adx_trending:
-        score += 1
-    # 3. RSI < 50 — price showing relative weakness/dip (buy the pullback, not the top)
-    #    Previous: RSI neutral (35-70) + EMA_bullish also counted → was letting in RSI 65-70
-    #    QC: avg losing RSI was 70.1; all wins had RSI ≤ 64
-    if rsi_value < 50:
-        score += 1
-    # 4. Price below VWAP = mean-reversion pullback entry (good risk/reward)
-    #    Previous: scored for price ABOVE VWAP → systematically caught overextended entries
-    #    QC: all 3 wins had VWAP=bear; most losses had VWAP=bull
-    if not vwap_bull:
-        score += 1
-    # Volume spike intentionally removed from scoring:
-    #    QC: VolSpike=True trades went 0-for-17 (exhaustion/distribution, not accumulation)
+    if regime == "trending":
+        # 1. EMA crossover confirms uptrend direction
+        if ema_bullish:
+            score += 1
+        # 2. ADX strong AND +DI dominant — real momentum, not noise
+        if adx_trending:
+            score += 1
+        # 3. RSI 45-65 — price has momentum but isn't overextended
+        if 45 <= rsi_value <= 65:
+            score += 1
+        # 4. Price above VWAP — institutional buyers confirm the move
+        if vwap_bull:
+            score += 1
+        log.debug("REGIME=trending for %s: score=%d ADX=%.1f DI_spread=%.1f RSI=%.1f",
+                  symbol, score, adx_value, plus_di - minus_di, rsi_value)
+    else:
+        # Ranging or mixed: mean-reversion pullback logic (QC-validated)
+        rsi_threshold = 50 if regime == "ranging" else 55
+        # 1. EMA bullish crossover — trend direction
+        if ema_bullish:
+            score += 1
+        # 2. ADX confirms real trend strength (+DI > -DI means upward momentum)
+        if adx_trending:
+            score += 1
+        # 3. RSI below threshold — price showing relative weakness/dip
+        #    QC: avg losing RSI was 70.1; all wins had RSI ≤ 64
+        if rsi_value < rsi_threshold:
+            score += 1
+        # 4. Price below VWAP = mean-reversion pullback entry (good risk/reward)
+        #    QC: all 3 wins had VWAP=bear; most losses had VWAP=bull
+        if not vwap_bull:
+            score += 1
+        # Volume spike intentionally excluded:
+        #    QC: VolSpike=True trades went 0-for-17 (exhaustion, not accumulation)
 
     details = {
         "ema9": round(ema9_latest, 6),
@@ -297,6 +339,7 @@ def analyze(symbol: str, bars: list[dict]) -> Signal | None:
         "minus_di": round(minus_di, 2),
         "rsi": round(rsi_value, 2),
         "vwap_bull": vwap_bull,
+        "market_regime": regime,
         "volume_spike_ratio": round(
             volumes[-1] / (sum(volumes[-21:-1]) / 20) if len(volumes) >= 21 and sum(volumes[-21:-1]) > 0 else 0, 2
         ),
@@ -317,6 +360,7 @@ def analyze(symbol: str, bars: list[dict]) -> Signal | None:
         vwap_bullish=vwap_bull,
         confluence_score=score,
         details=details,
+        market_regime=regime,
     )
 
 

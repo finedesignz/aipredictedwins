@@ -74,7 +74,7 @@ def _fetch_trades(
     for r in rows:
         r = dict(r)
         prob = r.get("mirofish_prob") or 0.0
-        r["confluence_score"] = round(prob * 5, 1)
+        r["confluence_score"] = round(prob * 4, 1)
         r["quantity"] = r.get("qty") or 0.0
         entry = r.get("entry_price")
         exit_ = r.get("exit_price")

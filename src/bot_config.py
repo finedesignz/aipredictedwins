@@ -19,7 +19,7 @@ class BotConfig:
     min_confluence: int = 3
     hard_stop_pct: float = -0.08
     soft_stop_pct: float = -0.05
-    rsi_ceiling: float = 72.0
+    rsi_ceiling: float = 65.0
     crypto_universe: str = "BTC/USD,ETH/USD,SOL/USD,XRP/USD,ADA/USD,AVAX/USD,DOT/USD,LINK/USD"
     skip_risk_gate: bool = False
     max_position_pct: float = 0.05
@@ -36,7 +36,7 @@ class BotConfig:
             min_confluence=int(row["min_confluence"] if row.get("min_confluence") is not None else 3),
             hard_stop_pct=float(row["hard_stop_pct"] if row.get("hard_stop_pct") is not None else -0.08),
             soft_stop_pct=float(row["soft_stop_pct"] if row.get("soft_stop_pct") is not None else -0.05),
-            rsi_ceiling=float(row["rsi_ceiling"] if row.get("rsi_ceiling") is not None else 72.0),
+            rsi_ceiling=float(row["rsi_ceiling"] if row.get("rsi_ceiling") is not None else 65.0),
             crypto_universe=row.get("crypto_universe") or "BTC/USD,ETH/USD,SOL/USD,XRP/USD,ADA/USD,AVAX/USD,DOT/USD,LINK/USD",
             skip_risk_gate=bool(row.get("skip_risk_gate") or False),
             max_position_pct=float(row["max_position_pct"] if row.get("max_position_pct") is not None else 0.05),

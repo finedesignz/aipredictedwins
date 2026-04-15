@@ -63,7 +63,7 @@ export default function PositionCard({ position }: PositionCardProps) {
         <div>
           <p className="text-xs text-text-muted">Confluence</p>
           <p className="font-mono-nums text-text-secondary">
-            {position.confluence_score}/5
+            {position.confluence_score}/4
           </p>
         </div>
       </div>

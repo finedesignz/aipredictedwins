@@ -85,14 +85,14 @@ const columns = [
     cell: (info) => {
       const score = info.getValue();
       const color =
-        score >= 4
+        score >= 3
           ? "text-profit-green"
-          : score >= 3
+          : score >= 2
           ? "text-warning-amber"
           : "text-text-muted";
       return (
         <span className={`font-mono-nums text-sm font-bold ${color}`}>
-          {score}/5
+          {score}/4
         </span>
       );
     },

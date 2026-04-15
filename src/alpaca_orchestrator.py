@@ -792,7 +792,7 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                         "side": "buy",
                         "qty": sizing["shares"],
                         "entry_price": price,
-                        "mirofish_prob": signal.confluence_score / 5.0,
+                        "mirofish_prob": signal.confluence_score / 4.0,
                         "market_sentiment": f"technical_confluence_{signal.confluence_score}",
                         "target_price": price * (1 + 0.08),  # soft take-profit at 8%
                         "stop_loss": price * (1 + HARD_STOP_PCT),
@@ -800,6 +800,7 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                         "notes": (
                             f"EMA={'bull' if signal.ema_bullish else 'bear'} "
                             f"ADX={signal.adx_value:.0f} RSI={signal.rsi_value:.0f} "
+                            f"regime={signal.market_regime} "
                             f"VolSpike={signal.volume_spike} VWAP={'bull' if signal.vwap_bullish else 'bear'}"
                         ),
                     })
@@ -820,11 +821,12 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                             memory.record_trade_context({
                                 "symbol": symbol,
                                 "signal_type": f"technical_confluence_{signal.confluence_score}",
-                                "sentiment": signal.confluence_score / 5.0,
-                                "confidence": "strong" if signal.confluence_score >= 4 else "moderate",
+                                "sentiment": signal.confluence_score / 4.0,
+                                "confidence": signal.confluence_score / 4.0,
                                 "price_at_entry": price,
                                 "price_change_24h": side_data[symbol]["change_pct"],
                                 "volume_24h": side_data[symbol]["volume_24h"],
+                                "trajectory": "up" if signal.ema_bullish else "mixed",
                             })
                         except Exception:
                             pass
