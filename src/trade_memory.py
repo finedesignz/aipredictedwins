@@ -146,9 +146,9 @@ class TradeMemory:
 
             # Tier 2: same asset class + signal match
             if is_crypto:
-                class_filter = "tc.symbol LIKE '%/%'"
+                class_filter = "tc.symbol LIKE '%%/%%'"
             else:
-                class_filter = "tc.symbol NOT LIKE '%/%'"
+                class_filter = "tc.symbol NOT LIKE '%%/%%'"
 
             rows = conn.execute(
                 f"""
