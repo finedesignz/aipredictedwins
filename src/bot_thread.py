@@ -15,8 +15,8 @@ from src.bot_config import BotConfig
 from src.config import Config
 from src.alpaca_client import AlpacaClient
 from src.trade_logger import TradeLogger
-from src.risk_gate import RiskGate
-from src.exit_advisor import ExitAdvisor, HARD_STOP_PCT, SOFT_TAKE_PROFIT_PCT
+from src.rules_gate import RulesGate
+from src.exit_advisor import ExitAdvisor, HARD_STOP_PCT, SOFT_STOP_PCT, SOFT_TAKE_PROFIT_PCT
 from src.technical_signals import scan_assets
 from src.alpaca_orchestrator import (
     PositionMonitor,
@@ -26,7 +26,7 @@ from src.alpaca_orchestrator import (
     DRAWDOWN_STOP_PCT,
     CYCLE_SLEEP_SECONDS,
 )
-from src.alpaca_evaluator import MEME_CRYPTO
+from src.alpaca_evaluator import MEME_CRYPTO, get_dynamic_crypto_universe
 from src.pipeline_state import PipelineState
 from src import db as _db
 
@@ -150,7 +150,7 @@ class BotThread(threading.Thread):
         alpaca = AlpacaClient(alpaca_cfg)
         logger = TradeLogger(bot_id=bot_id)
         exit_advisor = ExitAdvisor()
-        risk_gate = RiskGate(logger=logger)
+        risk_gate = RulesGate()
 
         # -- Build learning components -----------------------------------------
         memory = None
@@ -165,13 +165,22 @@ class BotThread(threading.Thread):
                 memory = None
                 learning_loop = None
 
+        # -- Resolve asset universe (dynamic or static fallback) ---------------
+        top_n = getattr(cfg, "dynamic_universe_size", 20)
+        try:
+            universe = get_dynamic_crypto_universe(alpaca, top_n=top_n)
+            log.info("[bot:%s] Dynamic universe: %d symbols", bot_id, len(universe))
+        except Exception as exc:
+            log.warning("[bot:%s] Dynamic universe fetch failed (%s), using static list", bot_id, exc)
+            universe = list(cfg.symbols)
+
         # -- Start position monitor --------------------------------------------
         monitor = PositionMonitor(alpaca, logger, exit_advisor)
         monitor.start()
         log.info("[bot:%s] Position monitor started", bot_id)
 
         try:
-            self._scan_loop(cfg, alpaca, logger, risk_gate, alpaca_cfg, memory, learning_loop)
+            self._scan_loop(cfg, alpaca, logger, risk_gate, alpaca_cfg, memory, learning_loop, universe)
         finally:
             # Always shut down the monitor cleanly
             monitor.stop()
@@ -189,10 +198,11 @@ class BotThread(threading.Thread):
         initial_cfg: BotConfig,
         alpaca: AlpacaClient,
         logger: TradeLogger,
-        risk_gate: RiskGate,
+        risk_gate: RulesGate,
         alpaca_cfg: Config,
         memory=None,
         learning_loop=None,
+        universe: list | None = None,
     ) -> None:
         """Inner scan/sleep loop — re-reads config each cycle."""
         bot_id = initial_cfg.bot_id
@@ -210,7 +220,7 @@ class BotThread(threading.Thread):
             log.info("[bot:%s] Cycle %d starting", bot_id, cycle_count)
 
             try:
-                self._run_cycle(cfg, alpaca, logger, risk_gate, starting_bankroll, cycle_count, memory, learning_loop)
+                self._run_cycle(cfg, alpaca, logger, risk_gate, starting_bankroll, cycle_count, memory, learning_loop, universe or list(cfg.symbols))
             except Exception as exc:
                 log.exception("[bot:%s] Cycle %d failed: %s", bot_id, cycle_count, exc)
                 # Don't crash the thread — log and continue after sleep
@@ -223,11 +233,12 @@ class BotThread(threading.Thread):
         cfg: BotConfig,
         alpaca: AlpacaClient,
         logger: TradeLogger,
-        risk_gate: RiskGate,
+        risk_gate: RulesGate,
         starting_bankroll: float,
         cycle_count: int,
         memory=None,
         learning_loop=None,
+        universe: list | None = None,
     ) -> None:
         """Execute one full scan → filter → risk-gate → size → order cycle."""
         bot_id = cfg.bot_id
@@ -267,9 +278,10 @@ class BotThread(threading.Thread):
             return
 
         # -- Layer 1: Technical scan -------------------------------------------
-        log.info("[bot:%s] Layer 1: technical scan (%d symbols)", bot_id, len(cfg.symbols))
+        scan_universe = universe or list(cfg.symbols)
+        log.info("[bot:%s] Layer 1: technical scan (%d symbols)", bot_id, len(scan_universe))
         try:
-            signals = scan_assets(alpaca, cfg.symbols, timeframe="1Hour", bar_count=50)
+            signals = scan_assets(alpaca, scan_universe, timeframe="1Hour", bar_count=50, fetch_4h=True)
         except Exception as exc:
             log.error("[bot:%s] Technical scan failed: %s", bot_id, exc)
             return
@@ -280,24 +292,39 @@ class BotThread(threading.Thread):
         except Exception as exc:
             log.warning("[bot:%s] Failed to persist scan signals: %s", bot_id, exc)
 
-        # Filter: min confluence, dedup open positions, exclude meme coins
-        all_candidates = [
+        short_enabled = getattr(cfg, "short_enabled", True)
+
+        # Long candidates: bullish confluence, not bearish on 4H, RSI not overextended
+        long_candidates = _select_cycle_candidates([
             s for s in signals
             if s.confluence_score >= cfg.min_confluence
             and s.symbol not in open_symbols
             and s.symbol not in MEME_CRYPTO
             and s.rsi_value < cfg.rsi_ceiling
-        ]
+            and getattr(s, "trend_4h", "unknown") != "bearish"
+        ])
 
-        candidates = _select_cycle_candidates(all_candidates)
+        # Short candidates: bearish confluence, not bullish on 4H
+        short_candidates = _select_cycle_candidates([
+            s for s in signals
+            if short_enabled
+            and getattr(s, "short_score", 0) >= cfg.min_confluence
+            and s.symbol not in open_symbols
+            and s.symbol not in MEME_CRYPTO
+            and getattr(s, "trend_4h", "unknown") != "bullish"
+        ]) if short_enabled else []
+
+        candidates = long_candidates
         log.info(
-            "[bot:%s] %d/%d candidates after filtering (confluence>=%d, rsi<%.0f)",
-            bot_id, len(candidates), len(signals), cfg.min_confluence, cfg.rsi_ceiling,
+            "[bot:%s] %d long / %d short candidates (confluence>=%d, rsi<%.0f, 4H filtered)",
+            bot_id, len(long_candidates), len(short_candidates), cfg.min_confluence, cfg.rsi_ceiling,
         )
 
-        if not candidates:
+        if not candidates and not short_candidates:
             log.info("[bot:%s] No candidates this cycle", bot_id)
             return
+
+        # -- Layer 2+3: Risk gate → size → order (LONG) -----------------------
 
         # -- Layer 2: Risk gate ------------------------------------------------
         approved_states: list[PipelineState] = []
@@ -474,3 +501,109 @@ class BotThread(threading.Thread):
 
             except Exception as exc:
                 log.exception("[bot:%s] Order placement failed for %s: %s", bot_id, symbol, exc)
+
+        # -- Layer 2+3: Risk gate → size → order (SHORT) ----------------------
+        short_approved: list[PipelineState] = []
+        short_side_data: dict[str, dict] = {}
+
+        for signal in short_candidates:
+            symbol = signal.symbol
+            try:
+                price = alpaca.get_latest_price(symbol)
+                bars = alpaca.get_bars(symbol, timeframe="1Hour", limit=24)
+
+                if not bars:
+                    log.warning("[bot:%s] Skipping short %s — no bar data", bot_id, symbol)
+                    continue
+
+                change_pct = (
+                    ((price - bars[0]["open"]) / bars[0]["open"] * 100)
+                    if len(bars) >= 2 and bars[0]["open"] > 0 else 0.0
+                )
+                volume_24h = sum(b["volume"] for b in bars) if bars else 0
+
+                if cfg.skip_risk_gate:
+                    short_approved.append(PipelineState(symbol=symbol, bars=tuple(bars), signal=signal))
+                    short_side_data[symbol] = {"price": price, "change_pct": change_pct, "volume_24h": volume_24h}
+                    continue
+
+                verdict = risk_gate.evaluate(
+                    symbol=symbol,
+                    price=price,
+                    change_pct=change_pct,
+                    volume=volume_24h,
+                    confluence=getattr(signal, "short_score", 0),
+                    bars=bars,
+                )
+
+                if verdict.decision == "PROCEED":
+                    log.info("[bot:%s] SHORT PROCEED %s — %s", bot_id, symbol, verdict.reasoning[:80])
+                    short_approved.append(PipelineState(symbol=symbol, bars=tuple(bars), signal=signal))
+                    short_side_data[symbol] = {"price": price, "change_pct": change_pct, "volume_24h": volume_24h}
+                else:
+                    log.info("[bot:%s] SHORT VETO %s — %s", bot_id, symbol, verdict.reasoning[:80])
+
+            except Exception as exc:
+                log.exception("[bot:%s] Short risk gate error for %s: %s", bot_id, symbol, exc)
+
+        for state in short_approved:
+            if equity > 0 and (total_exposure + cycle_exposure) / equity >= MAX_TOTAL_EXPOSURE_PCT:
+                log.info("[bot:%s] Exposure limit reached — skipping short orders", bot_id)
+                break
+
+            signal = state.signal
+            symbol = signal.symbol
+            price = short_side_data[symbol]["price"]
+            short_score = getattr(signal, "short_score", 0)
+            signal_type = f"technical_short_{short_score}"
+
+            sizing = _kelly_technical(
+                confluence=short_score,
+                current_price=price,
+                bankroll=bankroll,
+                kelly_fraction=cfg.kelly_fraction,
+                max_position_pct=cfg.max_position_pct,
+            )
+
+            if sizing["side"] == "none" or sizing["shares"] <= 0 or sizing["dollar_amount"] < 10:
+                log.info("[bot:%s] Skipping short %s — position too small", bot_id, symbol)
+                continue
+
+            log.info(
+                "[bot:%s] Placing SELL (short) %.4f %s @ $%.2f ($%.2f, short_score=%d/4 4H=%s)",
+                bot_id, sizing["shares"], symbol, price, sizing["dollar_amount"],
+                short_score, getattr(signal, "trend_4h", "?"),
+            )
+
+            try:
+                order = alpaca.place_market_order(symbol=symbol, qty=sizing["shares"], side="sell")
+
+                trade_id = logger.log_alpaca_trade({
+                    "symbol": symbol,
+                    "asset_class": "crypto",
+                    "side": "sell",
+                    "qty": sizing["shares"],
+                    "entry_price": price,
+                    "mirofish_prob": short_score / 4.0,
+                    "market_sentiment": signal_type,
+                    "target_price": price * (1 - SOFT_TAKE_PROFIT_PCT),
+                    "stop_loss": price * (1 - SOFT_STOP_PCT),
+                    "simulation_id": f"short_{symbol}_{int(time.time())}",
+                    "notes": (
+                        f"SHORT EMA={'bear' if not signal.ema_bullish else 'bull'} "
+                        f"ADX={signal.adx_value:.0f} RSI={signal.rsi_value:.0f} "
+                        f"trend_4h={getattr(signal, 'trend_4h', '?')} "
+                        f"bot={bot_id}"
+                    ),
+                })
+
+                cycle_exposure += sizing["dollar_amount"]
+                bankroll -= sizing["dollar_amount"]
+
+                log.info(
+                    "[bot:%s] Short order placed: %s — status: %s",
+                    bot_id, order.get("order_id", "N/A"), order.get("status", "submitted"),
+                )
+
+            except Exception as exc:
+                log.exception("[bot:%s] Short order placement failed for %s: %s", bot_id, symbol, exc)
