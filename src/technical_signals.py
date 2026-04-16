@@ -2,14 +2,16 @@
 Technical Signal Engine for crypto swing trading.
 
 Computes proven quantitative indicators from OHLCV bar data and
-produces a confluence score (0-5) for trade decisions.
+produces a confluence score (0-4) for long trade decisions and a
+short_score (0-4) for short trade decisions.
 
 Indicators:
   1. EMA Crossover (9/21) — trend direction
   2. ADX (14-period) — trend strength
   3. RSI (14-period) — overbought/oversold
-  4. Volume Spike — institutional interest
-  5. VWAP — intraday value reference
+  4. VWAP — intraday value reference
+
+Optional 4H trend filter: EMA9/21 on 4-hour bars sets trend_4h field.
 
 No LLM calls. Pure math on price data.
 """
@@ -33,9 +35,11 @@ class Signal:
     rsi_signal: str          # "oversold", "overbought", or "neutral"
     volume_spike: bool
     vwap_bullish: bool
-    confluence_score: int    # 0-4: how many indicators are bullish
+    confluence_score: int    # 0-4: how many long indicators are bullish
     details: dict            # raw indicator values for logging
     market_regime: str = "ranging"  # "trending", "ranging", or "mixed"
+    short_score: int = 0     # 0-4: how many short indicators are bearish
+    trend_4h: str = "unknown"  # "bullish", "bearish", "neutral", or "unknown"
 
 
 # ---------------------------------------------------------------------------
@@ -204,7 +208,7 @@ def _vwap_bullish(closes: list[float], volumes: list[float], vwaps: list[float])
 # Public API
 # ---------------------------------------------------------------------------
 
-def analyze(symbol: str, bars: list[dict]) -> Signal | None:
+def analyze(symbol: str, bars: list[dict], bars_4h: list[dict] | None = None) -> Signal | None:
     """Run all technical indicators on OHLCV bars and return a Signal.
 
     Parameters
@@ -215,10 +219,13 @@ def analyze(symbol: str, bars: list[dict]) -> Signal | None:
         OHLCV bars from AlpacaClient.get_bars(). Each bar must have
         keys: open, high, low, close, volume, vwap (optional).
         Should be at least 50 bars for reliable indicators.
+    bars_4h : list[dict] or None
+        Optional 4-hour bars used to compute a higher-timeframe trend filter.
+        Requires at least 21 bars. If None or insufficient, trend_4h="unknown".
 
     Returns
     -------
-    Signal or None if insufficient data.
+    Signal or None if insufficient data or both long and short scores are 0.
     """
     if len(bars) < 30:
         log.warning("Insufficient bars for %s (%d < 30 needed)", symbol, len(bars))
@@ -269,16 +276,16 @@ def analyze(symbol: str, bars: list[dict]) -> Signal | None:
     else:
         rsi_signal = "neutral"
 
-    # RSI hard block: reject overbought entries above ceiling
+    # RSI ceiling: used to gate the long score only (not a hard block/return None)
     # Lowered default from 72 to 65 — QC showed avg losing RSI was 70.1
     import os as _os
     RSI_ENTRY_CEILING = float(_os.environ.get("RSI_ENTRY_CEILING", "65.0"))
-    if rsi_value > RSI_ENTRY_CEILING:
+    rsi_above_ceiling = rsi_value > RSI_ENTRY_CEILING
+    if rsi_above_ceiling:
         log.debug(
-            "BLOCKED %s: RSI=%.1f > %.0f ceiling (overbought entry rejected)",
+            "RSI ceiling hit for %s: RSI=%.1f > %.0f (long RSI point suppressed; short scoring continues)",
             symbol, rsi_value, RSI_ENTRY_CEILING,
         )
-        return None
 
     # --- Volume Spike ---
     vol_spike = _volume_spike(volumes, lookback=20, threshold=1.5)
@@ -304,7 +311,8 @@ def analyze(symbol: str, bars: list[dict]) -> Signal | None:
         if adx_trending:
             score += 1
         # 3. RSI 45-65 — price has momentum but isn't overextended
-        if 45 <= rsi_value <= 65:
+        #    Suppressed if RSI > RSI_ENTRY_CEILING (overbought long blocked)
+        if 45 <= rsi_value <= 65 and not rsi_above_ceiling:
             score += 1
         # 4. Price above VWAP — institutional buyers confirm the move
         if vwap_bull:
@@ -322,7 +330,8 @@ def analyze(symbol: str, bars: list[dict]) -> Signal | None:
             score += 1
         # 3. RSI below threshold — price showing relative weakness/dip
         #    QC: avg losing RSI was 70.1; all wins had RSI ≤ 64
-        if rsi_value < rsi_threshold:
+        #    Suppressed if RSI > RSI_ENTRY_CEILING (overbought long blocked)
+        if rsi_value < rsi_threshold and not rsi_above_ceiling:
             score += 1
         # 4. Price below VWAP = mean-reversion pullback entry (good risk/reward)
         #    QC: all 3 wins had VWAP=bear; most losses had VWAP=bull
@@ -330,6 +339,41 @@ def analyze(symbol: str, bars: list[dict]) -> Signal | None:
             score += 1
         # Volume spike intentionally excluded:
         #    QC: VolSpike=True trades went 0-for-17 (exhaustion, not accumulation)
+
+    # --- Short Score (0-4, unconditional — not regime-gated) ---
+    # Each condition below signals a bearish setup worth shorting.
+    short_score = 0
+    # 1. EMA bearish crossover — downtrend direction
+    if not ema_bullish:
+        short_score += 1
+    # 2. ADX strong AND -DI leads +DI — real downward momentum
+    if adx_value > 20 and minus_di > plus_di:
+        short_score += 1
+    # 3. RSI overbought (>70) — extended, due for reversal
+    if rsi_value > 70:
+        short_score += 1
+    # 4. Price above VWAP — extended above fair value, good short entry
+    if vwap_bull:
+        short_score += 1
+
+    # --- 4H Trend Filter ---
+    trend_4h = "unknown"
+    if bars_4h is not None and len(bars_4h) >= 21:
+        closes_4h = [b["close"] for b in bars_4h]
+        ema9_4h = _ema(closes_4h, 9)
+        ema21_4h = _ema(closes_4h, 21)
+        if ema9_4h and ema21_4h:
+            if ema9_4h[-1] > ema21_4h[-1]:
+                trend_4h = "bullish"
+            elif ema9_4h[-1] < ema21_4h[-1]:
+                trend_4h = "bearish"
+            else:
+                trend_4h = "neutral"
+
+    # Return None only when the signal is completely neutral in both directions
+    if score == 0 and short_score == 0:
+        log.debug("NO SIGNAL %s: long=0 short=0 — skipping", symbol)
+        return None
 
     details = {
         "ema9": round(ema9_latest, 6),
@@ -345,6 +389,8 @@ def analyze(symbol: str, bars: list[dict]) -> Signal | None:
         ),
         "latest_close": closes[-1],
         "latest_volume": volumes[-1],
+        "short_score": short_score,
+        "trend_4h": trend_4h,
     }
 
     return Signal(
@@ -361,10 +407,18 @@ def analyze(symbol: str, bars: list[dict]) -> Signal | None:
         confluence_score=score,
         details=details,
         market_regime=regime,
+        short_score=short_score,
+        trend_4h=trend_4h,
     )
 
 
-def scan_assets(alpaca_client, symbols: list[str], timeframe: str = "1Hour", bar_count: int = 50) -> list[Signal]:
+def scan_assets(
+    alpaca_client,
+    symbols: list[str],
+    timeframe: str = "1Hour",
+    bar_count: int = 50,
+    fetch_4h: bool = True,
+) -> list[Signal]:
     """Scan multiple assets and return signals sorted by confluence score.
 
     Parameters
@@ -377,11 +431,15 @@ def scan_assets(alpaca_client, symbols: list[str], timeframe: str = "1Hour", bar
         Bar timeframe (default "1Hour" for swing trading).
     bar_count : int
         Number of bars to fetch per asset (default 50).
+    fetch_4h : bool
+        When True (default), also fetch 4-hour bars and populate trend_4h.
+        Set to False for backtesting to avoid extra API calls.
 
     Returns
     -------
     list[Signal]
-        Signals with confluence_score >= 1, sorted descending.
+        Signals with confluence_score >= 1 or short_score >= 1, sorted
+        descending by confluence_score.
     """
     signals = []
     for symbol in symbols:
@@ -391,14 +449,20 @@ def scan_assets(alpaca_client, symbols: list[str], timeframe: str = "1Hour", bar
                 log.warning("No bars returned for %s", symbol)
                 continue
 
-            signal = analyze(symbol, bars)
-            if signal and signal.confluence_score >= 1:
+            bars_4h = None
+            if fetch_4h:
+                try:
+                    bars_4h = alpaca_client.get_bars(symbol, timeframe="4Hour", limit=30)
+                except Exception as exc_4h:
+                    log.debug("Could not fetch 4H bars for %s: %s", symbol, exc_4h)
+
+            signal = analyze(symbol, bars, bars_4h=bars_4h)
+            if signal and (signal.confluence_score >= 1 or signal.short_score >= 1):
                 signals.append(signal)
                 log.info(
-                    "SIGNAL %s: score=%d ema=%s adx=%.1f rsi=%.1f vol_spike=%s vwap=%s",
-                    symbol, signal.confluence_score, signal.ema_bullish,
-                    signal.adx_value, signal.rsi_value, signal.volume_spike,
-                    signal.vwap_bullish,
+                    "SIGNAL %s: long=%d short=%d ema=%s adx=%.1f rsi=%.1f trend_4h=%s",
+                    symbol, signal.confluence_score, signal.short_score, signal.ema_bullish,
+                    signal.adx_value, signal.rsi_value, signal.trend_4h,
                 )
         except Exception as exc:
             log.warning("Failed to analyze %s: %s", symbol, exc)

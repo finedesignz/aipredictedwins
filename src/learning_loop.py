@@ -9,6 +9,7 @@ a learning report.
 import logging
 from datetime import datetime, timezone
 
+from src.db import connection
 from src.trade_logger import TradeLogger
 from src.trade_memory import TradeMemory
 
@@ -87,8 +88,7 @@ class LearningLoop:
 
         Returns the number of outcomes updated.
         """
-        conn = self.memory._get_conn()
-        try:
+        with connection() as conn:
             # Find closed alpaca trades that have a context record still marked open
             rows = conn.execute(
                 """
@@ -104,20 +104,18 @@ class LearningLoop:
                 """
             ).fetchall()
 
-            updated = 0
-            for row in rows:
-                pnl = row["pnl"] or 0.0
-                outcome = "win" if pnl > 0 else "loss"
-                self.memory.update_trade_outcome(
-                    trade_id=row["trade_id"],
-                    outcome=outcome,
-                    pnl=pnl,
-                )
-                updated += 1
+        updated = 0
+        for row in rows:
+            pnl = row["pnl"] or 0.0
+            outcome = "win" if pnl > 0 else "loss"
+            self.memory.update_trade_outcome(
+                trade_id=row["trade_id"],
+                outcome=outcome,
+                pnl=pnl,
+            )
+            updated += 1
 
-            return updated
-        finally:
-            conn.close()
+        return updated
 
     def print_report(self):
         """Print the current learning state to console."""

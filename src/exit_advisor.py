@@ -23,7 +23,7 @@ log = logging.getLogger(__name__)
 SOFT_STOP_PCT        = float(os.environ.get("SOFT_STOP_PCT",        "-0.03"))
 SOFT_TAKE_PROFIT_PCT = float(os.environ.get("SOFT_TAKE_PROFIT_PCT", "0.08"))
 HARD_STOP_PCT        = float(os.environ.get("HARD_STOP_PCT",        "-0.05"))
-# Hard take-profit removed — trailing stop captures large moves
+HARD_TAKE_PROFIT_PCT = float(os.environ.get("HARD_TAKE_PROFIT_PCT", "0.15"))  # backtester hard exit
 
 TRAIL_ACTIVATION_PCT      = 0.05   # activate trailing stop at +5% (was 3%)
 TRAIL_DISTANCE_PCT        = 0.03   # trail 3% behind peak (was 2%)

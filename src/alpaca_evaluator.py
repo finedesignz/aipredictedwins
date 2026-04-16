@@ -54,6 +54,84 @@ TIER_SCORES = {
 # Public functions
 # ---------------------------------------------------------------------------
 
+def get_dynamic_crypto_universe(client: AlpacaClient, top_n: int = 20) -> list[str]:
+    """Dynamically discover the top N crypto assets on Alpaca by 24h volume.
+
+    Fetches all active/tradeable crypto assets from Alpaca, filters to USD
+    pairs only (excludes stablecoins), excludes known meme coins, then ranks
+    by 24h volume and returns the top N as a list of symbols in 'BTC/USD' format.
+
+    Falls back to TOP_CRYPTO_TICKERS if dynamic fetch fails.
+
+    Parameters
+    ----------
+    client : AlpacaClient
+        Authenticated Alpaca client.
+    top_n : int
+        Number of assets to return (default 20).
+
+    Returns
+    -------
+    list[str]
+        Symbols like ['BTC/USD', 'ETH/USD', ...], up to top_n entries.
+    """
+    try:
+        assets = client.get_tradeable_assets("crypto")
+
+        # Filter to USD pairs, excluding stablecoins (USDC, USDT pairs)
+        candidates = []
+        for asset in assets:
+            sym = asset.get("symbol", "")
+            if not sym.endswith("USD"):
+                continue
+            if sym.endswith("USDC") or sym.endswith("USDT"):
+                continue
+            # Convert "BTCUSD" → "BTC/USD"
+            slash_sym = f"{sym[:-3]}/USD"
+            if slash_sym in MEME_CRYPTO:
+                continue
+            candidates.append(slash_sym)
+
+        # Cap to first 40 to keep startup time reasonable
+        candidates = candidates[:40]
+        log.info("Dynamic universe: evaluating %d crypto candidates for volume ranking", len(candidates))
+
+        # Rank by 24h volume using a single daily bar per symbol
+        ranked: list[tuple[str, float]] = []
+        for symbol in candidates:
+            try:
+                bars = client.get_bars(symbol, timeframe="1Day", limit=1)
+                if not bars:
+                    continue
+                volume = bars[-1]["volume"]
+                ranked.append((symbol, volume))
+            except Exception as exc:
+                log.warning("Dynamic universe: skipping %s — %s", symbol, exc)
+                continue
+
+        if len(ranked) < 5:
+            log.warning(
+                "Dynamic universe: only %d symbols returned data, falling back to TOP_CRYPTO_TICKERS",
+                len(ranked),
+            )
+            return list(TOP_CRYPTO_TICKERS)
+
+        ranked.sort(key=lambda x: x[1], reverse=True)
+        selected = [sym for sym, _ in ranked[:top_n]]
+
+        log.info(
+            "Dynamic universe: evaluated %d crypto assets, selected top %d",
+            len(ranked),
+            len(selected),
+        )
+        log.info("Universe: %s", " ".join(selected))
+        return selected
+
+    except Exception as exc:
+        log.warning("Dynamic universe fetch failed (%s), falling back to TOP_CRYPTO_TICKERS", exc)
+        return list(TOP_CRYPTO_TICKERS)
+
+
 def get_trending_crypto(client: AlpacaClient, top_n: int = 10) -> list[dict]:
     """Get the most volatile/active crypto in the last 24h.
 

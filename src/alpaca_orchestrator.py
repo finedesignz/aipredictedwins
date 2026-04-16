@@ -27,10 +27,11 @@ from rich.table import Table
 
 from src.config import load_config
 from src.alpaca_client import AlpacaClient
-from src.alpaca_evaluator import get_trending_crypto, TOP_CRYPTO_TICKERS, MEME_CRYPTO
+from src.alpaca_evaluator import get_trending_crypto, TOP_CRYPTO_TICKERS, MEME_CRYPTO, get_dynamic_crypto_universe
 from src.technical_signals import scan_assets, analyze
-from src.risk_gate import RiskGate
-from src.exit_advisor import ExitAdvisor, TrailingStop, check_position_thresholds, HARD_STOP_PCT
+from src.rules_gate import RulesGate
+from src.risk_gate import RiskGate  # keep for backward compat / type hints
+from src.exit_advisor import ExitAdvisor, TrailingStop, check_position_thresholds, HARD_STOP_PCT, SOFT_STOP_PCT, SOFT_TAKE_PROFIT_PCT
 from src.trade_logger import TradeLogger
 
 from src.notifier import alert_bot_crash, alert_drawdown_stop, alert_monitor_error, alert_position_closed, send_alert
@@ -58,6 +59,8 @@ CYCLE_SLEEP_SECONDS = int(_os.environ.get("CYCLE_SLEEP_SECONDS", "1800"))
 POSITION_CHECK_INTERVAL = int(_os.environ.get("POSITION_CHECK_INTERVAL", "60"))
 SKIP_RISK_GATE = _os.environ.get("SKIP_RISK_GATE", "").lower() in ("1", "true", "yes")
 BOT_LABEL = _os.environ.get("BOT_LABEL", "Agent A")
+SHORT_ENABLED = _os.environ.get("SHORT_ENABLED", "true").lower() in ("1", "true", "yes")
+DYNAMIC_UNIVERSE_SIZE = int(_os.environ.get("DYNAMIC_UNIVERSE_SIZE", "20"))
 
 # User-configurable live trading threshold (set via env var)
 LIVE_TRADING_THRESHOLD = float(_os.environ.get("LIVE_TRADING_THRESHOLD", "100000"))
@@ -143,16 +146,31 @@ class PositionMonitor(threading.Thread):
                     log.warning("Skipping %s: entry_price is zero in DB and Alpaca", symbol)
                     continue
 
-            pnl_pct = (current_price - entry_price) / entry_price
-            trade_pnl = (current_price - entry_price) * qty
+            if side in ("sell", "short"):
+                # Short position: profit when price falls
+                pnl_pct = (entry_price - current_price) / entry_price
+                trade_pnl = (entry_price - current_price) * qty
+            else:
+                # Long position: profit when price rises
+                pnl_pct = (current_price - entry_price) / entry_price
+                trade_pnl = (current_price - entry_price) * qty
 
-            # Check trailing stop first (it tracks high-water marks every tick)
-            trail_trigger = self._trailing.update(trade_id, entry_price, current_price)
+            # Trailing stop only for long positions
+            trail_trigger = None
+            if side not in ("sell", "short"):
+                trail_trigger = self._trailing.update(trade_id, entry_price, current_price)
             if trail_trigger:
                 threshold = trail_trigger
             else:
-                # Check fixed threshold crossings
-                threshold = check_position_thresholds(entry_price, current_price)
+                # Use side-aware pnl_pct (already correct for long and short)
+                if pnl_pct <= HARD_STOP_PCT:
+                    threshold = "hard_stop"
+                elif pnl_pct <= SOFT_STOP_PCT:
+                    threshold = "soft_stop"
+                elif pnl_pct >= SOFT_TAKE_PROFIT_PCT:
+                    threshold = "soft_take_profit"
+                else:
+                    threshold = None
 
             # If tightened to breakeven, exit if below entry
             if not threshold and trade_id in self._tightened and current_price < entry_price:
@@ -258,7 +276,7 @@ def _setup_logging() -> None:
 
 
 def _print_banner(mode: str, balance: float, config) -> None:
-    risk_mode = "[red]DISABLED[/red]" if SKIP_RISK_GATE else "MiroFish risk gate + exit advisor"
+    risk_mode = "[red]DISABLED[/red]" if SKIP_RISK_GATE else "Rules gate (deterministic) + MiroFish exit advisor"
     banner = (
         f"[bold cyan]Alpaca Technical + MiroFish Guardian Bot[/bold cyan]\n"
         f"\n"
@@ -276,7 +294,8 @@ def _print_banner(mode: str, balance: float, config) -> None:
         f"  Max exposure    : {MAX_TOTAL_EXPOSURE_PCT:.0%} of bankroll\n"
         f"  Drawdown stop   : {DRAWDOWN_STOP_PCT:.0%} daily\n"
         f"  Cycle interval  : {CYCLE_SLEEP_SECONDS // 60} min\n"
-        f"  Assets          : {', '.join(s.replace('/USD','') for s in TOP_CRYPTO_TICKERS)}"
+        f"  Shorts          : {'enabled' if SHORT_ENABLED else 'disabled'}\n"
+        f"  Universe size   : {DYNAMIC_UNIVERSE_SIZE} assets (dynamic by volume)"
     )
     console.print(Panel(banner, title=f"Alpaca Orchestrator v2 — {BOT_LABEL}", border_style="cyan"))
 
@@ -500,8 +519,18 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
     config = load_config()
     alpaca = AlpacaClient(config)
     logger = TradeLogger()
-    risk_gate = RiskGate(logger=logger)
+    risk_gate = RulesGate()
     exit_advisor = ExitAdvisor()
+
+    # Dynamic asset universe — refreshed at startup
+    log.info("Fetching dynamic crypto universe (top %d by volume)...", DYNAMIC_UNIVERSE_SIZE)
+    try:
+        universe = get_dynamic_crypto_universe(alpaca, top_n=DYNAMIC_UNIVERSE_SIZE)
+        console.print(f"  [cyan]Universe: {len(universe)} assets[/cyan] ({', '.join(s.replace('/USD','') for s in universe[:10])}...)")
+    except Exception as _e:
+        log.warning("Dynamic universe fetch failed, using default: %s", _e)
+        universe = list(TOP_CRYPTO_TICKERS)
+    _universe_last_refresh = datetime.now(timezone.utc)
 
     # Learning system (optional)
     memory = None
@@ -578,6 +607,16 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
             daily_pnl = 0.0
             daily_start = today
 
+        # Refresh universe once per day
+        _hours_since_refresh = (datetime.now(timezone.utc) - _universe_last_refresh).total_seconds() / 3600
+        if _hours_since_refresh >= 24:
+            try:
+                universe = get_dynamic_crypto_universe(alpaca, top_n=DYNAMIC_UNIVERSE_SIZE)
+                _universe_last_refresh = datetime.now(timezone.utc)
+                log.info("Universe refreshed: %d assets", len(universe))
+            except Exception as _e:
+                log.warning("Universe refresh failed, keeping previous: %s", _e)
+
         # Daily drawdown stop
         if daily_pnl < -(starting_bankroll * DRAWDOWN_STOP_PCT):
             console.print(
@@ -638,7 +677,7 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
             # -- 4b. Layer 1: Technical Signal Engine --------------------------
             console.print("[cyan]Layer 1: Technical signal scan...[/cyan]")
             try:
-                signals = scan_assets(alpaca, TOP_CRYPTO_TICKERS, timeframe="1Hour", bar_count=50)
+                signals = scan_assets(alpaca, universe, timeframe="1Hour", bar_count=50, fetch_4h=True)
                 signals = _apply_volume_context_filter(signals)
             except Exception as exc:
                 console.print(f"  [red]Technical scan failed: {exc}[/red]")
@@ -647,33 +686,50 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                 continue
 
             # Filter: minimum confluence, dedup, blocklist
-            all_candidates = [
+            # Long candidates: bullish signal AND 4H trend not explicitly bearish
+            long_candidates = [
                 s for s in signals
                 if s.confluence_score >= MIN_CONFLUENCE
                 and s.symbol not in open_symbols
                 and s.symbol not in MEME_CRYPTO
+                and s.trend_4h != "bearish"  # don't buy into 4H downtrend
             ]
-            # Per-cycle cap: pick best 3 by confluence → lowest RSI tiebreaker
-            candidates = _select_cycle_candidates(all_candidates)
-            signals_found = len(candidates)
 
-            if len(all_candidates) > len(candidates):
+            # Short candidates: bearish signal AND 4H trend not explicitly bullish
+            short_candidates = []
+            if SHORT_ENABLED:
+                short_candidates = [
+                    s for s in signals
+                    if s.short_score >= MIN_CONFLUENCE
+                    and s.symbol not in open_symbols
+                    and s.symbol not in MEME_CRYPTO
+                    and s.trend_4h != "bullish"  # don't short into 4H uptrend
+                ]
+
+            # Per-cycle cap: pick best 3 by confluence → lowest RSI tiebreaker
+            all_candidates = _select_cycle_candidates(long_candidates)
+            # Add short candidates up to the same per-cycle cap
+            short_candidates_selected = sorted(short_candidates, key=lambda s: (-s.short_score, -s.rsi_value))[:MAX_ENTRIES_PER_CYCLE]
+
+            signals_found = len(all_candidates) + len(short_candidates_selected)
+
+            if len(long_candidates) > len(all_candidates):
                 console.print(
-                    f"  [yellow]Cycle cap: {len(all_candidates)} candidates filtered to "
-                    f"{len(candidates)} (max {MAX_ENTRIES_PER_CYCLE}/cycle)[/yellow]"
+                    f"  [yellow]Cycle cap: {len(long_candidates)} long candidates filtered to "
+                    f"{len(all_candidates)} (max {MAX_ENTRIES_PER_CYCLE}/cycle)[/yellow]"
                 )
 
-            if candidates:
-                console.print(f"  [bold]{signals_found}[/bold] candidates with confluence >= {MIN_CONFLUENCE}")
-                for c in candidates:
-                    console.print(
-                        f"    {c.symbol}: score={c.confluence_score} "
-                        f"ema={'UP' if c.ema_bullish else 'DN'} "
-                        f"adx={c.adx_value:.0f} rsi={c.rsi_value:.0f} "
-                        f"vol_spike={c.volume_spike} vwap={'UP' if c.vwap_bullish else 'DN'}"
-                    )
+            if all_candidates or short_candidates_selected:
+                console.print(f"  [bold]{len(all_candidates)}[/bold] long + [bold]{len(short_candidates_selected)}[/bold] short candidates")
+                for c in all_candidates:
+                    console.print(f"    LONG  {c.symbol}: score={c.confluence_score} rsi={c.rsi_value:.0f} trend_4h={c.trend_4h}")
+                for c in short_candidates_selected:
+                    console.print(f"    SHORT {c.symbol}: score={c.short_score} rsi={c.rsi_value:.0f} trend_4h={c.trend_4h}")
             else:
                 console.print("  No assets meet confluence threshold")
+
+            # Alias for the existing long trade loop below
+            candidates = all_candidates
 
             # -- 4c. Layer 2: MiroFish Risk Gate ------------------------------
             approved_states: list[PipelineState] = []
@@ -835,12 +891,94 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                     console.print(f"    [red]Order failed: {exc}[/red]")
                     log.exception("Order failed for %s", symbol)
 
+            # -- SHORT candidate processing --
+            for signal in short_candidates_selected:
+                symbol = signal.symbol
+                try:
+                    price = alpaca.get_latest_price(symbol)
+                    bars = alpaca.get_bars(symbol, timeframe="1Hour", limit=24)
+                    if not bars:
+                        continue
+
+                    change_pct = ((price - bars[0]["open"]) / bars[0]["open"] * 100) if bars else 0.0
+                    volume_24h = sum(b["volume"] for b in bars) if bars else 0
+
+                    # Rules gate check (same gate as longs)
+                    if not SKIP_RISK_GATE:
+                        verdict = risk_gate.evaluate(
+                            symbol=symbol,
+                            price=price,
+                            change_pct=change_pct,
+                            volume=volume_24h,
+                            confluence=signal.short_score,
+                            bars=bars,
+                        )
+                        if verdict.decision == "VETO":
+                            console.print(f"  [yellow]VETOED SHORT[/yellow] {symbol}: {verdict.reasoning[:80]}")
+                            continue
+
+                    risk_gate_passed += 1
+
+                    # Kelly sizing for short (same formula, different side)
+                    sizing = _kelly_technical(
+                        confluence=signal.short_score,
+                        current_price=price,
+                        bankroll=bankroll,
+                        kelly_fraction=config.kelly_fraction,
+                        max_position_pct=MAX_POSITION_PCT,
+                    )
+                    if sizing["dollar_amount"] <= 0:
+                        continue
+
+                    qty = sizing["shares"]
+                    if qty <= 0:
+                        continue
+
+                    # Place short order (sell without holding)
+                    console.print(
+                        f"  [bold magenta]SHORT[/bold magenta] {symbol}: "
+                        f"short_score={signal.short_score} rsi={signal.rsi_value:.0f} "
+                        f"trend_4h={signal.trend_4h} qty={qty:.4f} @ ${price:.2f}"
+                    )
+                    order = alpaca.place_market_order(symbol, qty, side="sell")
+
+                    # Log to trade DB with side="sell"
+                    logger.log_alpaca_trade({
+                        "symbol": symbol,
+                        "asset_class": "crypto",
+                        "side": "sell",
+                        "qty": qty,
+                        "entry_price": price,
+                        "mirofish_prob": signal.short_score / 4.0,
+                        "market_sentiment": f"short_technical_{signal.short_score}",
+                        "target_price": price * (1 - 0.08),  # soft take-profit at 8% down
+                        "stop_loss": price * (1 + abs(HARD_STOP_PCT)),
+                        "simulation_id": f"short_{symbol}_{int(time.time())}",
+                        "notes": (
+                            f"SHORT short_score={signal.short_score} "
+                            f"RSI={signal.rsi_value:.0f} trend_4h={signal.trend_4h}"
+                        ),
+                    })
+                    trades_placed += 1
+                    total_trades += 1
+                    cycle_exposure += sizing["dollar_amount"]
+                    bankroll -= sizing["dollar_amount"]
+
+                    console.print(
+                        f"    [green]Short order placed:[/green] {order.get('order_id', 'N/A')} "
+                        f"-- status: {order.get('status', 'submitted')}"
+                    )
+
+                except Exception as exc:
+                    log.error("Short entry failed for %s: %s", symbol, exc)
+                    continue
+
         # -- 4e. Cycle summary ------------------------------------------------
         open_positions = logger.get_open_alpaca_positions()
         equity = alpaca.get_account()["equity"]
         _cycle_summary(
             cycle_count=cycle_count,
-            assets_scanned=len(TOP_CRYPTO_TICKERS),
+            assets_scanned=len(universe),
             signals_found=signals_found,
             risk_gate_passed=risk_gate_passed,
             trades_placed=trades_placed,
