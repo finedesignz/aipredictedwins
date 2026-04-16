@@ -82,12 +82,18 @@ def get_dynamic_crypto_universe(client: AlpacaClient, top_n: int = 20) -> list[s
         candidates = []
         for asset in assets:
             sym = asset.get("symbol", "")
-            if not sym.endswith("USD"):
+            # Normalise to "BASE/USD" (handles both "BTCUSD" and "BTC/USD")
+            if "/" in sym:
+                slash_sym = sym
+            elif sym.endswith("USD"):
+                slash_sym = f"{sym[:-3]}/USD"
+            else:
                 continue
-            if sym.endswith("USDC") or sym.endswith("USDT"):
+            if not slash_sym.endswith("/USD"):
                 continue
-            # Convert "BTCUSD" → "BTC/USD"
-            slash_sym = f"{sym[:-3]}/USD"
+            base = slash_sym.split("/")[0]
+            if base in ("USDC", "USDT", "BUSD", "DAI", "TUSD", "USDP"):
+                continue
             if slash_sym in MEME_CRYPTO:
                 continue
             candidates.append(slash_sym)
