@@ -68,7 +68,7 @@ def seed_bots() -> None:
     if key_c and secret_c:
         bots.append({
             "bot_id": "C",
-            "label": os.environ.get("BOT_C_LABEL", "Agent C (Stocks)"),
+            "label": os.environ.get("BOT_C_LABEL", "Agent C"),
             "alpaca_api_key": key_c,
             "alpaca_secret_key": secret_c,
             "kelly_fraction": float(os.environ.get("BOT_C_KELLY", "0.25")),

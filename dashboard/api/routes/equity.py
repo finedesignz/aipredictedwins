@@ -13,7 +13,6 @@ import os
 import urllib.request
 import urllib.error
 from datetime import datetime, timedelta, timezone
-from typing import Literal
 
 from fastapi import APIRouter, Query
 
@@ -170,11 +169,16 @@ def _build_db_series(conn, bot_id: str) -> EquitySeries:
 
 @router.get("/api/equity")
 def get_equity(
-    bot: Literal["A", "B", "both"] = Query("both"),
+    bot: str = Query("all"),
     days: int = Query(30, ge=1, le=364),
 ):
-    """Return equity series. Primary: Alpaca portfolio history. Fallback: DB."""
-    bot_ids = ["A", "B"] if bot == "both" else [bot]
+    """Return equity series for one or all bots. Primary: Alpaca portfolio history. Fallback: DB."""
+    if bot in ("both", "all"):
+        with get_db() as conn:
+            rows = conn.execute("SELECT bot_id FROM bots WHERE enabled = TRUE ORDER BY bot_id").fetchall()
+        bot_ids = [r["bot_id"] for r in rows]
+    else:
+        bot_ids = [bot]
 
     series = []
     for bot_id in bot_ids:
