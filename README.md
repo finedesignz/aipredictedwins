@@ -1,85 +1,80 @@
 # AI Predicted Wins
 
-Automated trading system powered by MiroFish swarm intelligence. Runs 1,000 AI agents to simulate crowd behavior, compares predictions to live market prices, and trades when it finds mispricing.
+Automated swing trading system for crypto and stocks. Uses a technical signal engine (EMA, ADX, RSI, Volume, VWAP) to score assets, gates trades with a deterministic rules engine, and supports long and short positions across multiple isolated bots.
 
-## Platforms
+## Live Dashboard
 
-- **Kalshi** — CFTC-regulated prediction markets (political events, economic indicators)
-- **Alpaca** — Stocks and crypto day trading (coming soon)
+**https://app.aipredictedwins.com**
+
+## Bots
+
+| Bot | Asset Class | Strategy |
+|-----|-------------|----------|
+| Bot A | Crypto | Kelly 0.25, min confluence 3, MiroFish risk gate on |
+| Bot B | Crypto | Kelly 0.50, min confluence 2, risk gate off (speed test) |
+| Bot C | Stocks | Kelly 0.25, min confluence 3, market-hours gated |
+
+Each bot has its own isolated Alpaca paper account. Bots run in parallel threads managed by the dashboard's BotManager.
+
+## How It Works
+
+1. **Scan** — Fetch OHLCV bars for the asset universe (crypto: dynamic top-N by volume; stocks: static watchlist)
+2. **Score** — Compute 5 indicators: EMA(9/21) trend, ADX(14) momentum, RSI(14) level, volume spike, VWAP confluence
+3. **Filter** — Only assets with 3+ bullish (long) or 3+ bearish (short) signals become candidates
+4. **Gate** — RulesGate vetoes trades: gap >5% since last close, or ADX <12 (flat market)
+5. **Size** — Quarter-Kelly based on confluence score (3/5 → 55% win rate estimate, etc.)
+6. **Trade** — Limit orders only; short selling via Alpaca's margin accounts
+7. **Monitor** — Background thread checks every 60s; soft thresholds trigger exit advisor, hard thresholds force immediate exit
+8. **Learn** — TradeMemory logs every decision with full context; LearningLoop adjusts parameters over time
 
 ## Quick Start
 
 ```bash
-# Install dependencies
 pip install -r requirements.txt
+cp .env.example .env  # add Alpaca keys
 
-# Configure
-cp .env.example .env  # Edit with your API keys
+# Run a single bot (evaluate mode — no trades placed)
+python -m src.alpaca_orchestrator --mode evaluate
 
-# Evaluate markets (no trading)
-python -m src.orchestrator --mode evaluate --top 30
+# Run a single bot (paper trading)
+python -m src.alpaca_orchestrator --mode paper --max-trades 50
 
-# Start paper trading
-python -m src.orchestrator --mode paper --max-trades 200
-
-# Start crypto trading (requires Alpaca keys)
-python -m src.alpaca_orchestrator --mode paper --asset-class crypto
-
-# Launch dashboard
-streamlit run dashboard/app.py
+# Full multi-bot dashboard
+cd dashboard && docker compose up
 ```
 
-## How It Works
+## Signal Engine
 
-1. **Scan** — Pulls active markets from Kalshi, filters by volume and time horizon
-2. **Evaluate** — Ranks markets by MiroFish simulation fit (political > tech > weather)
-3. **Simulate** — Feeds event descriptions into MiroFish as seed material, runs 1,000 AI agents debating the outcome across simulated Twitter and Reddit
-4. **Extract** — Uses Claude to extract the crowd consensus probability from the simulation report
-5. **Compare** — Detects gaps between MiroFish prediction and market price
-6. **Trade** — Places limit orders sized with Kelly Criterion when gaps exceed 15%
-7. **Track** — Logs everything to SQLite, monitors P&L, stops on 20% drawdown
+| Indicator | Bullish condition | Bearish condition |
+|-----------|-------------------|-------------------|
+| EMA 9/21 | 9 > 21 | 9 < 21 |
+| ADX 14 | ADX > 20 | ADX > 20 |
+| RSI 14 | 40–65 | 35–60 |
+| Volume | Spike > 1.5× avg | Spike > 1.5× avg |
+| VWAP | Price > VWAP | Price < VWAP |
 
-## Project Structure
+4H MTF confirmation is applied on crypto (no 4H data for stocks).
 
-```
-src/
-  orchestrator.py          # Kalshi trading loop
-  alpaca_orchestrator.py   # Crypto/stock trading loop
-  kalshi_client.py         # Kalshi API wrapper
-  alpaca_client.py         # Alpaca API wrapper
-  mirofish_client.py       # MiroFish simulation client
-  market_evaluator.py      # Market tier ranking
-  alpaca_evaluator.py      # Crypto/stock ranking
-  event_formatter.py       # Seed text generator
-  gap_detector.py          # Probability comparison
-  position_sizer.py        # Kelly Criterion sizing
-  trade_logger.py          # SQLite trade logging
-  config.py                # Environment configuration
-gateway/                   # Claude Code Bridge (Coolify)
-dashboard/                 # Streamlit monitoring UI
-tests/                     # 49 unit tests
-data/                      # SQLite DB + logs
-```
+## Risk Rules (hardcoded — no override)
+
+- 5% max bankroll per position
+- 80% max total portfolio exposure
+- Quarter-Kelly sizing
+- Hard stop −5% / take profit +10% (immediate exit)
+- Soft stop −3% / soft profit +5% (exit advisor consulted)
+- 20% portfolio drawdown stop
+- Limit orders only
+- 50 paper trades before live mode unlocks
 
 ## Infrastructure
 
-| Service | URL |
-|---------|-----|
-| MiroFish UI | https://app.aipredictedwins.com |
-| LLM Gateway | https://gateway.aipredictedwins.com |
-| Dashboard | http://localhost:8501 (local) |
-
-## Risk Management
-
-All rules are hardcoded and cannot be overridden:
-
-- 5% max bankroll per position
-- 15% minimum gap to trade
-- Quarter-Kelly position sizing
-- 20% drawdown stop
-- Limit orders only
-- 50 paper trades before live mode
+| Service | Details |
+|---------|---------|
+| Dashboard | https://app.aipredictedwins.com (Coolify, Next.js + FastAPI) |
+| Broker | Alpaca paper trading |
+| DB | Postgres (Coolify-managed) |
+| DNS | Cloudflare — aipredictedwins.com |
 
 ## Disclaimer
 
-This is for educational/personal research only. Not financial advice. All trading involves risk of loss. Never trade money you cannot afford to lose.
+Educational/personal research only. Not financial advice. All trading involves risk of loss.
