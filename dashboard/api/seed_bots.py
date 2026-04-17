@@ -101,13 +101,13 @@ def seed_bots() -> None:
                         hard_stop_pct, soft_stop_pct, rsi_ceiling,
                         crypto_universe, stock_universe, asset_class, max_position_pct, enabled, status
                     ) VALUES (
-                        %(bot_id)s, %(bot_id)s, %(label)s, %(alpaca_api_key)s, %(alpaca_secret_key)s,
+                        %(id)s, %(bot_id)s, %(label)s, %(alpaca_api_key)s, %(alpaca_secret_key)s,
                         %(kelly_fraction)s, %(min_confluence)s, %(skip_risk_gate)s,
                         %(hard_stop_pct)s, %(soft_stop_pct)s, %(rsi_ceiling)s,
                         %(crypto_universe)s, %(stock_universe)s, %(asset_class)s, %(max_position_pct)s, TRUE, 'stopped'
                     )
                     """,
-                    bot,
+                    {**bot, "id": bot["bot_id"]},
                 )
                 log.info("Seeded bot %s (%s)", bot["bot_id"], bot["label"])
             else:
