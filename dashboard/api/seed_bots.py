@@ -39,6 +39,7 @@ def seed_bots() -> None:
             "rsi_ceiling": float(os.environ.get("BOT_A_RSI_CEILING", "65.0")),
             "crypto_universe": os.environ.get("BOT_A_CRYPTO_UNIVERSE", "BTC/USD,ETH/USD,SOL/USD,XRP/USD,ADA/USD,AVAX/USD,DOT/USD,LINK/USD"),
             "stock_universe": os.environ.get("BOT_A_STOCK_UNIVERSE", "QQQ,SPY,AAPL,NVDA,MSFT,TSLA,AMZN,META"),
+            "asset_class": "crypto",
             "max_position_pct": float(os.environ.get("BOT_A_MAX_POSITION_PCT", "0.05")),
         })
 
@@ -58,11 +59,32 @@ def seed_bots() -> None:
             "rsi_ceiling": float(os.environ.get("BOT_B_RSI_CEILING", "65.0")),
             "crypto_universe": os.environ.get("BOT_B_CRYPTO_UNIVERSE", "BTC/USD,ETH/USD,SOL/USD,XRP/USD,ADA/USD,AVAX/USD,DOT/USD,LINK/USD"),
             "stock_universe": os.environ.get("BOT_B_STOCK_UNIVERSE", "QQQ,SPY,AAPL,NVDA,MSFT,TSLA,AMZN,META"),
+            "asset_class": "crypto",
             "max_position_pct": float(os.environ.get("BOT_B_MAX_POSITION_PCT", "0.05")),
         })
 
+    key_c = os.environ.get("ALPACA_API_KEY_C")
+    secret_c = os.environ.get("ALPACA_SECRET_KEY_C")
+    if key_c and secret_c:
+        bots.append({
+            "bot_id": "C",
+            "label": os.environ.get("BOT_C_LABEL", "Agent C (Stocks)"),
+            "alpaca_api_key": key_c,
+            "alpaca_secret_key": secret_c,
+            "kelly_fraction": float(os.environ.get("BOT_C_KELLY", "0.25")),
+            "min_confluence": int(os.environ.get("BOT_C_CONFLUENCE", "3")),
+            "skip_risk_gate": os.environ.get("BOT_C_SKIP_RISK_GATE", "false").lower() == "true",
+            "hard_stop_pct": float(os.environ.get("BOT_C_HARD_STOP_PCT", "-0.05")),
+            "soft_stop_pct": float(os.environ.get("BOT_C_SOFT_STOP_PCT", "-0.03")),
+            "rsi_ceiling": float(os.environ.get("BOT_C_RSI_CEILING", "70.0")),
+            "crypto_universe": os.environ.get("BOT_C_CRYPTO_UNIVERSE", "BTC/USD,ETH/USD,SOL/USD,XRP/USD,ADA/USD,AVAX/USD,DOT/USD,LINK/USD"),
+            "stock_universe": os.environ.get("BOT_C_STOCK_UNIVERSE", "SPY,QQQ,NVDA,AAPL,MSFT,TSLA,META,AMZN,GOOGL,AMD,COIN,MSTR"),
+            "asset_class": "stock",
+            "max_position_pct": float(os.environ.get("BOT_C_MAX_POSITION_PCT", "0.05")),
+        })
+
     if not bots:
-        log.info("No ALPACA_API_KEY_A/B env vars found — skipping seed")
+        log.info("No ALPACA_API_KEY_A/B/C env vars found — skipping seed")
         return
 
     with psycopg.connect(db_url, autocommit=False) as conn:
@@ -77,12 +99,12 @@ def seed_bots() -> None:
                         id, bot_id, label, alpaca_api_key, alpaca_secret_key,
                         kelly_fraction, min_confluence, skip_risk_gate,
                         hard_stop_pct, soft_stop_pct, rsi_ceiling,
-                        crypto_universe, stock_universe, max_position_pct, enabled, status
+                        crypto_universe, stock_universe, asset_class, max_position_pct, enabled, status
                     ) VALUES (
                         %(bot_id)s, %(bot_id)s, %(label)s, %(alpaca_api_key)s, %(alpaca_secret_key)s,
                         %(kelly_fraction)s, %(min_confluence)s, %(skip_risk_gate)s,
                         %(hard_stop_pct)s, %(soft_stop_pct)s, %(rsi_ceiling)s,
-                        %(crypto_universe)s, %(stock_universe)s, %(max_position_pct)s, TRUE, 'stopped'
+                        %(crypto_universe)s, %(stock_universe)s, %(asset_class)s, %(max_position_pct)s, TRUE, 'stopped'
                     )
                     """,
                     bot,

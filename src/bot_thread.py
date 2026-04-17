@@ -6,10 +6,24 @@ and PositionMonitor. Config is held as an atomic reference so it can be
 hot-swapped (via update_config) without restarting the thread.
 """
 
+import datetime
 import logging
 import threading
 import time
 from typing import Callable
+from zoneinfo import ZoneInfo
+
+_ET = ZoneInfo("America/New_York")
+
+
+def _market_is_open() -> bool:
+    """Return True if US equity markets are currently open (9:30–16:00 ET, Mon–Fri)."""
+    now = datetime.datetime.now(_ET)
+    if now.weekday() >= 5:
+        return False
+    open_t = now.replace(hour=9, minute=30, second=0, microsecond=0)
+    close_t = now.replace(hour=16, minute=0, second=0, microsecond=0)
+    return open_t <= now < close_t
 
 from src.bot_config import BotConfig
 from src.config import Config
@@ -165,14 +179,18 @@ class BotThread(threading.Thread):
                 memory = None
                 learning_loop = None
 
-        # -- Resolve asset universe (dynamic or static fallback) ---------------
-        top_n = getattr(cfg, "dynamic_universe_size", 20)
-        try:
-            universe = get_dynamic_crypto_universe(alpaca, top_n=top_n)
-            log.info("[bot:%s] Dynamic universe: %d symbols", bot_id, len(universe))
-        except Exception as exc:
-            log.warning("[bot:%s] Dynamic universe fetch failed (%s), using static list", bot_id, exc)
+        # -- Resolve asset universe -----------------------------------------------
+        if cfg.asset_class == "stock":
             universe = list(cfg.symbols)
+            log.info("[bot:%s] Stock universe: %d symbols", bot_id, len(universe))
+        else:
+            top_n = getattr(cfg, "dynamic_universe_size", 20)
+            try:
+                universe = get_dynamic_crypto_universe(alpaca, top_n=top_n)
+                log.info("[bot:%s] Dynamic universe: %d symbols", bot_id, len(universe))
+            except Exception as exc:
+                log.warning("[bot:%s] Dynamic universe fetch failed (%s), using static list", bot_id, exc)
+                universe = list(cfg.symbols)
 
         # -- Start position monitor --------------------------------------------
         monitor = PositionMonitor(alpaca, logger, exit_advisor)
@@ -255,6 +273,11 @@ class BotThread(threading.Thread):
             except Exception as exc:
                 log.warning("[bot:%s] Learning cycle failed: %s", bot_id, exc)
 
+        # -- Market hours gate (stocks only) -----------------------------------
+        if cfg.asset_class == "stock" and not _market_is_open():
+            log.debug("[bot:%s] Market closed — skipping cycle", bot_id)
+            return
+
         # -- Check account state -----------------------------------------------
         account = alpaca.get_account()
         bankroll = account["buying_power"]
@@ -279,9 +302,10 @@ class BotThread(threading.Thread):
 
         # -- Layer 1: Technical scan -------------------------------------------
         scan_universe = universe or list(cfg.symbols)
-        log.info("[bot:%s] Layer 1: technical scan (%d symbols)", bot_id, len(scan_universe))
+        is_stock = cfg.asset_class == "stock"
+        log.info("[bot:%s] Layer 1: technical scan (%d %s symbols)", bot_id, len(scan_universe), cfg.asset_class)
         try:
-            signals = scan_assets(alpaca, scan_universe, timeframe="1Hour", bar_count=50, fetch_4h=True)
+            signals = scan_assets(alpaca, scan_universe, timeframe="1Hour", bar_count=50, fetch_4h=not is_stock)
         except Exception as exc:
             log.error("[bot:%s] Technical scan failed: %s", bot_id, exc)
             return
@@ -445,7 +469,7 @@ class BotThread(threading.Thread):
 
                 trade_id = logger.log_alpaca_trade({
                     "symbol": symbol,
-                    "asset_class": "crypto",
+                    "asset_class": cfg.asset_class if cfg.asset_class == "stock" else "crypto",
                     "side": "buy",
                     "qty": sizing["shares"],
                     "entry_price": price,
@@ -580,7 +604,7 @@ class BotThread(threading.Thread):
 
                 trade_id = logger.log_alpaca_trade({
                     "symbol": symbol,
-                    "asset_class": "crypto",
+                    "asset_class": cfg.asset_class if cfg.asset_class == "stock" else "crypto",
                     "side": "sell",
                     "qty": sizing["shares"],
                     "entry_price": price,

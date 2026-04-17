@@ -21,6 +21,8 @@ class BotConfig:
     soft_stop_pct: float = -0.05
     rsi_ceiling: float = 65.0
     crypto_universe: str = "BTC/USD,ETH/USD,SOL/USD,XRP/USD,ADA/USD,AVAX/USD,DOT/USD,LINK/USD"
+    stock_universe: str = "SPY,QQQ,NVDA,AAPL,MSFT,TSLA,META,AMZN,GOOGL,AMD,COIN,MSTR"
+    asset_class: str = "crypto"   # "crypto" or "stock"
     skip_risk_gate: bool = False
     max_position_pct: float = 0.05
     short_enabled: bool = True
@@ -40,6 +42,8 @@ class BotConfig:
             soft_stop_pct=float(row["soft_stop_pct"] if row.get("soft_stop_pct") is not None else -0.05),
             rsi_ceiling=float(row["rsi_ceiling"] if row.get("rsi_ceiling") is not None else 65.0),
             crypto_universe=row.get("crypto_universe") or "BTC/USD,ETH/USD,SOL/USD,XRP/USD,ADA/USD,AVAX/USD,DOT/USD,LINK/USD",
+            stock_universe=row.get("stock_universe") or "SPY,QQQ,NVDA,AAPL,MSFT,TSLA,META,AMZN,GOOGL,AMD,COIN,MSTR",
+            asset_class=row.get("asset_class") or "crypto",
             skip_risk_gate=bool(row.get("skip_risk_gate") or False),
             max_position_pct=float(row["max_position_pct"] if row.get("max_position_pct") is not None else 0.05),
             short_enabled=bool(row.get("short_enabled") if row.get("short_enabled") is not None else True),
@@ -48,5 +52,7 @@ class BotConfig:
 
     @property
     def symbols(self) -> list[str]:
-        """Parse crypto_universe string into a list of symbols."""
+        """Return the active symbol list based on asset_class."""
+        if self.asset_class == "stock":
+            return [s.strip() for s in self.stock_universe.split(",") if s.strip()]
         return [s.strip() for s in self.crypto_universe.split(",") if s.strip()]
