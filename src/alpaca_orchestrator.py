@@ -114,6 +114,34 @@ class PositionMonitor(threading.Thread):
         if not open_trades:
             return
 
+        # Reconcile: fetch live Alpaca positions once and build a lookup by symbol.
+        # Any DB-open trade that Alpaca no longer holds was closed externally — mark it
+        # closed so the monitor stops trying (and emailing) about it.
+        try:
+            live_positions = self.alpaca.get_positions()
+            live_symbols = {p["symbol"] for p in live_positions}  # e.g. {"BTCUSD", "ETHUSD"}
+        except Exception as exc:
+            log.warning("Could not fetch live positions for reconciliation: %s", exc)
+            live_positions = []
+            live_symbols = None  # don't reconcile if the fetch itself failed
+
+        if live_symbols is not None:
+            for trade in open_trades:
+                sym = trade.get("symbol", "")
+                alpaca_sym = sym.replace("/", "")
+                if alpaca_sym and alpaca_sym not in live_symbols:
+                    log.info("[MONITOR] %s not in Alpaca positions — marking closed (externally exited)", sym)
+                    self.logger.update_alpaca_trade(
+                        trade_id=trade["id"],
+                        status="closed",
+                        exit_price=trade.get("entry_price", 0),
+                        pnl=0.0,
+                    )
+            # Re-fetch so the loop below only processes genuinely live positions
+            open_trades = self.logger.get_open_alpaca_positions()
+            if not open_trades:
+                return
+
         for trade in open_trades:
             symbol = trade.get("symbol")
             entry_price = trade.get("entry_price", 0)
@@ -134,14 +162,10 @@ class PositionMonitor(threading.Thread):
 
             # Use Alpaca's live entry price if DB entry is near-zero (sub-penny tokens)
             if entry_price <= 0:
-                try:
-                    positions = self.alpaca.get_positions()
-                    for pos in positions:
-                        if pos["symbol"] == symbol.replace("/", ""):
-                            entry_price = float(pos.get("avg_entry_price", 0))
-                            break
-                except Exception:
-                    pass
+                for pos in live_positions:
+                    if pos["symbol"] == symbol.replace("/", ""):
+                        entry_price = float(pos.get("avg_entry_price", 0))
+                        break
                 if entry_price <= 0:
                     log.warning("Skipping %s: entry_price is zero in DB and Alpaca", symbol)
                     continue
