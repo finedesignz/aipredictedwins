@@ -25,6 +25,17 @@ def _market_is_open() -> bool:
     close_t = now.replace(hour=16, minute=0, second=0, microsecond=0)
     return open_t <= now < close_t
 
+
+def _seconds_until_market_open() -> float:
+    """Return seconds until next US market open (9:30 ET, Mon–Fri)."""
+    now = datetime.datetime.now(_ET)
+    candidate = now.replace(hour=9, minute=29, second=0, microsecond=0)
+    if candidate <= now:
+        candidate += datetime.timedelta(days=1)
+    while candidate.weekday() >= 5:
+        candidate += datetime.timedelta(days=1)
+    return max(60.0, (candidate - now).total_seconds())
+
 from src.bot_config import BotConfig
 from src.config import Config
 from src.alpaca_client import AlpacaClient
@@ -235,13 +246,21 @@ class BotThread(threading.Thread):
             # Re-read config atomically at the top of each cycle
             cfg = self.config
             cycle_count += 1
+
+            # Stock bots: skip entirely when markets are closed, sleep until near open
+            if cfg.asset_class == "stock" and not _market_is_open():
+                sleep_secs = _seconds_until_market_open()
+                log.debug("[bot:%s] Market closed — sleeping %.0fs until open", bot_id, sleep_secs)
+                self._stop_event.wait(sleep_secs)
+                continue
+
             log.info("[bot:%s] Cycle %d starting", bot_id, cycle_count)
 
             try:
-                self._run_cycle(cfg, alpaca, logger, risk_gate, starting_bankroll, cycle_count, memory, learning_loop, universe or list(cfg.symbols))
+                effective_universe = list(cfg.symbols) if cfg.asset_class == "stock" else (universe or list(cfg.symbols))
+                self._run_cycle(cfg, alpaca, logger, risk_gate, starting_bankroll, cycle_count, memory, learning_loop, effective_universe)
             except Exception as exc:
                 log.exception("[bot:%s] Cycle %d failed: %s", bot_id, cycle_count, exc)
-                # Don't crash the thread — log and continue after sleep
 
             # Sleep between cycles, waking early if stop requested
             self._stop_event.wait(CYCLE_SLEEP_SECONDS)
@@ -273,10 +292,6 @@ class BotThread(threading.Thread):
             except Exception as exc:
                 log.warning("[bot:%s] Learning cycle failed: %s", bot_id, exc)
 
-        # -- Market hours gate (stocks only) -----------------------------------
-        if cfg.asset_class == "stock" and not _market_is_open():
-            log.debug("[bot:%s] Market closed — skipping cycle", bot_id)
-            return
 
         # -- Check account state -----------------------------------------------
         account = alpaca.get_account()

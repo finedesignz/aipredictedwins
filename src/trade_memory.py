@@ -6,7 +6,7 @@ extracts lessons, and adjusts strategy parameters dynamically.
 
 Backed by Postgres via src.db — no SQLite dependency.
 
-BOT_ID env var must be set to 'A' or 'B' before instantiating.
+BOT_ID must be a non-empty string (e.g. 'A', 'B', 'C') before instantiating.
 """
 
 import json
