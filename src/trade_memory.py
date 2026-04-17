@@ -31,10 +31,9 @@ class TradeMemory:
         # db_path is ignored — kept for backward compat with call sites.
         # bot_id kwarg takes priority over BOT_ID env var, matching TradeLogger pattern.
         self.bot_id = bot_id or os.environ.get("BOT_ID", "")
-        if self.bot_id not in ("A", "B"):
+        if not self.bot_id:
             raise ValueError(
-                f"BOT_ID must be 'A' or 'B', got {self.bot_id!r}. "
-                "Pass bot_id= to __init__ or set the BOT_ID env var."
+                "bot_id must be provided. Pass bot_id= to __init__ or set the BOT_ID env var."
             )
 
     # ------------------------------------------------------------------
