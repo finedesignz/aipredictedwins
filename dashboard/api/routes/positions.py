@@ -59,13 +59,15 @@ def _iso(val) -> str:
 
 
 @router.get("/open")
-def get_open_positions(bot: Literal["A", "B", "both"] = Query("both")):
+def get_open_positions(bot: str = Query("both")):
     sql = """
         SELECT id, timestamp, symbol, side, qty,
                entry_price, mirofish_prob, stop_loss, bot_id
         FROM alpaca_trades
         WHERE status = 'open'
     """
+    if bot == "all":
+        bot = "both"
     params: list = []
     if bot in ("A", "B"):
         sql += " AND bot_id = %s"
@@ -115,10 +117,12 @@ def get_open_positions(bot: Literal["A", "B", "both"] = Query("both")):
 
 @router.get("/closed")
 def get_closed_positions(
-    bot: Literal["A", "B", "both"] = Query("both"),
+    bot: str = Query("both"),
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
 ):
+    if bot == "all":
+        bot = "both"
     sql = """
         SELECT id, timestamp, symbol, side, qty,
                entry_price, exit_price, pnl, mirofish_prob,

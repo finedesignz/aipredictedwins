@@ -125,10 +125,12 @@ def _portfolio_for_bot(conn, bot_id: str, days: int = 30) -> PortfolioData:
 
 @router.get("/portfolio")
 def get_portfolio(
-    bot: Literal["A", "B", "both"] = Query("both"),
+    bot: str = Query("both"),
     days: int = Query(30, ge=1, le=365),
 ):
     """Return portfolio KPIs. bot=both returns {A: {...}, B: {...}} shape."""
+    if bot == "all":
+        bot = "both"
     with get_db() as conn:
         if bot == "both":
             data = MultiBotPortfolio(

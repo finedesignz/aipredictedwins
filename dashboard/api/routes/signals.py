@@ -71,12 +71,14 @@ def _derive_signals(row: dict) -> dict:
 
 
 @router.get("/signals")
-def get_signals(bot: Literal["A", "B", "both"] = Query("both")):
+def get_signals(bot: str = Query("both")):
     """Return the latest technical scan results from the signals table.
 
     Each bot writes its scan results after every cycle (~30 min). The response
     reflects the most recent scan per bot. Returns empty list if no scan has run.
     """
+    if bot == "all":
+        bot = "both"
     bot_ids = ["A", "B"] if bot == "both" else [bot]
 
     rows = []

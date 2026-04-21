@@ -22,11 +22,13 @@ router = APIRouter(prefix="/api/risk-gate", tags=["risk-gate"])
 
 @router.get("", response_model=Envelope[list[RiskGateRecord]])
 def get_risk_gate_decisions(
-    bot: Literal["A", "B", "both"] = Query("both"),
+    bot: str = Query("both"),
     decision: Optional[str] = Query(None, description="Filter: PROCEED or VETO"),
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
 ):
+    if bot == "all":
+        bot = "both"
     """Return risk gate decisions from the validations table.
 
     Maps validations fields to the dashboard model:

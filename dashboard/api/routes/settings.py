@@ -21,8 +21,10 @@ _LIVE_THRESHOLD = float(os.environ.get("LIVE_TRADING_THRESHOLD", "100000"))
 @router.get("/settings", response_model=Envelope[SettingsData])
 def get_settings(
     request: Request,
-    bot: Literal["A", "B", "both"] = Query("both"),
+    bot: str = Query("both"),
 ):
+    if bot == "all":
+        bot = "both"
     bot_ids = ["A", "B"] if bot == "both" else [bot]
 
     with get_db() as conn:

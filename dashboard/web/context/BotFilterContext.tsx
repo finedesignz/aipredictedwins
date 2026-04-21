@@ -43,7 +43,7 @@ export function BotFilterProvider({ children }: { children: ReactNode }) {
   }, [bots.length]);
 
   const activeBotIds = bots.map((b) => b.bot_id).filter((id) => filter[id] !== false);
-  const botParam = activeBotIds.length === 1 ? activeBotIds[0] : "all";
+  const botParam = activeBotIds.length === 1 ? activeBotIds[0] : "both";
 
   return (
     <BotFilterContext.Provider value={{ filter, setFilter, bots, activeBotIds, botParam }}>

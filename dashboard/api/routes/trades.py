@@ -93,7 +93,7 @@ def _fetch_trades(
 
 @router.get("")
 def get_trades(
-    bot: Literal["A", "B", "both"] = Query("both"),
+    bot: str = Query("both"),
     status: Optional[str] = Query(None, description="Filter by status: open, closed, stopped, target_hit"),
     symbol: Optional[str] = Query(None, description="Filter by symbol, e.g. BTC/USD"),
     date_from: Optional[str] = Query(None, description="Start date (ISO format). Defaults to 30 days ago."),
@@ -102,6 +102,8 @@ def get_trades(
     offset: int = Query(0, ge=0),
 ):
     """Return all alpaca trades with optional bot/field filtering and pagination."""
+    if bot == "all":
+        bot = "both"
     effective_date_from = date_from if date_from else _default_date_from()
     rows = _fetch_trades(bot, status, symbol, effective_date_from, date_to, limit, offset)
     return {"data": rows, "meta": {"timestamp": datetime.now(timezone.utc).isoformat(), "count": len(rows)}}
@@ -109,7 +111,7 @@ def get_trades(
 
 @router.get("/csv")
 def export_trades_csv(
-    bot: Literal["A", "B", "both"] = Query("both"),
+    bot: str = Query("both"),
     status: Optional[str] = Query(None),
     symbol: Optional[str] = Query(None),
     date_from: Optional[str] = Query(None),
@@ -118,6 +120,8 @@ def export_trades_csv(
     offset: int = Query(0, ge=0),
 ):
     """Export filtered trades as a CSV file download."""
+    if bot == "all":
+        bot = "both"
     effective_date_from = date_from if date_from else _default_date_from()
     rows = _fetch_trades(bot, status, symbol, effective_date_from, date_to, limit, offset)
 
