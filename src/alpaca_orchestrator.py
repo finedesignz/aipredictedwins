@@ -54,7 +54,16 @@ MAX_TOTAL_EXPOSURE_PCT = float(_os.environ.get("MAX_TOTAL_EXPOSURE_PCT", "0.80")
 DRAWDOWN_STOP_PCT = float(_os.environ.get("DRAWDOWN_STOP_PCT", "0.10"))
 MIN_PAPER_TRADES = int(_os.environ.get("MIN_PAPER_TRADES", "50"))
 MIN_WIN_RATE = float(_os.environ.get("MIN_WIN_RATE", "0.40"))
-MIN_CONFLUENCE = int(_os.environ.get("MIN_CONFLUENCE", "3"))
+MIN_CONFLUENCE = int(_os.environ.get("MIN_CONFLUENCE", "4"))
+
+# Symbols that Alpaca paper accounts reject — log as ghost trades with $0 PnL.
+# Keep them blocked until we confirm Alpaca accepts them.
+_ALPACA_UNTRADEABLE = frozenset(
+    _os.environ.get("ALPACA_UNTRADEABLE", "LDO/USD,POL/USD,ONDO/USD,RENDER/USD").split(",")
+)
+
+# Fraction of universe with EMA=bearish that triggers a broad-market pause on new longs.
+BEAR_MARKET_PAUSE_THRESHOLD = float(_os.environ.get("BEAR_MARKET_PAUSE_THRESHOLD", "0.60"))
 CYCLE_SLEEP_SECONDS = int(_os.environ.get("CYCLE_SLEEP_SECONDS", "1800"))
 POSITION_CHECK_INTERVAL = int(_os.environ.get("POSITION_CHECK_INTERVAL", "60"))
 SKIP_RISK_GATE = _os.environ.get("SKIP_RISK_GATE", "").lower() in ("1", "true", "yes")
@@ -550,10 +559,12 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
     log.info("Fetching dynamic crypto universe (top %d by volume)...", DYNAMIC_UNIVERSE_SIZE)
     try:
         universe = get_dynamic_crypto_universe(alpaca, top_n=DYNAMIC_UNIVERSE_SIZE)
-        console.print(f"  [cyan]Universe: {len(universe)} assets[/cyan] ({', '.join(s.replace('/USD','') for s in universe[:10])}...)")
     except Exception as _e:
         log.warning("Dynamic universe fetch failed, using default: %s", _e)
         universe = list(TOP_CRYPTO_TICKERS)
+    # Strip out known-untradeable symbols so they never reach the signal scanner
+    universe = [s for s in universe if s not in _ALPACA_UNTRADEABLE]
+    console.print(f"  [cyan]Universe: {len(universe)} assets[/cyan] ({', '.join(s.replace('/USD','') for s in universe[:10])}...)")
     _universe_last_refresh = datetime.now(timezone.utc)
 
     # Learning system (optional)
@@ -636,6 +647,7 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
         if _hours_since_refresh >= 24:
             try:
                 universe = get_dynamic_crypto_universe(alpaca, top_n=DYNAMIC_UNIVERSE_SIZE)
+                universe = [s for s in universe if s not in _ALPACA_UNTRADEABLE]
                 _universe_last_refresh = datetime.now(timezone.utc)
                 log.info("Universe refreshed: %d assets", len(universe))
             except Exception as _e:
@@ -710,13 +722,27 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                 continue
 
             # Filter: minimum confluence, dedup, blocklist
-            # Long candidates: bullish signal AND 4H trend not explicitly bearish
-            long_candidates = [
+            # Broad-market bear pause: if most of the universe has EMA=bearish, skip new longs.
+            ema_bear_count = sum(1 for s in signals if not s.ema_bullish)
+            bear_fraction = ema_bear_count / len(signals) if signals else 0.0
+            market_is_broadly_bearish = bear_fraction >= BEAR_MARKET_PAUSE_THRESHOLD
+            if market_is_broadly_bearish:
+                console.print(
+                    f"  [yellow]BROAD BEAR PAUSE[/yellow] {ema_bear_count}/{len(signals)} assets "
+                    f"have EMA=bearish ({bear_fraction:.0%}) — skipping new long entries[/yellow]"
+                )
+
+            # Long candidates: EMA must be bullish (hard gate), confluence >= threshold,
+            # not already open, not a meme coin, not an Alpaca-untradeable symbol,
+            # and 4H trend not explicitly bearish.
+            long_candidates = [] if market_is_broadly_bearish else [
                 s for s in signals
-                if s.confluence_score >= MIN_CONFLUENCE
+                if s.ema_bullish  # hard gate: EMA crossover must confirm uptrend
+                and s.confluence_score >= MIN_CONFLUENCE
                 and s.symbol not in open_symbols
                 and s.symbol not in MEME_CRYPTO
-                and s.trend_4h != "bearish"  # don't buy into 4H downtrend
+                and s.symbol not in _ALPACA_UNTRADEABLE
+                and s.trend_4h != "bearish"
             ]
 
             # Short candidates: bearish signal AND 4H trend not explicitly bullish
@@ -727,6 +753,7 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                     if s.short_score >= MIN_CONFLUENCE
                     and s.symbol not in open_symbols
                     and s.symbol not in MEME_CRYPTO
+                    and s.symbol not in _ALPACA_UNTRADEABLE
                     and s.trend_4h != "bullish"  # don't short into 4H uptrend
                 ]
 
