@@ -33,6 +33,7 @@ from src.rules_gate import RulesGate
 from src.risk_gate import RiskGate  # keep for backward compat / type hints
 from src.exit_advisor import ExitAdvisor, TrailingStop, check_position_thresholds, HARD_STOP_PCT, SOFT_STOP_PCT, SOFT_TAKE_PROFIT_PCT
 from src.trade_logger import TradeLogger
+from src.tradingagents_signal import TradingAgentsSignal, merge_with_confluence
 
 from src.notifier import alert_bot_crash, alert_drawdown_stop, alert_monitor_error, alert_position_closed, send_alert
 from src.pipeline_state import PipelineState
@@ -67,6 +68,8 @@ BEAR_MARKET_PAUSE_THRESHOLD = float(_os.environ.get("BEAR_MARKET_PAUSE_THRESHOLD
 CYCLE_SLEEP_SECONDS = int(_os.environ.get("CYCLE_SLEEP_SECONDS", "1800"))
 POSITION_CHECK_INTERVAL = int(_os.environ.get("POSITION_CHECK_INTERVAL", "60"))
 SKIP_RISK_GATE = _os.environ.get("SKIP_RISK_GATE", "").lower() in ("1", "true", "yes")
+TRADINGAGENTS_SIGNAL_ENABLED = _os.environ.get("TRADINGAGENTS_SIGNAL_ENABLED", "").lower() in ("1", "true", "yes")
+TRADINGAGENTS_BLOCK_ON_DISAGREEMENT = _os.environ.get("TRADINGAGENTS_BLOCK_ON_DISAGREEMENT", "true").lower() in ("1", "true", "yes")
 BOT_LABEL = _os.environ.get("BOT_LABEL", "Agent A")
 SHORT_ENABLED = _os.environ.get("SHORT_ENABLED", "true").lower() in ("1", "true", "yes")
 DYNAMIC_UNIVERSE_SIZE = int(_os.environ.get("DYNAMIC_UNIVERSE_SIZE", "20"))
@@ -328,6 +331,8 @@ def _print_banner(mode: str, balance: float, config) -> None:
         f"  Drawdown stop   : {DRAWDOWN_STOP_PCT:.0%} daily\n"
         f"  Cycle interval  : {CYCLE_SLEEP_SECONDS // 60} min\n"
         f"  Shorts          : {'enabled' if SHORT_ENABLED else 'disabled'}\n"
+        f"  TradingAgents   : {'ENABLED' if TRADINGAGENTS_SIGNAL_ENABLED else 'disabled'}"
+        f"{' (block-on-disagree)' if TRADINGAGENTS_SIGNAL_ENABLED and TRADINGAGENTS_BLOCK_ON_DISAGREEMENT else ''}\n"
         f"  Universe size   : {DYNAMIC_UNIVERSE_SIZE} assets (dynamic by volume)"
     )
     console.print(Panel(banner, title=f"Alpaca Orchestrator v2 — {BOT_LABEL}", border_style="cyan"))
@@ -415,6 +420,20 @@ def _kelly_technical(
         "dollar_amount": dollar_amount,
         "shares": shares,
         "capped": capped,
+    }
+
+
+def _build_ta_indicators(signal) -> dict:
+    """Project a Signal into the indicator dict shape TradingAgentsSignal expects."""
+    return {
+        "ema_state": "bullish" if signal.ema_bullish else "bearish",
+        "adx": signal.adx_value,
+        "plus_di": signal.plus_di,
+        "minus_di": signal.minus_di,
+        "rsi": signal.rsi_value,
+        "vwap_state": "above" if signal.vwap_bullish else "below",
+        "trend_4h": signal.trend_4h,
+        "vol_ratio": signal.details.get("volume_spike_ratio", 1.0),
     }
 
 
@@ -554,6 +573,9 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
     logger = TradeLogger()
     risk_gate = RulesGate()
     exit_advisor = ExitAdvisor()
+    ta_signal = TradingAgentsSignal(config) if TRADINGAGENTS_SIGNAL_ENABLED else None
+    if ta_signal is not None:
+        log.info("TradingAgents signal source ENABLED (block_on_disagreement=%s)", TRADINGAGENTS_BLOCK_ON_DISAGREEMENT)
 
     # Dynamic asset universe — refreshed at startup
     log.info("Fetching dynamic crypto universe (top %d by volume)...", DYNAMIC_UNIVERSE_SIZE)
@@ -807,6 +829,31 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
 
                     volume_24h = sum(b["volume"] for b in bars) if bars else 0
 
+                    # Optional TradingAgents pre-filter: 4-analyst LLM panel
+                    # vetoes/boosts the technical confluence before the rules gate.
+                    if ta_signal is not None:
+                        ta_score = ta_signal.evaluate(
+                            symbol=symbol,
+                            price=price,
+                            bars=list(bars),
+                            indicators=_build_ta_indicators(signal),
+                            change_24h_pct=change_pct,
+                        )
+                        effective, ta_reason = merge_with_confluence(
+                            signal.confluence_score, ta_score, "buy",
+                            block_on_disagreement=TRADINGAGENTS_BLOCK_ON_DISAGREEMENT,
+                        )
+                        if effective < MIN_CONFLUENCE:
+                            console.print(
+                                f"  [yellow]TA filter[/yellow] {symbol}: "
+                                f"effective={effective}/{MIN_CONFLUENCE} ({ta_reason}) — skipping"
+                            )
+                            continue
+                        else:
+                            console.print(
+                                f"  [dim]TA filter {symbol}: effective={effective} ({ta_reason})[/dim]"
+                            )
+
                     if SKIP_RISK_GATE:
                         # Bypass risk gate — approve all technical signals
                         risk_gate_passed += 1
@@ -953,6 +1000,26 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
 
                     change_pct = ((price - bars[0]["open"]) / bars[0]["open"] * 100) if bars else 0.0
                     volume_24h = sum(b["volume"] for b in bars) if bars else 0
+
+                    # TradingAgents pre-filter for shorts (direction="sell")
+                    if ta_signal is not None:
+                        ta_score = ta_signal.evaluate(
+                            symbol=symbol,
+                            price=price,
+                            bars=list(bars),
+                            indicators=_build_ta_indicators(signal),
+                            change_24h_pct=change_pct,
+                        )
+                        effective, ta_reason = merge_with_confluence(
+                            signal.short_score, ta_score, "sell",
+                            block_on_disagreement=TRADINGAGENTS_BLOCK_ON_DISAGREEMENT,
+                        )
+                        if effective < MIN_CONFLUENCE:
+                            console.print(
+                                f"  [yellow]TA filter SHORT[/yellow] {symbol}: "
+                                f"effective={effective}/{MIN_CONFLUENCE} ({ta_reason}) — skipping"
+                            )
+                            continue
 
                     # Rules gate check (same gate as longs)
                     if not SKIP_RISK_GATE:
