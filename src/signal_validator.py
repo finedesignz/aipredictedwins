@@ -2,87 +2,77 @@
 Signal Validator — single-call Claude sanity check before trade entry.
 
 Optional A/B layer. When tradingagents_enabled=True on a bot, every candidate
-signal goes through this check. Claude reviews macro context + technicals and
-returns APPROVE or VETO with a short reason.
-
-Uses Anthropic SDK directly. Requires ANTHROPIC_API_KEY env var.
-Falls back to APPROVE if the API call fails (fail-open to not block trades).
+signal passes through this check. Uses ClaudeLLM (Claude Code CLI + OAuth) —
+no API key needed. Fails open on any error so trades are never blocked by
+infrastructure issues.
 """
 
 import logging
-import os
 
-logger = logging.getLogger(__name__)
+from src.claude_llm import ClaudeLLM
+
+log = logging.getLogger(__name__)
+
+_PROMPT = """\
+You are a fast trading sanity check. Given these technical signals, decide APPROVE or VETO.
+
+Symbol: {symbol}
+Side: {side}
+Price change 24h: {change_pct:+.1f}%
+EMA: {ema}
+ADX: {adx:.1f} (trend strength, >25=strong)
+RSI: {rsi:.1f} (>70=overbought, <30=oversold)
+Volume spike: {volume_spike}
+VWAP: {vwap}
+4H trend: {trend_4h}
+Market regime: {regime}
+Confluence score: {confluence}/4
+
+VETO only if there is a clear macro red flag: extreme RSI, weak ADX in a ranging market, \
+or price chasing after an outsized move.
+Respond with exactly one line: APPROVE or VETO: <one sentence reason>"""
 
 
 class SignalValidator:
-    def __init__(self):
-        self._client = None
+    """Single-call Claude signal sanity check. Fail-open on any error."""
 
-    def _get_client(self):
-        if self._client is not None:
-            return self._client
-        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-        if not api_key:
-            return None
-        try:
-            from anthropic import Anthropic
-            self._client = Anthropic(api_key=api_key)
-        except Exception as e:
-            logger.warning(f"[signal_validator] failed to init Anthropic client: {e}")
-            return None
-        return self._client
+    def __init__(self):
+        self._llm = ClaudeLLM(model="claude-haiku-4-5-20251001", timeout=30)
 
     def validate(self, symbol: str, side: str, signal, price: float, change_pct: float) -> tuple[str, str]:
-        """
-        Returns (decision, reason) where decision is "APPROVE" or "VETO".
-        Fails open (returns APPROVE) on any error.
-
-        side: "long" or "short"
-        signal: Signal dataclass instance
-        """
-        client = self._get_client()
-        if client is None:
-            logger.warning("[signal_validator] no API key — skipping validation")
-            return ("APPROVE", "validator unavailable")
-
-        prompt = (
-            f"You are a fast trading sanity check. Given these technical signals, decide APPROVE or VETO.\n\n"
-            f"Symbol: {symbol}\n"
-            f"Side: {side}\n"
-            f"Price change 24h: {change_pct:+.1f}%\n"
-            f"EMA: {'bullish' if signal.ema_bullish else 'bearish'}\n"
-            f"ADX: {signal.adx_value:.1f} (trend strength, >25=strong)\n"
-            f"RSI: {signal.rsi_value:.1f} (>70=overbought, <30=oversold)\n"
-            f"Volume spike: {signal.volume_spike}\n"
-            f"VWAP: {'above' if signal.vwap_bullish else 'below'}\n"
-            f"4H trend: {signal.trend_4h}\n"
-            f"Market regime: {signal.market_regime}\n"
-            f"Confluence: {signal.confluence_score}/4\n\n"
-            f"VETO only if there's a clear macro red flag (extreme RSI, weak ADX on ranging market, "
-            f"or price chasing after big move).\n"
-            f"Respond with exactly: APPROVE or VETO: <one sentence reason>"
+        """Return (decision, reason) where decision is 'APPROVE' or 'VETO'."""
+        prompt = _PROMPT.format(
+            symbol=symbol,
+            side=side,
+            change_pct=change_pct,
+            ema="bullish" if signal.ema_bullish else "bearish",
+            adx=signal.adx_value,
+            rsi=signal.rsi_value,
+            volume_spike=signal.volume_spike,
+            vwap="above" if signal.vwap_bullish else "below",
+            trend_4h=signal.trend_4h,
+            regime=signal.market_regime,
+            confluence=signal.confluence_score,
         )
 
         try:
-            response = client.messages.create(
-                model="claude-haiku-4-5-20251001",
-                max_tokens=60,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            text = response.content[0].text.strip()
-        except Exception as e:
-            logger.warning(f"[signal_validator] API call failed: {e}")
+            text = self._llm.call(prompt, max_tokens=60)
+        except Exception as exc:
+            log.warning("[signal_validator] call failed (%s) — approving %s %s", exc, symbol, side)
             return ("APPROVE", "validator unavailable")
 
-        if text.startswith("VETO"):
-            parts = text.split(": ", 1)
-            reason = parts[1].strip() if len(parts) > 1 else "vetoed by validator"
-            decision = "VETO"
-        else:
-            decision = "APPROVE"
-            parts = text.split(": ", 1)
-            reason = parts[1].strip() if len(parts) > 1 else text
+        if not text:
+            log.warning("[signal_validator] empty response — approving %s %s", symbol, side)
+            return ("APPROVE", "validator unavailable")
 
-        logger.info(f"[signal_validator] {symbol} {side} → {decision}: {reason}")
-        return (decision, reason)
+        text = text.strip()
+        if text.upper().startswith("VETO"):
+            parts = text.split(": ", 1)
+            reason = parts[1].strip() if len(parts) > 1 else "vetoed"
+            log.info("[signal_validator] %s %s → VETO: %s", symbol, side, reason)
+            return ("VETO", reason)
+
+        parts = text.split(": ", 1)
+        reason = parts[1].strip() if len(parts) > 1 else "approved"
+        log.info("[signal_validator] %s %s → APPROVE: %s", symbol, side, reason)
+        return ("APPROVE", reason)
