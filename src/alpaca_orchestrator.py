@@ -55,11 +55,17 @@ DRAWDOWN_STOP_PCT = float(_os.environ.get("DRAWDOWN_STOP_PCT", "0.10"))
 MIN_PAPER_TRADES = int(_os.environ.get("MIN_PAPER_TRADES", "50"))
 MIN_WIN_RATE = float(_os.environ.get("MIN_WIN_RATE", "0.40"))
 MIN_CONFLUENCE = int(_os.environ.get("MIN_CONFLUENCE", "4"))
+# Shorts require fewer signals (3/4) since bear setups are more fleeting
+MIN_SHORT_CONFLUENCE = int(_os.environ.get("MIN_SHORT_CONFLUENCE", "3"))
 
-# Symbols that Alpaca paper accounts reject — log as ghost trades with $0 PnL.
-# Keep them blocked until we confirm Alpaca accepts them.
+# Symbols that Alpaca paper accounts reject OR have shown 0% win rate across 5+ trades.
+# LDO/POL/ONDO/RENDER: ghost trades (silently rejected by Alpaca paper).
+# DOT/ARB/SUSHI: 0% win rate across 6+, 5, 7 real trades respectively.
 _ALPACA_UNTRADEABLE = frozenset(
-    _os.environ.get("ALPACA_UNTRADEABLE", "LDO/USD,POL/USD,ONDO/USD,RENDER/USD").split(",")
+    _os.environ.get(
+        "ALPACA_UNTRADEABLE",
+        "LDO/USD,POL/USD,ONDO/USD,RENDER/USD,DOT/USD,ARB/USD,SUSHI/USD",
+    ).split(",")
 )
 
 # Fraction of universe with EMA=bearish that triggers a broad-market pause on new longs.
@@ -750,7 +756,7 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
             if SHORT_ENABLED:
                 short_candidates = [
                     s for s in signals
-                    if s.short_score >= MIN_CONFLUENCE
+                    if s.short_score >= MIN_SHORT_CONFLUENCE
                     and s.symbol not in open_symbols
                     and s.symbol not in MEME_CRYPTO
                     and s.symbol not in _ALPACA_UNTRADEABLE
