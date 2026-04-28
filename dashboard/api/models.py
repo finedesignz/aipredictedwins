@@ -238,6 +238,8 @@ class BotCreate(BaseModel):
     stock_universe: str = "QQQ,SPY,AAPL,NVDA,MSFT,TSLA,AMZN,META"
     skip_risk_gate: bool = False
     max_position_pct: float = 0.05
+    min_short_confluence: int = 3
+    tradingagents_enabled: bool = False
 
 
 class BotUpdate(BaseModel):
@@ -254,6 +256,8 @@ class BotUpdate(BaseModel):
     skip_risk_gate: Optional[bool] = None
     max_position_pct: Optional[float] = None
     enabled: Optional[bool] = None
+    min_short_confluence: Optional[int] = None
+    tradingagents_enabled: Optional[bool] = None
 
 
 # -- Multi-bot portfolio (bot=both response shape) ----------------------------

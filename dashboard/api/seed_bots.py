@@ -41,6 +41,8 @@ def seed_bots() -> None:
             "stock_universe": os.environ.get("BOT_A_STOCK_UNIVERSE", "QQQ,SPY,AAPL,NVDA,MSFT,TSLA,AMZN,META"),
             "asset_class": "crypto",
             "max_position_pct": float(os.environ.get("BOT_A_MAX_POSITION_PCT", "0.05")),
+            "min_short_confluence": int(os.environ.get("BOT_A_MIN_SHORT_CONFLUENCE", "3")),
+            "tradingagents_enabled": os.environ.get("BOT_A_TRADINGAGENTS", "false").lower() == "true",
         })
 
     key_b = os.environ.get("ALPACA_API_KEY_B")
@@ -61,6 +63,8 @@ def seed_bots() -> None:
             "stock_universe": os.environ.get("BOT_B_STOCK_UNIVERSE", "QQQ,SPY,AAPL,NVDA,MSFT,TSLA,AMZN,META"),
             "asset_class": "crypto",
             "max_position_pct": float(os.environ.get("BOT_B_MAX_POSITION_PCT", "0.05")),
+            "min_short_confluence": int(os.environ.get("BOT_B_MIN_SHORT_CONFLUENCE", "3")),
+            "tradingagents_enabled": os.environ.get("BOT_B_TRADINGAGENTS", "false").lower() == "true",
         })
 
     key_c = os.environ.get("ALPACA_API_KEY_C")
@@ -81,6 +85,8 @@ def seed_bots() -> None:
             "stock_universe": os.environ.get("BOT_C_STOCK_UNIVERSE", "SPY,QQQ,NVDA,AAPL,MSFT,TSLA,META,AMZN,GOOGL,AMD,COIN,MSTR"),
             "asset_class": "stock",
             "max_position_pct": float(os.environ.get("BOT_C_MAX_POSITION_PCT", "0.05")),
+            "min_short_confluence": int(os.environ.get("BOT_C_MIN_SHORT_CONFLUENCE", "3")),
+            "tradingagents_enabled": os.environ.get("BOT_C_TRADINGAGENTS", "false").lower() == "true",
         })
 
     if not bots:
@@ -99,12 +105,14 @@ def seed_bots() -> None:
                         id, bot_id, label, alpaca_api_key, alpaca_secret_key,
                         kelly_fraction, min_confluence, skip_risk_gate,
                         hard_stop_pct, soft_stop_pct, rsi_ceiling,
-                        crypto_universe, stock_universe, asset_class, max_position_pct, enabled, status
+                        crypto_universe, stock_universe, asset_class, max_position_pct,
+                        min_short_confluence, tradingagents_enabled, enabled, status
                     ) VALUES (
                         %(id)s, %(bot_id)s, %(label)s, %(alpaca_api_key)s, %(alpaca_secret_key)s,
                         %(kelly_fraction)s, %(min_confluence)s, %(skip_risk_gate)s,
                         %(hard_stop_pct)s, %(soft_stop_pct)s, %(rsi_ceiling)s,
-                        %(crypto_universe)s, %(stock_universe)s, %(asset_class)s, %(max_position_pct)s, TRUE, 'stopped'
+                        %(crypto_universe)s, %(stock_universe)s, %(asset_class)s, %(max_position_pct)s,
+                        %(min_short_confluence)s, %(tradingagents_enabled)s, TRUE, 'stopped'
                     )
                     """,
                     {**bot, "id": bot["bot_id"]},

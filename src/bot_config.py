@@ -27,6 +27,8 @@ class BotConfig:
     max_position_pct: float = 0.05
     short_enabled: bool = True
     dynamic_universe_size: int = 20
+    min_short_confluence: int = 3
+    tradingagents_enabled: bool = False
 
     @classmethod
     def from_row(cls, row: dict) -> "BotConfig":
@@ -48,6 +50,8 @@ class BotConfig:
             max_position_pct=float(row["max_position_pct"] if row.get("max_position_pct") is not None else 0.05),
             short_enabled=bool(row.get("short_enabled") if row.get("short_enabled") is not None else True),
             dynamic_universe_size=int(row["dynamic_universe_size"] if row.get("dynamic_universe_size") is not None else 20),
+            min_short_confluence=int(row["min_short_confluence"] if row.get("min_short_confluence") is not None else 3),
+            tradingagents_enabled=bool(row.get("tradingagents_enabled") or False),
         )
 
     @property

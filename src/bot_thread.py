@@ -50,7 +50,9 @@ from src.alpaca_orchestrator import (
     MAX_TOTAL_EXPOSURE_PCT,
     DRAWDOWN_STOP_PCT,
     CYCLE_SLEEP_SECONDS,
+    _ALPACA_UNTRADEABLE,
 )
+from src.signal_validator import SignalValidator
 from src.alpaca_evaluator import MEME_CRYPTO, get_dynamic_crypto_universe
 from src.pipeline_state import PipelineState
 from src import db as _db
@@ -333,12 +335,15 @@ class BotThread(threading.Thread):
 
         short_enabled = getattr(cfg, "short_enabled", True)
 
+        min_short = getattr(cfg, "min_short_confluence", 3)
+
         # Long candidates: bullish confluence, not bearish on 4H, RSI not overextended
         long_candidates = _select_cycle_candidates([
             s for s in signals
             if s.confluence_score >= cfg.min_confluence
             and s.symbol not in open_symbols
             and s.symbol not in MEME_CRYPTO
+            and s.symbol not in _ALPACA_UNTRADEABLE
             and s.rsi_value < cfg.rsi_ceiling
             and getattr(s, "trend_4h", "unknown") != "bearish"
         ])
@@ -347,9 +352,10 @@ class BotThread(threading.Thread):
         short_candidates = _select_cycle_candidates([
             s for s in signals
             if short_enabled
-            and getattr(s, "short_score", 0) >= cfg.min_confluence
+            and getattr(s, "short_score", 0) >= min_short
             and s.symbol not in open_symbols
             and s.symbol not in MEME_CRYPTO
+            and s.symbol not in _ALPACA_UNTRADEABLE
             and getattr(s, "trend_4h", "unknown") != "bullish"
         ]) if short_enabled else []
 
@@ -416,6 +422,7 @@ class BotThread(threading.Thread):
                 log.exception("[bot:%s] Risk gate error for %s: %s", bot_id, symbol, exc)
 
         # -- Layer 3: Size and place orders ------------------------------------
+        validator = SignalValidator() if getattr(cfg, "tradingagents_enabled", False) else None
         cycle_exposure = 0.0
         for state in approved_states:
             # Re-check exposure before each order
@@ -432,6 +439,12 @@ class BotThread(threading.Thread):
             change_pct = side_data[symbol]["change_pct"]
             volume_24h = side_data[symbol]["volume_24h"]
             signal_type = f"technical_confluence_{signal.confluence_score}"
+
+            if validator is not None:
+                decision, reason = validator.validate(symbol, "long", signal, price, change_pct)
+                if decision == "VETO":
+                    log.info("[bot:%s] VALIDATOR VETO %s (long): %s", bot_id, symbol, reason)
+                    continue
 
             # -- Memory advisory (layer 3a): consult trade history --------------
             if memory is not None:
@@ -595,6 +608,12 @@ class BotThread(threading.Thread):
             price = short_side_data[symbol]["price"]
             short_score = getattr(signal, "short_score", 0)
             signal_type = f"technical_short_{short_score}"
+
+            if validator is not None:
+                decision, reason = validator.validate(symbol, "short", signal, price, short_side_data[symbol]["change_pct"])
+                if decision == "VETO":
+                    log.info("[bot:%s] VALIDATOR VETO %s (short): %s", bot_id, symbol, reason)
+                    continue
 
             sizing = _kelly_technical(
                 confluence=short_score,
