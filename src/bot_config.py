@@ -29,6 +29,11 @@ class BotConfig:
     dynamic_universe_size: int = 20
     min_short_confluence: int = 3
     tradingagents_enabled: bool = False
+    # Strategy mode: "confluence" (default, technical scalper) | "trend_btc" (50DMA trend follower on BITX)
+    strategy: str = "confluence"
+    trend_ma_window: int = 50
+    trend_symbol: str = "BITX"   # 2x BTC ETF; can swap to IBIT (1x) or ETHU (2x ETH)
+    trend_benchmark: str = "BTC/USD"  # asset whose MA we follow
 
     @classmethod
     def from_row(cls, row: dict) -> "BotConfig":
@@ -52,6 +57,10 @@ class BotConfig:
             dynamic_universe_size=int(row["dynamic_universe_size"] if row.get("dynamic_universe_size") is not None else 20),
             min_short_confluence=int(row["min_short_confluence"] if row.get("min_short_confluence") is not None else 3),
             tradingagents_enabled=bool(row.get("tradingagents_enabled") or False),
+            strategy=row.get("strategy") or "confluence",
+            trend_ma_window=int(row["trend_ma_window"] if row.get("trend_ma_window") is not None else 50),
+            trend_symbol=row.get("trend_symbol") or "BITX",
+            trend_benchmark=row.get("trend_benchmark") or "BTC/USD",
         )
 
     @property

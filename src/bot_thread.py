@@ -282,6 +282,15 @@ class BotThread(threading.Thread):
         """Execute one full scan → filter → risk-gate → size → order cycle."""
         bot_id = cfg.bot_id
 
+        # -- Strategy branch: trend-follower bypasses confluence pipeline ------
+        if getattr(cfg, "strategy", "confluence") == "trend_btc":
+            from src.trend_strategy import run_trend_cycle
+            try:
+                run_trend_cycle(cfg, alpaca, logger)
+            except Exception as exc:
+                log.exception("[bot:%s] trend cycle error: %s", bot_id, exc)
+            return
+
         # -- Run learning cycle before scanning --------------------------------
         if learning_loop is not None:
             try:

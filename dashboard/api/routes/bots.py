@@ -19,7 +19,9 @@ router = APIRouter(prefix="/api", tags=["bots"])
 # Columns returned for list/get — never expose raw alpaca keys
 _BOT_COLS = """bot_id, label, kelly_fraction, min_confluence, hard_stop_pct,
     soft_stop_pct, rsi_ceiling, crypto_universe, stock_universe, skip_risk_gate,
-    max_position_pct, min_short_confluence, tradingagents_enabled, enabled, status, status_detail"""
+    max_position_pct, min_short_confluence, tradingagents_enabled,
+    strategy, trend_ma_window, trend_symbol, trend_benchmark,
+    enabled, status, status_detail"""
 
 
 def _mgr(request: Request):

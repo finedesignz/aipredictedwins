@@ -258,6 +258,11 @@ class BotUpdate(BaseModel):
     enabled: Optional[bool] = None
     min_short_confluence: Optional[int] = None
     tradingagents_enabled: Optional[bool] = None
+    strategy: Optional[str] = None
+    trend_ma_window: Optional[int] = None
+    trend_symbol: Optional[str] = None
+    trend_benchmark: Optional[str] = None
+    asset_class: Optional[str] = None
 
 
 # -- Multi-bot portfolio (bot=both response shape) ----------------------------
