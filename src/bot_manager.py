@@ -10,6 +10,7 @@ from psycopg.rows import dict_row
 
 from src.bot_config import BotConfig
 from src.bot_thread import BotThread
+from src.copytrade_thread import CopyTraderThread
 
 log = logging.getLogger(__name__)
 
@@ -271,7 +272,11 @@ class BotManager:
     # ------------------------------------------------------------------
 
     def _spawn(self, cfg: BotConfig) -> None:
-        """Start a new BotThread, stopping any existing one first.
+        """Start a new bot thread, stopping any existing one first.
+
+        Dispatches on cfg.strategy:
+          - 'copytrade' -> CopyTraderThread (ai4trade.ai poll loop)
+          - anything else (confluence, trend_btc, ...) -> BotThread
 
         Must be called with self._lock held.
         """
@@ -279,10 +284,17 @@ class BotManager:
         if old and old.is_alive():
             old.stop()
             old.join(timeout=5)
-        thread = BotThread(cfg, on_status_change=self._on_status_change)
+        if cfg.strategy == "copytrade":
+            thread = CopyTraderThread(
+                cfg,
+                pool=self._pool,
+                on_status_change=self._on_status_change,
+            )
+        else:
+            thread = BotThread(cfg, on_status_change=self._on_status_change)
         self._threads[cfg.bot_id] = thread
         thread.start()
-        log.info("BotManager: spawned bot %s (%s)", cfg.bot_id, cfg.label)
+        log.info("BotManager: spawned bot %s (%s, strategy=%s)", cfg.bot_id, cfg.label, cfg.strategy)
 
     def _on_status_change(self, bot_id: str, status: str, detail: str) -> None:
         """Write status back to DB when thread changes state."""
