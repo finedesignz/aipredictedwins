@@ -216,8 +216,15 @@ class BotFull(BaseModel):
     rsi_ceiling: float = 72.0
     crypto_universe: str = "BTC/USD,ETH/USD,SOL/USD,XRP/USD,ADA/USD,AVAX/USD,DOT/USD,LINK/USD"
     stock_universe: Optional[str] = "QQQ,SPY,AAPL,NVDA,MSFT,TSLA,AMZN,META"
+    asset_class: Optional[str] = "crypto"
     skip_risk_gate: bool = False
     max_position_pct: float = 0.05
+    min_short_confluence: Optional[int] = 3
+    tradingagents_enabled: Optional[bool] = False
+    strategy: Optional[str] = "confluence"
+    trend_ma_window: Optional[int] = 50
+    trend_symbol: Optional[str] = "BITX"
+    trend_benchmark: Optional[str] = "BTC/USD"
     enabled: bool = True
     status: str = "stopped"
     status_detail: Optional[str] = None
