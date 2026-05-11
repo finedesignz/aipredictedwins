@@ -23,7 +23,8 @@ import requests
 log = logging.getLogger(__name__)
 
 DEFAULT_BASE_URL = "https://ai4trade.ai"
-DEFAULT_TIMEOUT = 30
+# ai4trade.ai responses commonly take 30–45s; give a wide margin.
+DEFAULT_TIMEOUT = 90
 
 
 class AI4TradeError(RuntimeError):
