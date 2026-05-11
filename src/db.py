@@ -123,6 +123,22 @@ def get_open_alpaca_positions(bot_id: str) -> list[dict]:
         ).fetchall()
 
 
+def get_recent_loss_symbols(bot_id: str, hours: int = 24) -> set[str]:
+    """Symbols this bot closed at a loss within `hours` — used as re-entry cooldown."""
+    with connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT DISTINCT symbol FROM alpaca_trades
+            WHERE bot_id = %s
+              AND status IN ('closed', 'stopped')
+              AND pnl < 0
+              AND closed_at >= NOW() - (%s || ' hours')::interval
+            """,
+            (bot_id, str(hours)),
+        ).fetchall()
+    return {r["symbol"] for r in rows}
+
+
 def get_alpaca_accuracy(bot_id: str, last_n: int | None = None) -> dict:
     with connection() as conn:
         base = """

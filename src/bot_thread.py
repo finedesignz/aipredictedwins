@@ -303,6 +303,13 @@ class BotThread(threading.Thread):
         open_positions = logger.get_open_alpaca_positions()
         open_symbols = {p.get("symbol") for p in open_positions}
 
+        # 24h re-entry cooldown — don't re-buy what we just got stopped out of.
+        try:
+            recent_loss_symbols = _db.get_recent_loss_symbols(bot_id, hours=24)
+        except Exception as exc:
+            log.warning("[bot:%s] recent-loss lookup failed: %s", bot_id, exc)
+            recent_loss_symbols = set()
+
         # Calculate total exposure
         total_exposure = sum(
             float(p.get("entry_price", 0)) * float(p.get("qty", 0))
@@ -342,6 +349,7 @@ class BotThread(threading.Thread):
             s for s in signals
             if s.confluence_score >= cfg.min_confluence
             and s.symbol not in open_symbols
+            and s.symbol not in recent_loss_symbols
             and s.symbol not in MEME_CRYPTO
             and s.symbol not in _ALPACA_UNTRADEABLE
             and s.rsi_value < cfg.rsi_ceiling
@@ -354,6 +362,7 @@ class BotThread(threading.Thread):
             if short_enabled
             and getattr(s, "short_score", 0) >= min_short
             and s.symbol not in open_symbols
+            and s.symbol not in recent_loss_symbols
             and s.symbol not in MEME_CRYPTO
             and s.symbol not in _ALPACA_UNTRADEABLE
             and getattr(s, "trend_4h", "unknown") != "bullish"

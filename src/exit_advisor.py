@@ -20,15 +20,17 @@ from src.claude_llm import ClaudeLLM
 log = logging.getLogger(__name__)
 
 # Thresholds — all overridable via env vars
-SOFT_STOP_PCT        = float(os.environ.get("SOFT_STOP_PCT",        "-0.03"))
-SOFT_TAKE_PROFIT_PCT = float(os.environ.get("SOFT_TAKE_PROFIT_PCT", "0.08"))
-HARD_STOP_PCT        = float(os.environ.get("HARD_STOP_PCT",        "-0.05"))
-HARD_TAKE_PROFIT_PCT = float(os.environ.get("HARD_TAKE_PROFIT_PCT", "0.15"))  # backtester hard exit
+# v3 — trend-rider defaults: wider stops, bigger profit targets.
+# Old scalper defaults (-3/-5 stop, +8/+15 TP) got whipsawed in bull trends.
+SOFT_STOP_PCT        = float(os.environ.get("SOFT_STOP_PCT",        "-0.08"))
+SOFT_TAKE_PROFIT_PCT = float(os.environ.get("SOFT_TAKE_PROFIT_PCT", "0.15"))
+HARD_STOP_PCT        = float(os.environ.get("HARD_STOP_PCT",        "-0.15"))
+HARD_TAKE_PROFIT_PCT = float(os.environ.get("HARD_TAKE_PROFIT_PCT", "0.30"))
 
-TRAIL_ACTIVATION_PCT      = 0.05   # activate trailing stop at +5% (was 3%)
-TRAIL_DISTANCE_PCT        = 0.03   # trail 3% behind peak (was 2%)
-TRAIL_TIGHTEN_THRESHOLD   = 0.12   # tighten trail above +12% gain
-TRAIL_DISTANCE_TIGHT_PCT  = 0.02   # tightened trail distance
+TRAIL_ACTIVATION_PCT      = float(os.environ.get("TRAIL_ACTIVATION_PCT", "0.08"))
+TRAIL_DISTANCE_PCT        = float(os.environ.get("TRAIL_DISTANCE_PCT", "0.05"))
+TRAIL_TIGHTEN_THRESHOLD   = float(os.environ.get("TRAIL_TIGHTEN_THRESHOLD", "0.20"))
+TRAIL_DISTANCE_TIGHT_PCT  = float(os.environ.get("TRAIL_DISTANCE_TIGHT_PCT", "0.03"))
 
 EXIT_EVALUATION_PROMPT = """You are an expert crypto swing trader evaluating an open position.
 Your job is to decide: HOLD, TIGHTEN, or EXIT.
