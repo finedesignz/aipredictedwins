@@ -36,6 +36,21 @@ def _seconds_until_market_open() -> float:
         candidate += datetime.timedelta(days=1)
     return max(60.0, (candidate - now).total_seconds())
 
+
+def _seconds_until_tradingagents_run() -> float:
+    """Return seconds until the next TradingAgents daily run (16:30 ET, Mon–Fri).
+
+    Runs 30 minutes after the US equity close so end-of-day data is available.
+    Skips weekends.
+    """
+    now = datetime.datetime.now(_ET)
+    candidate = now.replace(hour=16, minute=30, second=0, microsecond=0)
+    if candidate <= now:
+        candidate += datetime.timedelta(days=1)
+    while candidate.weekday() >= 5:
+        candidate += datetime.timedelta(days=1)
+    return max(60.0, (candidate - now).total_seconds())
+
 from src.bot_config import BotConfig
 from src.config import Config
 from src.alpaca_client import AlpacaClient
@@ -249,6 +264,24 @@ class BotThread(threading.Thread):
             cfg = self.config
             cycle_count += 1
 
+            # TradingAgents bots run once daily 30 min after close — never during the day.
+            if getattr(cfg, "strategy", "confluence") == "tradingagents":
+                sleep_secs = _seconds_until_tradingagents_run()
+                log.info(
+                    "[bot:%s] TradingAgents — sleeping %.0fs (%.1fh) until next daily run",
+                    bot_id, sleep_secs, sleep_secs / 3600,
+                )
+                self._stop_event.wait(sleep_secs)
+                if self._stop_event.is_set():
+                    break
+                try:
+                    self._run_cycle(self.config, alpaca, logger, risk_gate, starting_bankroll,
+                                    cycle_count + 1, memory, learning_loop, universe)
+                except Exception as exc:
+                    log.exception("[bot:%s] TradingAgents cycle failed: %s", bot_id, exc)
+                cycle_count += 1
+                continue
+
             # Stock bots: skip entirely when markets are closed, sleep until near open
             if cfg.asset_class == "stock" and not _market_is_open():
                 sleep_secs = _seconds_until_market_open()
@@ -289,6 +322,15 @@ class BotThread(threading.Thread):
                 run_trend_cycle(cfg, alpaca, logger)
             except Exception as exc:
                 log.exception("[bot:%s] trend cycle error: %s", bot_id, exc)
+            return
+
+        # -- Strategy branch: TradingAgents (TauricResearch) auto-trader -------
+        if getattr(cfg, "strategy", "confluence") == "tradingagents":
+            from src.bot_c.strategy import run_tradingagents_cycle
+            try:
+                run_tradingagents_cycle(cfg, alpaca, logger)
+            except Exception as exc:
+                log.exception("[bot:%s] tradingagents cycle error: %s", bot_id, exc)
             return
 
         # -- Run learning cycle before scanning --------------------------------

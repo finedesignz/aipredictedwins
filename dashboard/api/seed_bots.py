@@ -72,21 +72,24 @@ def seed_bots() -> None:
     if key_c and secret_c:
         bots.append({
             "bot_id": "C",
-            "label": os.environ.get("BOT_C_LABEL", "Agent C"),
+            "label": os.environ.get("BOT_C_LABEL", "Agent C — TradingAgents"),
             "alpaca_api_key": key_c,
             "alpaca_secret_key": secret_c,
             "kelly_fraction": float(os.environ.get("BOT_C_KELLY", "0.25")),
             "min_confluence": int(os.environ.get("BOT_C_CONFLUENCE", "3")),
-            "skip_risk_gate": os.environ.get("BOT_C_SKIP_RISK_GATE", "false").lower() == "true",
+            # TradingAgents runs its own multi-analyst risk debate; the local
+            # rules-gate would just second-guess the framework. Disable by default.
+            "skip_risk_gate": os.environ.get("BOT_C_SKIP_RISK_GATE", "true").lower() == "true",
             "hard_stop_pct": float(os.environ.get("BOT_C_HARD_STOP_PCT", "-0.05")),
             "soft_stop_pct": float(os.environ.get("BOT_C_SOFT_STOP_PCT", "-0.03")),
             "rsi_ceiling": float(os.environ.get("BOT_C_RSI_CEILING", "70.0")),
             "crypto_universe": os.environ.get("BOT_C_CRYPTO_UNIVERSE", "BTC/USD,ETH/USD,SOL/USD,XRP/USD,ADA/USD,AVAX/USD,DOT/USD,LINK/USD"),
-            "stock_universe": os.environ.get("BOT_C_STOCK_UNIVERSE", "SPY,QQQ,NVDA,AAPL,MSFT,TSLA,META,AMZN,GOOGL,AMD,COIN,MSTR"),
+            "stock_universe": os.environ.get("BOT_C_STOCK_UNIVERSE", "SPY,NVDA,AAPL,TSLA,AMZN,GOOGL,MSFT,META"),
             "asset_class": "stock",
             "max_position_pct": float(os.environ.get("BOT_C_MAX_POSITION_PCT", "0.05")),
             "min_short_confluence": int(os.environ.get("BOT_C_MIN_SHORT_CONFLUENCE", "3")),
             "tradingagents_enabled": os.environ.get("BOT_C_TRADINGAGENTS", "false").lower() == "true",
+            "strategy": os.environ.get("BOT_C_STRATEGY", "tradingagents"),
         })
 
     if not bots:
@@ -99,6 +102,8 @@ def seed_bots() -> None:
                 "SELECT COUNT(*) FROM bots WHERE bot_id = %s", (bot["bot_id"],)
             ).fetchone()[0]
             if count == 0:
+                # strategy may be absent for A/B — default to 'confluence'.
+                row = {**bot, "id": bot["bot_id"], "strategy": bot.get("strategy", "confluence")}
                 conn.execute(
                     """
                     INSERT INTO bots (
@@ -106,16 +111,18 @@ def seed_bots() -> None:
                         kelly_fraction, min_confluence, skip_risk_gate,
                         hard_stop_pct, soft_stop_pct, rsi_ceiling,
                         crypto_universe, stock_universe, asset_class, max_position_pct,
-                        min_short_confluence, tradingagents_enabled, enabled, status
+                        min_short_confluence, tradingagents_enabled, strategy,
+                        enabled, status
                     ) VALUES (
                         %(id)s, %(bot_id)s, %(label)s, %(alpaca_api_key)s, %(alpaca_secret_key)s,
                         %(kelly_fraction)s, %(min_confluence)s, %(skip_risk_gate)s,
                         %(hard_stop_pct)s, %(soft_stop_pct)s, %(rsi_ceiling)s,
                         %(crypto_universe)s, %(stock_universe)s, %(asset_class)s, %(max_position_pct)s,
-                        %(min_short_confluence)s, %(tradingagents_enabled)s, TRUE, 'stopped'
+                        %(min_short_confluence)s, %(tradingagents_enabled)s, %(strategy)s,
+                        TRUE, 'stopped'
                     )
                     """,
-                    {**bot, "id": bot["bot_id"]},
+                    row,
                 )
                 log.info("Seeded bot %s (%s)", bot["bot_id"], bot["label"])
             else:
