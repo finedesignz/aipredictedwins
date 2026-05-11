@@ -41,6 +41,10 @@ POLL_INTERVAL_SECONDS = 60
 # Refresh leader picks weekly.
 LEADER_REFRESH_SECONDS = 7 * 24 * 3600
 
+# Retry leader selection at most this often when no leaders are currently
+# followed (the /api/agents/top endpoint is known-flaky — it 504s often).
+LEADER_RETRY_SECONDS = 3600
+
 # Cap how many signals we'll act on per poll tick — prevents a burst of platform
 # signals from blowing through our buying power before the next tick.
 MAX_ACTIONS_PER_TICK = 5
@@ -193,6 +197,23 @@ class CopyTraderThread(threading.Thread):
 
     # -- Leader selection -------------------------------------------------
 
+    def _discover_leaders_from_feed(self, client: AI4TradeClient, n: int = 3) -> list[int]:
+        """Fallback when /api/agents/top is broken: pick most-active publishers
+        from the public firehose. An agent posting frequently is at least
+        verifiably active, which beats nothing.
+        """
+        try:
+            signals = client.get_feed(limit=100, sort="new")
+        except AI4TradeError as exc:
+            log.warning("[bot:%s] fallback feed discovery failed: %s", self.bot_id, exc)
+            return []
+        counts: dict[int, int] = {}
+        for sig in signals:
+            aid = sig.get("agent_id")
+            if isinstance(aid, int) and aid > 0:
+                counts[aid] = counts.get(aid, 0) + 1
+        return [aid for aid, _ in sorted(counts.items(), key=lambda x: -x[1])[:n]]
+
     def _ensure_leaders(self, client: AI4TradeClient, state: dict) -> list[int]:
         existing = state.get("followed_leaders") or []
         if isinstance(existing, str):
@@ -202,34 +223,58 @@ class CopyTraderThread(threading.Thread):
                 existing = []
 
         last_pick = state.get("last_leader_pick_at")
-        if existing and last_pick is not None:
+        # Cooldown: if we have leaders and they were picked recently, keep them.
+        # If we have NO leaders, retry on a shorter cooldown so we recover from
+        # transient leaderboard failures without spamming the endpoint.
+        cooldown = LEADER_REFRESH_SECONDS if existing else LEADER_RETRY_SECONDS
+        if last_pick is not None:
             try:
                 age = (dt.datetime.now(dt.timezone.utc) - last_pick).total_seconds()
             except Exception:
-                age = 0
-            if age < LEADER_REFRESH_SECONDS:
+                age = cooldown + 1
+            if age < cooldown:
                 return existing
 
-        log.info("[bot:%s] picking leaders via Claude + leaderboard", self.bot_id)
+        log.info("[bot:%s] picking leaders (existing=%d)", self.bot_id, len(existing))
+
+        # Primary source: /api/agents/top — known to 504. Treat as best-effort.
+        leaderboard: list[dict] = []
         try:
             leaderboard = client.get_top_agents(limit=15, sort="return")
         except AI4TradeError as exc:
-            log.warning("[bot:%s] leaderboard fetch failed (%s) — keeping existing leaders", self.bot_id, exc)
-            return existing
+            log.warning("[bot:%s] /api/agents/top failed (%s) — will try feed fallback", self.bot_id, exc)
 
-        leader_ids, rationale = pick_leaders(leaderboard, n=3)
-
-        if not leader_ids and leaderboard:
-            # Fallback: take the top 3 by whichever 'return' field exists.
-            for key in ("agent_id", "id"):
-                candidates = [int(row[key]) for row in leaderboard[:3] if row.get(key)]
-                if candidates:
-                    leader_ids = candidates
-                    rationale = "fallback: top-N from leaderboard"
-                    break
+        leader_ids: list[int] = []
+        rationale = ""
+        if leaderboard:
+            leader_ids, rationale = pick_leaders(leaderboard, n=3)
+            if not leader_ids:
+                # Try deterministic top-N from whatever id field exists
+                for key in ("agent_id", "id", "user_id"):
+                    candidates = []
+                    for row in leaderboard[:3]:
+                        v = row.get(key)
+                        try:
+                            candidates.append(int(v))
+                        except (TypeError, ValueError):
+                            continue
+                    if candidates:
+                        leader_ids = candidates
+                        rationale = f"top-N from leaderboard ({key})"
+                        break
 
         if not leader_ids:
-            log.warning("[bot:%s] no leaders selected this cycle", self.bot_id)
+            # Fallback: most active publishers from the global firehose
+            leader_ids = self._discover_leaders_from_feed(client, n=3)
+            if leader_ids:
+                rationale = "fallback: most-active publishers"
+
+        # Always update the cooldown timestamp — even when we found nothing —
+        # so we don't hammer ai4trade every poll cycle.
+        self._save_leaders(leader_ids)
+
+        if not leader_ids:
+            log.warning("[bot:%s] no leaders selected — will retry in %ds", self.bot_id, LEADER_RETRY_SECONDS)
             return existing
 
         log.info("[bot:%s] following %s — %s", self.bot_id, leader_ids, rationale)
@@ -239,7 +284,6 @@ class CopyTraderThread(threading.Thread):
             except AI4TradeError as exc:
                 log.warning("[bot:%s] follow(%s) failed: %s", self.bot_id, lid, exc)
 
-        # Unfollow leaders we no longer want
         for old in existing:
             if old not in leader_ids:
                 try:
@@ -247,7 +291,6 @@ class CopyTraderThread(threading.Thread):
                 except Exception as exc:
                     log.debug("[bot:%s] unfollow(%s) failed: %s", self.bot_id, old, exc)
 
-        self._save_leaders(leader_ids)
         return leader_ids
 
     # -- Signal execution -------------------------------------------------
@@ -389,6 +432,20 @@ class CopyTraderThread(threading.Thread):
                 # updated by another path, e.g. seed re-run, weekly cron).
                 state = self._load_state()
                 last_id = int(state.get("last_signal_id") or 0)
+                followed = state.get("followed_leaders") or []
+                if isinstance(followed, str):
+                    try:
+                        followed = json.loads(followed)
+                    except Exception:
+                        followed = []
+
+                # If we have no followed leaders, don't waste a 45s API call
+                # on an empty `sort=following` feed. Retry leader selection
+                # (cooldown-gated inside _ensure_leaders) and sleep.
+                if not followed:
+                    self._ensure_leaders(client, state)
+                    self._stop_event.wait(POLL_INTERVAL_SECONDS)
+                    continue
 
                 feed = client.get_feed(limit=50, sort="following")
                 if not feed:
