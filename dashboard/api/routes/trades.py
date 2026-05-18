@@ -37,7 +37,7 @@ def _fetch_trades(
     clauses: list[str] = []
     params: list = []
 
-    if bot in ("A", "B"):
+    if bot and bot not in ("both", "all"):
         clauses.append("bot_id = %s")
         params.append(bot)
     if status:
@@ -73,6 +73,7 @@ def _fetch_trades(
     result = []
     for r in rows:
         r = dict(r)
+        r["bot"] = r.get("bot_id")
         prob = r.get("mirofish_prob") or 0.0
         r["confluence_score"] = round(prob * 4, 1)
         r["quantity"] = r.get("qty") or 0.0

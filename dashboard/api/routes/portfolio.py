@@ -45,11 +45,18 @@ def _fetch_alpaca_account(api_key: str, secret_key: str) -> dict:
 
 
 def _portfolio_for_bot(conn, bot_id: str, days: int = 30) -> PortfolioData:
-    # Starting equity from registry
+    # Starting equity + Alpaca keys from registry (keys are the source of truth —
+    # the bot threads load them from this same table, env vars may be stale).
     bot_row = conn.execute(
-        "SELECT starting_equity FROM bots WHERE bot_id = %s", (bot_id,)
+        "SELECT starting_equity, alpaca_api_key, alpaca_secret_key "
+        "FROM bots WHERE bot_id = %s",
+        (bot_id,),
     ).fetchone()
-    starting_equity = bot_row["starting_equity"] if bot_row else _DEFAULT_STARTING_EQUITY
+    starting_equity = (
+        bot_row["starting_equity"]
+        if bot_row and bot_row.get("starting_equity") is not None
+        else _DEFAULT_STARTING_EQUITY
+    )
 
     # Closed trades filtered to window → win rate / trade counts
     since = datetime.now(timezone.utc) - timedelta(days=days)
@@ -89,9 +96,12 @@ def _portfolio_for_bot(conn, bot_id: str, days: int = 30) -> PortfolioData:
     ).fetchall()
     daily_pnl = sum(r["pnl"] or 0.0 for r in daily_rows)
 
-    # Real-time equity from Alpaca account
-    key = os.environ.get(f"ALPACA_API_KEY_{bot_id}", "")
-    sec = os.environ.get(f"ALPACA_SECRET_KEY_{bot_id}", "")
+    # Real-time equity from Alpaca account — prefer DB-stored keys (same source
+    # the bot threads use); fall back to env vars only if the row has none.
+    key = (bot_row.get("alpaca_api_key") if bot_row else None) \
+        or os.environ.get(f"ALPACA_API_KEY_{bot_id}", "")
+    sec = (bot_row.get("alpaca_secret_key") if bot_row else None) \
+        or os.environ.get(f"ALPACA_SECRET_KEY_{bot_id}", "")
     acct = _fetch_alpaca_account(key, sec)
 
     if acct:

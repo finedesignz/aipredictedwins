@@ -132,7 +132,8 @@ def get_recent_loss_symbols(bot_id: str, hours: int = 24) -> set[str]:
             WHERE bot_id = %s
               AND status IN ('closed', 'stopped')
               AND pnl < 0
-              AND closed_at >= NOW() - (%s || ' hours')::interval
+              AND closed_at IS NOT NULL
+              AND closed_at::timestamptz >= NOW() - (%s || ' hours')::interval
             """,
             (bot_id, str(hours)),
         ).fetchall()
