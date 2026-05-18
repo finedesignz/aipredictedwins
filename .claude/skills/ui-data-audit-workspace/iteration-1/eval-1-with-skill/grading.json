@@ -1,0 +1,30 @@
+{
+  "expectations": [
+    {
+      "text": "Report references at least 6 of the 8 standard checks by name (endpoint, response shape, rendered fields, loading, error, empty state, mock data, query params)",
+      "passed": true,
+      "evidence": "Summary table has all 8 checks as columns: Endpoints, Shape, Fields, Loading, Error, Empty, Mock, Params"
+    },
+    {
+      "text": "Report covers at least 5 distinct pages",
+      "passed": true,
+      "evidence": "8 pages covered: Overview, Signals, Positions, Trades, Risk Gate, Bots, Settings, Login"
+    },
+    {
+      "text": "Report contains a summary table with at least PASS/FAIL/WARN status columns",
+      "passed": true,
+      "evidence": "Summary table uses PASS/WARN/FAIL per check per page with emoji legend"
+    },
+    {
+      "text": "Each issue listed includes a specific file path reference",
+      "passed": true,
+      "evidence": "Every issue includes paths like dashboard/web/types/index.ts:77-95, dashboard/web/components/risk-gate/DecisionTable.tsx:109,122,127"
+    },
+    {
+      "text": "Report does not simply say everything PASSES without reading actual code files",
+      "passed": true,
+      "evidence": "Found 4 FAILs and 8 WARNs with specific evidence from code reads"
+    }
+  ],
+  "summary": {"passed": 5, "failed": 0, "total": 5, "pass_rate": 1.0}
+}

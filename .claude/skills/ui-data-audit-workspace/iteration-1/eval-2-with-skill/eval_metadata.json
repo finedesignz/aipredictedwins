@@ -1,0 +1,6 @@
+{
+  "eval_id": 2,
+  "eval_name": "signals-page-targeted",
+  "prompt": "can you check if the signals page is actually pulling real data or if anything is hardcoded",
+  "assertions": []
+}

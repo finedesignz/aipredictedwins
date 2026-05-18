@@ -9,7 +9,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Query, Request
 
-from db import get_db
+from db import KNOWN_BOTS, get_db
 from models import Envelope, HealthStatus, Meta, SettingsData
 from alpaca_health import get_account_health
 
@@ -25,57 +25,35 @@ def get_settings(
 ):
     if bot == "all":
         bot = "both"
-    bot_ids = ["A", "B"] if bot == "both" else [bot]
+    bot_ids = list(KNOWN_BOTS) if bot == "both" else [bot]
+    bot_placeholders = ",".join(["%s"] * len(bot_ids))
 
     with get_db() as conn:
         # Total and closed trades
-        if bot == "both":
-            total_trades = conn.execute(
-                "SELECT COUNT(*) AS n FROM alpaca_trades WHERE bot_id IN ('A','B')"
-            ).fetchone()["n"]
-            closed_rows = conn.execute(
-                """SELECT pnl FROM alpaca_trades
-                   WHERE bot_id IN ('A','B')
-                     AND status IN ('closed', 'stopped', 'target_hit')"""
-            ).fetchall()
-            last_row = conn.execute(
-                "SELECT timestamp FROM alpaca_trades ORDER BY timestamp DESC LIMIT 1"
-            ).fetchone()
-        else:
-            total_trades = conn.execute(
-                "SELECT COUNT(*) AS n FROM alpaca_trades WHERE bot_id = %s", (bot,)
-            ).fetchone()["n"]
-            closed_rows = conn.execute(
-                """SELECT pnl FROM alpaca_trades
-                   WHERE bot_id = %s
-                     AND status IN ('closed', 'stopped', 'target_hit')""",
-                (bot,),
-            ).fetchall()
-            last_row = conn.execute(
-                "SELECT timestamp FROM alpaca_trades WHERE bot_id = %s ORDER BY timestamp DESC LIMIT 1",
-                (bot,),
-            ).fetchone()
+        total_trades = conn.execute(
+            f"SELECT COUNT(*) AS n FROM alpaca_trades WHERE bot_id IN ({bot_placeholders})",
+            tuple(bot_ids),
+        ).fetchone()["n"]
+        closed_rows = conn.execute(
+            f"""SELECT pnl FROM alpaca_trades
+               WHERE bot_id IN ({bot_placeholders})
+                 AND status IN ('closed', 'stopped', 'target_hit')""",
+            tuple(bot_ids),
+        ).fetchall()
+        last_row = conn.execute(
+            f"SELECT timestamp FROM alpaca_trades WHERE bot_id IN ({bot_placeholders}) ORDER BY timestamp DESC LIMIT 1",
+            tuple(bot_ids),
+        ).fetchone()
 
-        # Bot rows for config and running status
-        if bot == "both":
-            bot_rows = conn.execute(
-                "SELECT * FROM bots ORDER BY bot_id"
-            ).fetchall()
-        else:
-            bot_rows = conn.execute(
-                "SELECT * FROM bots WHERE bot_id = %s ORDER BY bot_id", (bot,)
-            ).fetchall()
+        bot_rows = conn.execute(
+            f"SELECT * FROM bots WHERE bot_id IN ({bot_placeholders}) ORDER BY bot_id",
+            tuple(bot_ids),
+        ).fetchall()
 
-        # Cycle count: number of distinct scan batches in signals table
-        if bot == "both":
-            cycle_count = conn.execute(
-                "SELECT COUNT(DISTINCT DATE_TRUNC('second', scanned_at)) AS n FROM signals"
-            ).fetchone()["n"] or 0
-        else:
-            cycle_count = conn.execute(
-                "SELECT COUNT(DISTINCT DATE_TRUNC('second', scanned_at)) AS n FROM signals WHERE bot_id = %s",
-                (bot,),
-            ).fetchone()["n"] or 0
+        cycle_count = conn.execute(
+            f"SELECT COUNT(DISTINCT DATE_TRUNC('second', scanned_at)) AS n FROM signals WHERE bot_id IN ({bot_placeholders})",
+            tuple(bot_ids),
+        ).fetchone()["n"] or 0
 
     resolved = len(closed_rows)
     wins = sum(1 for r in closed_rows if (r["pnl"] or 0) > 0)

@@ -1,0 +1,1325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Eval Review</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600&family=Lora:wght@400;500&display=swap" rel="stylesheet">
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js" integrity="sha384-EnyY0/GSHQGSxSgMwaIPzSESbqoOLSexfnSMN2AP+39Ckmn92stwABZynq1JyzdT" crossorigin="anonymous"></script>
+  <style>
+    :root {
+      --bg: #faf9f5;
+      --surface: #ffffff;
+      --border: #e8e6dc;
+      --text: #141413;
+      --text-muted: #b0aea5;
+      --accent: #d97757;
+      --accent-hover: #c4613f;
+      --green: #788c5d;
+      --green-bg: #eef2e8;
+      --red: #c44;
+      --red-bg: #fceaea;
+      --header-bg: #141413;
+      --header-text: #faf9f5;
+      --radius: 6px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Lora', Georgia, serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ---- Header ---- */
+    .header {
+      background: var(--header-bg);
+      color: var(--header-text);
+      padding: 1rem 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-shrink: 0;
+    }
+    .header h1 {
+      font-family: 'Poppins', sans-serif;
+      font-size: 1.25rem;
+      font-weight: 600;
+    }
+    .header .instructions {
+      font-size: 0.8rem;
+      opacity: 0.7;
+      margin-top: 0.25rem;
+    }
+    .header .progress {
+      font-size: 0.875rem;
+      opacity: 0.8;
+      text-align: right;
+    }
+
+    /* ---- Main content ---- */
+    .main {
+      flex: 1;
+      overflow-y: auto;
+      padding: 1.5rem 2rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+
+    /* ---- Sections ---- */
+    .section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      flex-shrink: 0;
+    }
+    .section-header {
+      font-family: 'Poppins', sans-serif;
+      padding: 0.75rem 1rem;
+      font-size: 0.75rem;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border);
+      background: var(--bg);
+    }
+    .section-body {
+      padding: 1rem;
+    }
+
+    /* ---- Config badge ---- */
+    .config-badge {
+      display: inline-block;
+      padding: 0.2rem 0.625rem;
+      border-radius: 9999px;
+      font-family: 'Poppins', sans-serif;
+      font-size: 0.6875rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      margin-left: 0.75rem;
+      vertical-align: middle;
+    }
+    .config-badge.config-primary {
+      background: rgba(33, 150, 243, 0.12);
+      color: #1976d2;
+    }
+    .config-badge.config-baseline {
+      background: rgba(255, 193, 7, 0.15);
+      color: #f57f17;
+    }
+
+    /* ---- Prompt ---- */
+    .prompt-text {
+      white-space: pre-wrap;
+      font-size: 0.9375rem;
+      line-height: 1.6;
+    }
+
+    /* ---- Outputs ---- */
+    .output-file {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .output-file + .output-file {
+      margin-top: 1rem;
+    }
+    .output-file-header {
+      padding: 0.5rem 0.75rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      font-family: 'SF Mono', SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .output-file-header .dl-btn {
+      font-size: 0.7rem;
+      color: var(--accent);
+      text-decoration: none;
+      cursor: pointer;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-weight: 500;
+      opacity: 0.8;
+    }
+    .output-file-header .dl-btn:hover {
+      opacity: 1;
+      text-decoration: underline;
+    }
+    .output-file-content {
+      padding: 0.75rem;
+      overflow-x: auto;
+    }
+    .output-file-content pre {
+      font-size: 0.8125rem;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: 'SF Mono', SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace;
+    }
+    .output-file-content img {
+      max-width: 100%;
+      height: auto;
+      border-radius: 4px;
+    }
+    .output-file-content iframe {
+      width: 100%;
+      height: 600px;
+      border: none;
+    }
+    .output-file-content table {
+      border-collapse: collapse;
+      font-size: 0.8125rem;
+      width: 100%;
+    }
+    .output-file-content table td,
+    .output-file-content table th {
+      border: 1px solid var(--border);
+      padding: 0.375rem 0.5rem;
+      text-align: left;
+    }
+    .output-file-content table th {
+      background: var(--bg);
+      font-weight: 600;
+    }
+    .output-file-content .download-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.5rem 1rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--accent);
+      text-decoration: none;
+      font-size: 0.875rem;
+      cursor: pointer;
+    }
+    .output-file-content .download-link:hover {
+      background: var(--border);
+    }
+    .empty-state {
+      color: var(--text-muted);
+      font-style: italic;
+      padding: 2rem;
+      text-align: center;
+    }
+
+    /* ---- Feedback ---- */
+    .prev-feedback {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0.625rem 0.75rem;
+      margin-top: 0.75rem;
+      font-size: 0.8125rem;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+    .prev-feedback-label {
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 0.25rem;
+      color: var(--text-muted);
+    }
+    .feedback-textarea {
+      width: 100%;
+      min-height: 100px;
+      padding: 0.75rem;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font-family: inherit;
+      font-size: 0.9375rem;
+      line-height: 1.5;
+      resize: vertical;
+      color: var(--text);
+    }
+    .feedback-textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+    }
+    .feedback-status {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-top: 0.5rem;
+      min-height: 1.1em;
+    }
+
+    /* ---- Grades (collapsible) ---- */
+    .grades-toggle {
+      display: flex;
+      align-items: center;
+      cursor: pointer;
+      user-select: none;
+    }
+    .grades-toggle:hover {
+      color: var(--accent);
+    }
+    .grades-toggle .arrow {
+      margin-right: 0.5rem;
+      transition: transform 0.15s;
+      font-size: 0.75rem;
+    }
+    .grades-toggle .arrow.open {
+      transform: rotate(90deg);
+    }
+    .grades-content {
+      display: none;
+      margin-top: 0.75rem;
+    }
+    .grades-content.open {
+      display: block;
+    }
+    .grades-summary {
+      font-size: 0.875rem;
+      margin-bottom: 0.75rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .grade-badge {
+      display: inline-block;
+      padding: 0.125rem 0.5rem;
+      border-radius: 9999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .grade-pass { background: var(--green-bg); color: var(--green); }
+    .grade-fail { background: var(--red-bg); color: var(--red); }
+    .assertion-list {
+      list-style: none;
+    }
+    .assertion-item {
+      padding: 0.625rem 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.8125rem;
+    }
+    .assertion-item:last-child { border-bottom: none; }
+    .assertion-status {
+      font-weight: 600;
+      margin-right: 0.5rem;
+    }
+    .assertion-status.pass { color: var(--green); }
+    .assertion-status.fail { color: var(--red); }
+    .assertion-evidence {
+      color: var(--text-muted);
+      font-size: 0.75rem;
+      margin-top: 0.25rem;
+      padding-left: 1.5rem;
+    }
+
+    /* ---- View tabs ---- */
+    .view-tabs {
+      display: flex;
+      gap: 0;
+      padding: 0 2rem;
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .view-tab {
+      font-family: 'Poppins', sans-serif;
+      padding: 0.625rem 1.25rem;
+      font-size: 0.8125rem;
+      font-weight: 500;
+      cursor: pointer;
+      border: none;
+      background: none;
+      color: var(--text-muted);
+      border-bottom: 2px solid transparent;
+      transition: all 0.15s;
+    }
+    .view-tab:hover { color: var(--text); }
+    .view-tab.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+    .view-panel { display: none; }
+    .view-panel.active { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
+
+    /* ---- Benchmark view ---- */
+    .benchmark-view {
+      padding: 1.5rem 2rem;
+      overflow-y: auto;
+      flex: 1;
+    }
+    .benchmark-table {
+      border-collapse: collapse;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      font-size: 0.8125rem;
+      width: 100%;
+      margin-bottom: 1.5rem;
+    }
+    .benchmark-table th, .benchmark-table td {
+      padding: 0.625rem 0.75rem;
+      text-align: left;
+      border: 1px solid var(--border);
+    }
+    .benchmark-table th {
+      font-family: 'Poppins', sans-serif;
+      background: var(--header-bg);
+      color: var(--header-text);
+      font-weight: 500;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .benchmark-table tr:hover { background: var(--bg); }
+    .benchmark-table tr.benchmark-row-with { background: rgba(33, 150, 243, 0.06); }
+    .benchmark-table tr.benchmark-row-without { background: rgba(255, 193, 7, 0.06); }
+    .benchmark-table tr.benchmark-row-with:hover { background: rgba(33, 150, 243, 0.12); }
+    .benchmark-table tr.benchmark-row-without:hover { background: rgba(255, 193, 7, 0.12); }
+    .benchmark-table tr.benchmark-row-avg { font-weight: 600; border-top: 2px solid var(--border); }
+    .benchmark-table tr.benchmark-row-avg.benchmark-row-with { background: rgba(33, 150, 243, 0.12); }
+    .benchmark-table tr.benchmark-row-avg.benchmark-row-without { background: rgba(255, 193, 7, 0.12); }
+    .benchmark-delta-positive { color: var(--green); font-weight: 600; }
+    .benchmark-delta-negative { color: var(--red); font-weight: 600; }
+    .benchmark-notes {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1rem;
+    }
+    .benchmark-notes h3 {
+      font-family: 'Poppins', sans-serif;
+      font-size: 0.875rem;
+      margin-bottom: 0.75rem;
+    }
+    .benchmark-notes ul {
+      list-style: disc;
+      padding-left: 1.25rem;
+    }
+    .benchmark-notes li {
+      font-size: 0.8125rem;
+      line-height: 1.6;
+      margin-bottom: 0.375rem;
+    }
+    .benchmark-empty {
+      color: var(--text-muted);
+      font-style: italic;
+      text-align: center;
+      padding: 3rem;
+    }
+
+    /* ---- Navigation ---- */
+    .nav {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 1rem 2rem;
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+      flex-shrink: 0;
+    }
+    .nav-btn {
+      font-family: 'Poppins', sans-serif;
+      padding: 0.5rem 1.25rem;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+      cursor: pointer;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--text);
+      transition: all 0.15s;
+    }
+    .nav-btn:hover:not(:disabled) {
+      background: var(--bg);
+      border-color: var(--text-muted);
+    }
+    .nav-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    .done-btn {
+      font-family: 'Poppins', sans-serif;
+      padding: 0.5rem 1.5rem;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+      color: var(--text);
+      cursor: pointer;
+      font-size: 0.875rem;
+      font-weight: 500;
+      transition: all 0.15s;
+    }
+    .done-btn:hover {
+      background: var(--bg);
+      border-color: var(--text-muted);
+    }
+    .done-btn.ready {
+      border: none;
+      background: var(--accent);
+      color: white;
+      font-weight: 600;
+    }
+    .done-btn.ready:hover {
+      background: var(--accent-hover);
+    }
+    /* ---- Done overlay ---- */
+    .done-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 100;
+      justify-content: center;
+      align-items: center;
+    }
+    .done-overlay.visible {
+      display: flex;
+    }
+    .done-card {
+      background: var(--surface);
+      border-radius: 12px;
+      padding: 2rem 3rem;
+      text-align: center;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      max-width: 500px;
+    }
+    .done-card h2 {
+      font-size: 1.5rem;
+      margin-bottom: 0.5rem;
+    }
+    .done-card p {
+      color: var(--text-muted);
+      margin-bottom: 1.5rem;
+      line-height: 1.5;
+    }
+    .done-card .btn-row {
+      display: flex;
+      gap: 0.5rem;
+      justify-content: center;
+    }
+    .done-card button {
+      padding: 0.5rem 1.25rem;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+      cursor: pointer;
+      font-size: 0.875rem;
+    }
+    .done-card button:hover {
+      background: var(--bg);
+    }
+    /* ---- Toast ---- */
+    .toast {
+      position: fixed;
+      bottom: 5rem;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--header-bg);
+      color: var(--header-text);
+      padding: 0.625rem 1.25rem;
+      border-radius: var(--radius);
+      font-size: 0.875rem;
+      opacity: 0;
+      transition: opacity 0.3s;
+      pointer-events: none;
+      z-index: 200;
+    }
+    .toast.visible {
+      opacity: 1;
+    }
+  </style>
+</head>
+<body>
+  <div id="app" style="height:100vh; display:flex; flex-direction:column;">
+    <div class="header">
+      <div>
+        <h1>Eval Review: <span id="skill-name"></span></h1>
+        <div class="instructions">Review each output and leave feedback below. Navigate with arrow keys or buttons. When done, copy feedback and paste into Claude Code.</div>
+      </div>
+      <div class="progress" id="progress"></div>
+    </div>
+
+    <!-- View tabs (only shown when benchmark data exists) -->
+    <div class="view-tabs" id="view-tabs" style="display:none;">
+      <button class="view-tab active" onclick="switchView('outputs')">Outputs</button>
+      <button class="view-tab" onclick="switchView('benchmark')">Benchmark</button>
+    </div>
+
+    <!-- Outputs panel (qualitative review) -->
+    <div class="view-panel active" id="panel-outputs">
+    <div class="main">
+      <!-- Prompt -->
+      <div class="section">
+        <div class="section-header">Prompt <span class="config-badge" id="config-badge" style="display:none;"></span></div>
+        <div class="section-body">
+          <div class="prompt-text" id="prompt-text"></div>
+        </div>
+      </div>
+
+      <!-- Outputs -->
+      <div class="section">
+        <div class="section-header">Output</div>
+        <div class="section-body" id="outputs-body">
+          <div class="empty-state">No output files found</div>
+        </div>
+      </div>
+
+      <!-- Previous Output (collapsible) -->
+      <div class="section" id="prev-outputs-section" style="display:none;">
+        <div class="section-header">
+          <div class="grades-toggle" onclick="togglePrevOutputs()">
+            <span class="arrow" id="prev-outputs-arrow">&#9654;</span>
+            Previous Output
+          </div>
+        </div>
+        <div class="grades-content" id="prev-outputs-content"></div>
+      </div>
+
+      <!-- Grades (collapsible) -->
+      <div class="section" id="grades-section" style="display:none;">
+        <div class="section-header">
+          <div class="grades-toggle" onclick="toggleGrades()">
+            <span class="arrow" id="grades-arrow">&#9654;</span>
+            Formal Grades
+          </div>
+        </div>
+        <div class="grades-content" id="grades-content"></div>
+      </div>
+
+      <!-- Feedback -->
+      <div class="section">
+        <div class="section-header">Your Feedback</div>
+        <div class="section-body">
+          <textarea
+            class="feedback-textarea"
+            id="feedback"
+            placeholder="What do you think of this output? Any issues, suggestions, or things that look great?"
+          ></textarea>
+          <div class="feedback-status" id="feedback-status"></div>
+          <div class="prev-feedback" id="prev-feedback" style="display:none;">
+            <div class="prev-feedback-label">Previous feedback</div>
+            <div id="prev-feedback-text"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="nav" id="outputs-nav">
+      <button class="nav-btn" id="prev-btn" onclick="navigate(-1)">&#8592; Previous</button>
+      <button class="done-btn" id="done-btn" onclick="showDoneDialog()">Submit All Reviews</button>
+      <button class="nav-btn" id="next-btn" onclick="navigate(1)">Next &#8594;</button>
+    </div>
+    </div><!-- end panel-outputs -->
+
+    <!-- Benchmark panel (quantitative stats) -->
+    <div class="view-panel" id="panel-benchmark">
+      <div class="benchmark-view" id="benchmark-content">
+        <div class="benchmark-empty">No benchmark data available. Run a benchmark to see quantitative results here.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Done overlay -->
+  <div class="done-overlay" id="done-overlay">
+    <div class="done-card">
+      <h2>Review Complete</h2>
+      <p>Your feedback has been saved. Go back to your Claude Code session and tell Claude you're done reviewing.</p>
+      <div class="btn-row">
+        <button onclick="closeDoneDialog()">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast" id="toast"></div>
+
+  <script>
+    // ---- Embedded data (injected by generate_review.py) ----
+    const EMBEDDED_DATA = {"skill_name": "ui-data-audit", "runs": [{"id": "eval-1-with-skill", "prompt": "audit all the pages on the dashboard and tell me what's wired up correctly and what's broken", "eval_id": 1, "outputs": [{"name": "report.md", "type": "text", "content": "# UI Data Audit - AI Predicted Wins Dashboard\nAudited: 2026-04-10\nPages reviewed: 8\n\n## Summary\n\n| Page | Endpoints | Shape | Fields | Loading | Error | Empty | Mock | Params | Overall |\n|------|-----------|-------|--------|---------|-------|-------|------|--------|---------|\n| Overview | PASS | WARN | WARN | PASS | WARN | PASS | PASS | PASS | WARN |\n| Signals | PASS | WARN | PASS | PASS | WARN | PASS | FAIL | PASS | FAIL |\n| Positions | PASS | WARN | PASS | PASS | WARN | PASS | PASS | PASS | WARN |\n| Trades | PASS | WARN | PASS | PASS | WARN | PASS | PASS | PASS | WARN |\n| Risk Gate | PASS | FAIL | FAIL | PASS | WARN | PASS | PASS | PASS | FAIL |\n| Bots | PASS | PASS | PASS | WARN | WARN | PASS | PASS | PASS | WARN |\n| Settings | PASS | WARN | FAIL | PASS | WARN | PASS | WARN | PASS | FAIL |\n| Login | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS |\n\n---\n\n## Critical Issues (FAIL)\n\n### 1. Risk Gate page - complete field name mismatch\n\nFile: dashboard/web/types/index.ts:77-95\nFrontend RiskDecision type expects: confluence_score, veto_count, reasoning, scenarios[]\nBackend RiskGateRecord model returns: confluence, confidence, risk_assessment, veto_reason (no scenarios)\nResult: every data column in the table renders undefined.\nCrash: expanding a row calls decision.scenarios.length on undefined and throws TypeError.\nCrash location: dashboard/web/components/risk-gate/DecisionDetail.tsx:28\nAlso: dashboard/web/components/risk-gate/DecisionTable.tsx:109,122,127\n\n### 2. Signals page - entire endpoint is hardcoded mock data\n\nFile: dashboard/api/routes/signals.py:1-138\nThe route returns 8 statically defined assets with fixed indicator values.\nTwo TODO comments in the file confirm this is unresolved:\n  \"TODO: Wire this to real signal data once the technical scanner persists scan results to the database.\"\nThe Signals page ALWAYS shows the same fake data regardless of what the bot actually scanned.\n\n### 3. Settings page - health field name mismatch\n\nFile: dashboard/web/types/index.ts:125, dashboard/web/components/settings/BotStatus.tsx:148\nFrontend reads settings.health.sqlite_db; backend HealthStatus model returns health.database.\nResult: DB health indicator always shows as unhealthy/red regardless of actual database status.\n\n---\n\n## Warnings (WARN)\n\n### 4. ALL pages except login - no error state UI\n\nEvery page using useAPI ignores the error return value.\nOn API failure users see empty tables, \"--\" values, or infinite loading skeletons with no explanation.\nAffects: dashboard/web/app/page.tsx, signals/page.tsx, positions/page.tsx,\n         trades/page.tsx, risk-gate/page.tsx, bots/page.tsx, settings/page.tsx\n\n### 5. Bots page - no loading indicator\n\nFile: dashboard/web/app/bots/page.tsx:18\nloading is not destructured from useAPI.\nWhile bots are loading, the page renders an empty grid with no spinner or skeleton.\n\n### 6. Bots page - mutation errors silently fail\n\nFile: dashboard/web/app/bots/page.tsx:26,38\nhandleSave and handleToggle have no try/catch.\nFailed creates, updates, and toggles produce unhandled promise rejections with no user feedback.\n\n### 7. Settings - uptime and cycle count hardcoded zero\n\nFile: dashboard/api/routes/settings.py:96-97\nuptime_seconds: 0 and cycle_count: 0 are hardcoded constants, not real bot process state.\nThese fields permanently display as \"0 cycles\" and \"0s uptime\" in the Settings UI.\n\n### 8. Settings - fetch error shows permanent skeleton\n\nWhen /api/settings fetch fails, settings stays null.\nThe condition (loading || !settings) renders loading skeletons indefinitely with no error message.\n\n### 9. id type mismatch on ClosedPosition and Trade\n\nFile: dashboard/web/types/index.ts:31,46\nBoth ClosedPosition.id and Trade.id are typed as string.\nBackend returns integers from alpaca_trades.id.\nLow risk for React keys (implicit coercion works) but could break strict equality checks.\n\n### 10. Dead Pydantic models\n\nFile: dashboard/api/models.py:65-83, 87-105, 110-117\nClosedPosition, TradeRecord, and SignalRecord Pydantic models define fields that do not\nmatch what their corresponding routes actually return. The routes build raw dicts with\ndifferent field names. These models are never used and create false confidence in type safety.\n\n### 11. Benchmark caching ignores the since param\n\nFiles: dashboard/api/routes/benchmark.py:48, benchmark_btc.py:61\nOnce the in-memory cache is warm, the since query param is ignored for 5 minutes.\nIf the user changes the equity chart time range, benchmark lines may not realign until cache expires.\n\n---\n\n## Per-Page Detail\n\n### Overview Page - /\n\n| Check | Status | Notes |\n|-------|--------|-------|\n| Endpoint exists | PASS | /api/portfolio, /api/positions/open, /api/equity, /api/benchmark/spy, /api/benchmark/btc all have matching backend routes |\n| Response shape | WARN | MultiBotPortfolio backend model uses fixed keys A and B; frontend type is Record<string, Portfolio>. Non-A/B bot IDs silently missing. EquityData->series shape matches. |\n| Rendered fields | WARN | All data fields (wins, losses, equity, etc.) present in PortfolioData. But portfolioLoading used to gate positions empty state instead of positions own loading var. |\n| Loading state | PASS | Skeleton pulse animations present for Hero KPI and metric cards. |\n| Error state | WARN | error from useAPI destructured but never displayed. Failures show \"--\" with no explanation. |\n| Empty state | PASS | Empty positions show card with explanatory text. Equity chart handles empty series via equityData?.series ?? []. |\n| No mock data | PASS | No hardcoded data or Math.random(). |\n| Query params | PASS | bot=, days=, since= params all match backend handler signatures correctly. |\n\nIssues:\n- dashboard/web/app/page.tsx:31 - No error UI for portfolio fetch failure.\n- dashboard/web/app/page.tsx:206 - Wrong loading var used for positions empty state check.\n\n---\n\n### Signals Page - /signals\n\n| Check | Status | Notes |\n|-------|--------|-------|\n| Endpoint exists | PASS | /api/signals has a handler in signals.py |\n| Response shape | WARN | SignalRecord Pydantic model has wrong field names (ema_bullish: bool) vs what route returns (ema_signal: string union). Model is unused dead code. |\n| Rendered fields | PASS | All fields accessed in SignalTable present in the placeholder response dict. |\n| Loading state | PASS | Loading message shown while loading is true. |\n| Error state | WARN | error from useAPI not surfaced. Fetch failure shows empty table silently. |\n| Empty state | PASS | SignalTable receives signals ?? [] and handles empty arrays. |\n| No mock data | FAIL | Entire endpoint is static hardcoded placeholder data with two TODO comments. |\n| Query params | PASS | No params sent or expected - consistent. |\n\n---\n\n### Positions Page - /positions\n\n| Check | Status | Notes |\n|-------|--------|-------|\n| Endpoint exists | PASS | /api/positions/open and /api/positions/closed both exist |\n| Response shape | WARN | ClosedPosition.id typed as string but backend returns integer. Dead ClosedPosition Pydantic model has wrong fields. |\n| Rendered fields | PASS | All fields in ClosedTable and PositionCard are in backend response. Mappings qty->quantity, mirofish_prob->confluence_score, timestamp->opened_at all correct. |\n| Loading state | PASS | Both tabs show loading messages while respective loading flags are true. |\n| Error state | WARN | Neither tab surfaces error from useAPI. |\n| Empty state | PASS | Open: \"No open positions right now.\" Closed: \"No closed positions yet.\" |\n| No mock data | PASS | Live prices from Alpaca with graceful fallback to entry_price. |\n| Query params | PASS | bot= param sent and handled on both endpoints. |\n\n---\n\n### Trades Page - /trades\n\n| Check | Status | Notes |\n|-------|--------|-------|\n| Endpoint exists | PASS | /api/trades exists |\n| Response shape | WARN | Trade.id typed as string, backend returns integer. pnl_percent always null from backend (never computed). |\n| Rendered fields | PASS | All fields accessed by TradeTable and CSV export are present in backend response. |\n| Loading state | PASS | Loading spinner shown while loading is true. |\n| Error state | WARN | error from useAPI never displayed. |\n| Empty state | PASS | TradeTable receives trades ?? []. Summary stats only render when summary is non-null. |\n| No mock data | PASS | No hardcoded data. |\n| Query params | PASS | bot, symbol, date_from, date_to correctly built via buildQueryString and handled backend. 30-day default matches on both ends. |\n\nIssue: dashboard/api/routes/trades.py:79 - pnl_percent always hardcoded to None, never computed.\n\n---\n\n### Risk Gate Page - /risk-gate\n\n| Check | Status | Notes |\n|-------|--------|-------|\n| Endpoint exists | PASS | /api/risk-gate exists and queries real validations table |\n| Response shape | FAIL | Frontend RiskDecision type (confluence_score, veto_count, reasoning, scenarios[]) completely mismatches backend RiskGateRecord (confluence, confidence, risk_assessment, veto_reason). |\n| Rendered fields | FAIL | confluence_score renders as undefined/5. veto_count renders as undefined/5. reasoning renders blank. Expanding a row crashes DecisionDetail with TypeError on decision.scenarios.length. |\n| Loading state | PASS | Loading spinner shown. |\n| Error state | WARN | error not surfaced. |\n| Empty state | PASS | \"No risk gate decisions recorded yet.\" shown when empty. |\n| No mock data | PASS | Queries real validations table. |\n| Query params | PASS | bot= param sent and handled. Filter chips work because decision.decision field name IS correct. |\n\n---\n\n### Bots Page - /bots\n\n| Check | Status | Notes |\n|-------|--------|-------|\n| Endpoint exists | PASS | GET/POST /api/bots, PUT /api/bots/{id}, enable/disable endpoints all exist |\n| Response shape | PASS | BotFull TS type matches BotFull Pydantic model field-for-field. Best shape alignment in codebase. |\n| Rendered fields | PASS | All BotCard fields present in type and backend response. |\n| Loading state | WARN | loading not destructured from useAPI. Empty grid shows with no indicator while fetching. |\n| Error state | WARN | error not destructured. Mutation errors (handleSave, handleToggle) uncaught - fail silently. |\n| Empty state | PASS | \"No bots configured. Click '+ Add Bot' to get started.\" |\n| No mock data | PASS | No hardcoded data. |\n| Query params | PASS | No params needed. |\n\n---\n\n### Settings Page - /settings\n\n| Check | Status | Notes |\n|-------|--------|-------|\n| Endpoint exists | PASS | /api/settings exists |\n| Response shape | WARN | BotSettings.health.sqlite_db in TS type vs health.database in backend HealthStatus. |\n| Rendered fields | FAIL | settings.health.sqlite_db is undefined at runtime; DB health indicator always shows red/unhealthy. |\n| Loading state | PASS | Three skeleton pulse blocks shown while loading. |\n| Error state | WARN | On fetch failure, loading or !settings keeps skeletons rendering indefinitely. |\n| Empty state | PASS | loading or !settings guard handles no-data case with skeletons. |\n| No mock data | WARN | uptime_seconds and cycle_count are hardcoded 0, not real bot process values. |\n| Query params | PASS | Frontend omits ?bot= so backend defaults to both which is correct. |\n\n---\n\n### Login Page - /login\n\n| Check | Status | Notes |\n|-------|--------|-------|\n| Endpoint exists | PASS | POST /api/auth/login and GET /api/auth/check both in main.py |\n| Response shape | PASS | Checks res.ok for success. AuthGuard checks data.authenticated which matches. |\n| Rendered fields | PASS | Only res.ok and error strings displayed - no complex field traversal. |\n| Loading state | PASS | Button shows \"Authenticating...\" and is disabled while loading. |\n| Error state | PASS | Both network errors and 401 explicitly handled and shown. |\n| Empty state | PASS | Submit button disabled when token is empty. |\n| No mock data | PASS | No hardcoded data. |\n| Query params | PASS | POST body only, no query params. |\n\n---\n\n## All Clear\n\n- Login page: all 8 checks pass. Full error handling, correct cookie security posture.\n- Bots page (data shape): BotFull type alignment is the best in the codebase - field-for-field match.\n- Positions page (rendered fields): field mappings (qty->quantity, mirofish_prob->confluence_score, timestamp->opened_at) correctly implemented.\n- Trades page (query params): filter params correctly constructed via buildQueryString with matching 30-day default on both ends.\n"}, {"name": "write_report.py", "type": "text", "content": "report = r\"\"\"# UI Data Audit - AI Predicted Wins Dashboard\nAudited: 2026-04-10\nPages reviewed: 8\n\n## Summary\n\n| Page | Endpoints | Shape | Fields | Loading | Error | Empty | Mock | Params | Overall |\n|------|-----------|-------|--------|---------|-------|-------|------|--------|---------|\n| Overview | PASS | WARN | WARN | PASS | WARN | PASS | PASS | PASS | WARN |\n| Signals | PASS | WARN | PASS | PASS | WARN | PASS | FAIL | PASS | FAIL |\n| Positions | PASS | WARN | PASS | PASS | WARN | PASS | PASS | PASS | WARN |\n| Trades | PASS | WARN | PASS | PASS | WARN | PASS | PASS | PASS | WARN |\n| Risk Gate | PASS | FAIL | FAIL | PASS | WARN | PASS | PASS | PASS | FAIL |\n| Bots | PASS | PASS | PASS | WARN | WARN | PASS | PASS | PASS | WARN |\n| Settings | PASS | WARN | FAIL | PASS | WARN | PASS | WARN | PASS | FAIL |\n| Login | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS |\n\n---\n\n## Critical Issues (FAIL)\n\n### 1. Risk Gate page - complete field name mismatch\n\nFile: dashboard/web/types/index.ts:77-95\nFrontend RiskDecision type expects: confluence_score, veto_count, reasoning, scenarios[]\nBackend RiskGateRecord model returns: confluence, confidence, risk_assessment, veto_reason (no scenarios)\nResult: every data column in the table renders undefined.\nCrash: expanding a row calls decision.scenarios.length on undefined and throws TypeError.\nCrash location: dashboard/web/components/risk-gate/DecisionDetail.tsx:28\nAlso: dashboard/web/components/risk-gate/DecisionTable.tsx:109,122,127\n\n### 2. Signals page - entire endpoint is hardcoded mock data\n\nFile: dashboard/api/routes/signals.py:1-138\nThe route returns 8 statically defined assets with fixed indicator values.\nTwo TODO comments in the file confirm this is unresolved:\n  \"TODO: Wire this to real signal data once the technical scanner persists scan results to the database.\"\nThe Signals page ALWAYS shows the same fake data regardless of what the bot actually scanned.\n\n### 3. Settings page - health field name mismatch\n\nFile: dashboard/web/types/index.ts:125, dashboard/web/components/settings/BotStatus.tsx:148\nFrontend reads settings.health.sqlite_db; backend HealthStatus model returns health.database.\nResult: DB health indicator always shows as unhealthy/red regardless of actual database status.\n\n---\n\n## Warnings (WARN)\n\n### 4. ALL pages except login - no error state UI\n\nEvery page using useAPI ignores the error return value.\nOn API failure users see empty tables, \"--\" values, or infinite loading skeletons with no explanation.\nAffects: dashboard/web/app/page.tsx, signals/page.tsx, positions/page.tsx,\n         trades/page.tsx, risk-gate/page.tsx, bots/page.tsx, settings/page.tsx\n\n### 5. Bots page - no loading indicator\n\nFile: dashboard/web/app/bots/page.tsx:18\nloading is not destructured from useAPI.\nWhile bots are loading, the page renders an empty grid with no spinner or skeleton.\n\n### 6. Bots page - mutation errors silently fail\n\nFile: dashboard/web/app/bots/page.tsx:26,38\nhandleSave and handleToggle have no try/catch.\nFailed creates, updates, and toggles produce unhandled promise rejections with no user feedback.\n\n### 7. Settings - uptime and cycle count hardcoded zero\n\nFile: dashboard/api/routes/settings.py:96-97\nuptime_seconds: 0 and cycle_count: 0 are hardcoded constants, not real bot process state.\nThese fields permanently display as \"0 cycles\" and \"0s uptime\" in the Settings UI.\n\n### 8. Settings - fetch error shows permanent skeleton\n\nWhen /api/settings fetch fails, settings stays null.\nThe condition (loading || !settings) renders loading skeletons indefinitely with no error message.\n\n### 9. id type mismatch on ClosedPosition and Trade\n\nFile: dashboard/web/types/index.ts:31,46\nBoth ClosedPosition.id and Trade.id are typed as string.\nBackend returns integers from alpaca_trades.id.\nLow risk for React keys (implicit coercion works) but could break strict equality checks.\n\n### 10. Dead Pydantic models\n\nFile: dashboard/api/models.py:65-83, 87-105, 110-117\nClosedPosition, TradeRecord, and SignalRecord Pydantic models define fields that do not\nmatch what their corresponding routes actually return. The routes build raw dicts with\ndifferent field names. These models are never used and create false confidence in type safety.\n\n### 11. Benchmark caching ignores the since param\n\nFiles: dashboard/api/routes/benchmark.py:48, benchmark_btc.py:61\nOnce the in-memory cache is warm, the since query param is ignored for 5 minutes.\nIf the user changes the equity chart time range, benchmark lines may not realign until cache expires.\n\n---\n\n## Per-Page Detail\n\n### Overview Page - /\n\n| Check | Status | Notes |\n|-------|--------|-------|\n| Endpoint exists | PASS | /api/portfolio, /api/positions/open, /api/equity, /api/benchmark/spy, /api/benchmark/btc all have matching backend routes |\n| Response shape | WARN | MultiBotPortfolio backend model uses fixed keys A and B; frontend type is Record<string, Portfolio>. Non-A/B bot IDs silently missing. EquityData->series shape matches. |\n| Rendered fields | WARN | All data fields (wins, losses, equity, etc.) present in PortfolioData. But portfolioLoading used to gate positions empty state instead of positions own loading var. |\n| Loading state | PASS | Skeleton pulse animations present for Hero KPI and metric cards. |\n| Error state | WARN | error from useAPI destructured but never displayed. Failures show \"--\" with no explanation. |\n| Empty state | PASS | Empty positions show card with explanatory text. Equity chart handles empty series via equityData?.series ?? []. |\n| No mock data | PASS | No hardcoded data or Math.random(). |\n| Query params | PASS | bot=, days=, since= params all match backend handler signatures correctly. |\n\nIssues:\n- dashboard/web/app/page.tsx:31 - No error UI for portfolio fetch failure.\n- dashboard/web/app/page.tsx:206 - Wrong loading var used for positions empty state check.\n\n---\n\n### Signals Page - /signals\n\n| Check | Status | Notes |\n|-------|--------|-------|\n| Endpoint exists | PASS | /api/signals has a handler in signals.py |\n| Response shape | WARN | SignalRecord Pydantic model has wrong field names (ema_bullish: bool) vs what route returns (ema_signal: string union). Model is unused dead code. |\n| Rendered fields | PASS | All fields accessed in SignalTable present in the placeholder response dict. |\n| Loading state | PASS | Loading message shown while loading is true. |\n| Error state | WARN | error from useAPI not surfaced. Fetch failure shows empty table silently. |\n| Empty state | PASS | SignalTable receives signals ?? [] and handles empty arrays. |\n| No mock data | FAIL | Entire endpoint is static hardcoded placeholder data with two TODO comments. |\n| Query params | PASS | No params sent or expected - consistent. |\n\n---\n\n### Positions Page - /positions\n\n| Check | Status | Notes |\n|-------|--------|-------|\n| Endpoint exists | PASS | /api/positions/open and /api/positions/closed both exist |\n| Response shape | WARN | ClosedPosition.id typed as string but backend returns integer. Dead ClosedPosition Pydantic model has wrong fields. |\n| Rendered fields | PASS | All fields in ClosedTable and PositionCard are in backend response. Mappings qty->quantity, mirofish_prob->confluence_score, timestamp->opened_at all correct. |\n| Loading state | PASS | Both tabs show loading messages while respective loading flags are true. |\n| Error state | WARN | Neither tab surfaces error from useAPI. |\n| Empty state | PASS | Open: \"No open positions right now.\" Closed: \"No closed positions yet.\" |\n| No mock data | PASS | Live prices from Alpaca with graceful fallback to entry_price. |\n| Query params | PASS | bot= param sent and handled on both endpoints. |\n\n---\n\n### Trades Page - /trades\n\n| Check | Status | Notes |\n|-------|--------|-------|\n| Endpoint exists | PASS | /api/trades exists |\n| Response shape | WARN | Trade.id typed as string, backend returns integer. pnl_percent always null from backend (never computed). |\n| Rendered fields | PASS | All fields accessed by TradeTable and CSV export are present in backend response. |\n| Loading state | PASS | Loading spinner shown while loading is true. |\n| Error state | WARN | error from useAPI never displayed. |\n| Empty state | PASS | TradeTable receives trades ?? []. Summary stats only render when summary is non-null. |\n| No mock data | PASS | No hardcoded data. |\n| Query params | PASS | bot, symbol, date_from, date_to correctly built via buildQueryString and handled backend. 30-day default matches on both ends. |\n\nIssue: dashboard/api/routes/trades.py:79 - pnl_percent always hardcoded to None, never computed.\n\n---\n\n### Risk Gate Page - /risk-gate\n\n| Check | Status | Notes |\n|-------|--------|-------|\n| Endpoint exists | PASS | /api/risk-gate exists and queries real validations table |\n| Response shape | FAIL | Frontend RiskDecision type (confluence_score, veto_count, reasoning, scenarios[]) completely mismatches backend RiskGateRecord (confluence, confidence, risk_assessment, veto_reason). |\n| Rendered fields | FAIL | confluence_score renders as undefined/5. veto_count renders as undefined/5. reasoning renders blank. Expanding a row crashes DecisionDetail with TypeError on decision.scenarios.length. |\n| Loading state | PASS | Loading spinner shown. |\n| Error state | WARN | error not surfaced. |\n| Empty state | PASS | \"No risk gate decisions recorded yet.\" shown when empty. |\n| No mock data | PASS | Queries real validations table. |\n| Query params | PASS | bot= param sent and handled. Filter chips work because decision.decision field name IS correct. |\n\n---\n\n### Bots Page - /bots\n\n| Check | Status | Notes |\n|-------|--------|-------|\n| Endpoint exists | PASS | GET/POST /api/bots, PUT /api/bots/{id}, enable/disable endpoints all exist |\n| Response shape | PASS | BotFull TS type matches BotFull Pydantic model field-for-field. Best shape alignment in codebase. |\n| Rendered fields | PASS | All BotCard fields present in type and backend response. |\n| Loading state | WARN | loading not destructured from useAPI. Empty grid shows with no indicator while fetching. |\n| Error state | WARN | error not destructured. Mutation errors (handleSave, handleToggle) uncaught - fail silently. |\n| Empty state | PASS | \"No bots configured. Click '+ Add Bot' to get started.\" |\n| No mock data | PASS | No hardcoded data. |\n| Query params | PASS | No params needed. |\n\n---\n\n### Settings Page - /settings\n\n| Check | Status | Notes |\n|-------|--------|-------|\n| Endpoint exists | PASS | /api/settings exists |\n| Response shape | WARN | BotSettings.health.sqlite_db in TS type vs health.database in backend HealthStatus. |\n| Rendered fields | FAIL | settings.health.sqlite_db is undefined at runtime; DB health indicator always shows red/unhealthy. |\n| Loading state | PASS | Three skeleton pulse blocks shown while loading. |\n| Error state | WARN | On fetch failure, loading or !settings keeps skeletons rendering indefinitely. |\n| Empty state | PASS | loading or !settings guard handles no-data case with skeletons. |\n| No mock data | WARN | uptime_seconds and cycle_count are hardcoded 0, not real bot process values. |\n| Query params | PASS | Frontend omits ?bot= so backend defaults to both which is correct. |\n\n---\n\n### Login Page - /login\n\n| Check | Status | Notes |\n|-------|--------|-------|\n| Endpoint exists | PASS | POST /api/auth/login and GET /api/auth/check both in main.py |\n| Response shape | PASS | Checks res.ok for success. AuthGuard checks data.authenticated which matches. |\n| Rendered fields | PASS | Only res.ok and error strings displayed - no complex field traversal. |\n| Loading state | PASS | Button shows \"Authenticating...\" and is disabled while loading. |\n| Error state | PASS | Both network errors and 401 explicitly handled and shown. |\n| Empty state | PASS | Submit button disabled when token is empty. |\n| No mock data | PASS | No hardcoded data. |\n| Query params | PASS | POST body only, no query params. |\n\n---\n\n## All Clear\n\n- Login page: all 8 checks pass. Full error handling, correct cookie security posture.\n- Bots page (data shape): BotFull type alignment is the best in the codebase - field-for-field match.\n- Positions page (rendered fields): field mappings (qty->quantity, mirofish_prob->confluence_score, timestamp->opened_at) correctly implemented.\n- Trades page (query params): filter params correctly constructed via buildQueryString with matching 30-day default on both ends.\n\"\"\"\n\noutpath = \"C:/Users/artic/GitHub/aipredictedwins/.claude/skills/ui-data-audit-workspace/iteration-1/eval-1-with-skill/outputs/report.md\"\nwith open(outpath, \"w\", encoding=\"utf-8\") as f:\n    f.write(report)\nprint(\"Done, wrote\", len(report), \"bytes\")\n"}], "grading": {"expectations": [{"text": "Report references at least 6 of the 8 standard checks by name (endpoint, response shape, rendered fields, loading, error, empty state, mock data, query params)", "passed": true, "evidence": "Summary table has all 8 checks as columns: Endpoints, Shape, Fields, Loading, Error, Empty, Mock, Params"}, {"text": "Report covers at least 5 distinct pages", "passed": true, "evidence": "8 pages covered: Overview, Signals, Positions, Trades, Risk Gate, Bots, Settings, Login"}, {"text": "Report contains a summary table with at least PASS/FAIL/WARN status columns", "passed": true, "evidence": "Summary table uses PASS/WARN/FAIL per check per page with emoji legend"}, {"text": "Each issue listed includes a specific file path reference", "passed": true, "evidence": "Every issue includes paths like dashboard/web/types/index.ts:77-95, dashboard/web/components/risk-gate/DecisionTable.tsx:109,122,127"}, {"text": "Report does not simply say everything PASSES without reading actual code files", "passed": true, "evidence": "Found 4 FAILs and 8 WARNs with specific evidence from code reads"}], "summary": {"passed": 5, "failed": 0, "total": 5, "pass_rate": 1.0}}}, {"id": "eval-1-without-skill", "prompt": "audit all the pages on the dashboard and tell me what's wired up correctly and what's broken", "eval_id": 1, "outputs": [{"name": "report.md", "type": "text", "content": "# Dashboard UI Data Audit (No Skill)\n**Date:** 2026-04-10 | **Project:** AI Predicted Wins\n\n## Summary\n\n| Page | Status | Key Issue |\n|---|---|---|\n| Overview (/) | Mostly working | Double benchmark fetch; cache bug |\n| Trades (/trades) | Working | `pnl_percent` always null |\n| Positions (/positions) | Mostly working | Minor type mismatches |\n| Signals (/signals) | **Broken** | Hardcoded placeholder data only |\n| Risk Gate (/risk-gate) | **Broken** | Reads Kalshi table, not Alpaca trades; type mismatches |\n| Settings (/settings) | Partially broken | `sqlite_db` vs `database` health key mismatch |\n| Bots (/bots) | Working | Full CRUD correctly wired |\n| Login (/login) | Working | Cookie auth, redirect logic correct |\n| Chat sidebar | Conditionally working | Requires `claude` CLI binary in container |\n| Activity feed | Working | Polling (intentional, SSE dropped for Cloudflare compat) |\n\n## Page-by-Page Findings\n\n### Overview (/)\n**Bugs:**\n1. **Double benchmark fetch.** `page.tsx` fetches SPY+BTC and passes as props to `EquityCurve`, but `EquityCurve` ignores those props and self-fetches internally. 4 wasted API calls per render.\n2. **Benchmark cache ignores `since` parameter.** Changing day range returns stale cached data until 5-min TTL.\n\n### Trades (/trades)\n**Bugs:**\n1. `pnl_percent` always null \u2014 `trades.py` line 79 hardsets `r[\"pnl_percent\"] = None`.\n2. `status` enum incomplete \u2014 API returns `\"stopped\"` and `\"target_hit\"` not in frontend type.\n\n### Positions (/positions)\n**Bugs:**\n1. `exit_price.toFixed(2)` called unconditionally \u2014 renders `$0.00` instead of `--` when zero.\n2. `id` type mismatch: frontend expects `string`, API returns integer.\n\n### Signals (/signals)\n**BROKEN \u2014 hardcoded fake data.** `routes/signals.py` never reads from DB. Returns 8 hardcoded rows. `scanned_at` refreshed on each request to look live. No signals table in Postgres.\n\n### Risk Gate (/risk-gate)\n**BROKEN \u2014 wrong table + type mismatches.**\n1. API reads `validations` table (Kalshi-era). Alpaca v2 risk gate does not write there.\n2. Frontend expects `veto_count`, `reasoning`, `scenarios[]`. API returns `confidence`, `risk_assessment`, `veto_reason`, `proposed_side`.\n3. `DecisionTable` reads `decision.confluence_score`, API returns `decision.confluence`.\n\n### Settings (/settings)\n**Bugs:**\n1. Frontend reads `settings.health.sqlite_db`, API returns `health.database` \u2014 always red.\n2. `uptime_seconds`, `cycle_count`, `running` hardcoded (not from BotManager).\n3. Missing Alpaca key silently shows as healthy.\n\n### Bots (/bots)\nWorking. No Delete button in UI (API supports it).\n\n### Login (/login)\nWorking correctly.\n\n## Fix Priority\n\n| Priority | Fix |\n|---|---|\n| HIGH | Signals: persist scanner output to `signals` DB table |\n| HIGH | Risk Gate: write Alpaca decisions to DB; fix frontend type alignment |\n| MEDIUM | Settings health: align `database` \u2194 `sqlite_db` field name |\n| MEDIUM | Benchmark cache: include `since` in cache key |\n| LOW | Trades `pnl_percent`: calculate and return |\n| LOW | Overview: remove dead benchmark `useAPI` calls from `page.tsx` |\n"}], "grading": {"expectations": [{"text": "Report references at least 6 of the 8 standard checks by name (endpoint, response shape, rendered fields, loading, error, empty state, mock data, query params)", "passed": false, "evidence": "Report uses a Status+KeyIssue table format \u2014 no structured check framework. Doesn't systematically visit all 8 check dimensions for each page."}, {"text": "Report covers at least 5 distinct pages", "passed": true, "evidence": "10 entries including 8 pages plus sidebar and activity feed"}, {"text": "Report contains a summary table with at least PASS/FAIL/WARN status columns", "passed": false, "evidence": "Table uses 'Mostly working / Working / Broken' not PASS/FAIL/WARN. No per-check breakdown."}, {"text": "Each issue listed includes a specific file path reference", "passed": true, "evidence": "Issues include file paths like dashboard/api/routes/signals.py, dashboard/web/types/index.ts"}, {"text": "Report does not simply say everything PASSES without reading actual code files", "passed": true, "evidence": "Found signals broken, risk gate broken, settings partially broken with specific evidence"}], "summary": {"passed": 3, "failed": 2, "total": 5, "pass_rate": 0.6}}}, {"id": "eval-2-with-skill", "prompt": "can you check if the signals page is actually pulling real data or if anything is hardcoded", "eval_id": 2, "outputs": [{"name": "report.md", "type": "text", "content": "# UI Data Audit \u2014 AI Predicted Wins (Signals Page)\nAudited: 2026-04-10\nPages reviewed: 1 (Signals page \u2014 /signals)\n\n## Summary\n\n| Page | Endpoints | Shape | Fields | Loading | Error | Empty | Mock | Params | Overall |\n|------|-----------|-------|--------|---------|-------|-------|------|--------|---------|\n| Signals | \u2705 | \u26a0\ufe0f | \u26a0\ufe0f | \u2705 | \u26a0\ufe0f | \u2705 | \u274c | \u2705 | \u274c |\n\nLegend: \u2705 PASS  \u26a0\ufe0f WARN  \u274c FAIL\n\n---\n\n## Signals Page \u2014 /signals\n\n| Check | Status | Notes |\n|-------|--------|-------|\n| Endpoint exists | PASS | `GET /api/signals` is registered in `dashboard/api/routes/signals.py` and mounted in `main.py` via `app.include_router(signals.router, dependencies=[Depends(verify_token)])` |\n| Response shape | WARN | The backend `Envelope` wrapper `{\"data\": [...], \"meta\": {...}}` is correctly unwrapped by `useAPI` \u2192 `apiFetch` \u2192 `response.data`. However, the `SignalRecord` Pydantic model in `models.py` (lines 110\u2013117) defines `ema_bullish: bool` and `vwap_bullish: bool`, while the actual route returns dicts with `ema_signal: str` and `vwap_signal: str` (matching the frontend). The model is never used by the route handler so there is no runtime error, but it is internally inconsistent. |\n| Rendered fields | WARN | All 8 fields accessed in `SignalTable.tsx` (`symbol`, `ema_signal`, `adx_value`, `rsi_value`, `volume_spike`, `vwap_signal`, `confluence_score`, `action`) exist in the `Signal` type and the placeholder payload. However `adx_signal` is present in the `Signal` type and returned by the API but has no column in `SignalTable.tsx` \u2014 it is silently ignored. |\n| Loading state | PASS | `page.tsx` lines 32\u201336: while `loading` is true, a centred card with \"Loading signals...\" is displayed. `useAPI` initialises `loading: true` and sets it to `false` in its `finally` block. |\n| Error state | WARN | `page.tsx` line 9 destructures `{ data: signals, loading }` \u2014 the `error` field returned by `useAPI` is discarded. If the API call fails, the page silently falls through to `<SignalTable data={[]} />`, showing the empty-state message with no explanation. |\n| Empty state | PASS | `SignalTable.tsx` lines 118\u2013126: when `data.length === 0` a card reading \"No signal data available. Waiting for the next scan cycle.\" is rendered. The page passes `signals ?? []` so null is also handled. |\n| No mock data | FAIL | `dashboard/api/routes/signals.py` lines 19\u2013126: the entire response body is a hardcoded `_PLACEHOLDER_SIGNALS` array of 8 static objects with fixed indicator values (e.g. `adx_value: 28.5`, `rsi_value: 55.2`). Two TODO comments in the file make this explicit. The only dynamic value is `scanned_at`, set to `datetime.now()` on each request \u2014 making the data look live when it never changes. |\n| Query params | PASS | Frontend calls `useAPI<Signal[]>(\"/api/signals\", 30000)` with no query params. Backend `get_signals()` takes no parameters. Consistent on both sides. |\n\n---\n\n## Issues requiring action\n\n### Critical (FAIL)\n- **Signals page / backend \u2014 hardcoded placeholder data**: `dashboard/api/routes/signals.py` lines 21\u2013126.\n\n### Warnings (WARN)\n- **`SignalRecord` model inconsistent with route**: `dashboard/api/models.py` lines 110\u2013117.\n- **Error state not surfaced**: `dashboard/web/app/signals/page.tsx` line 9. `error` is destructured but discarded.\n- **`adx_signal` field returned but never displayed**: `dashboard/web/components/signals/SignalTable.tsx` has no column for it.\n"}], "grading": {"expectations": [{"text": "Agent reads the backend signals route (dashboard/api/routes/signals.py) not just the frontend", "passed": true, "evidence": "Explicitly read signals.py, quoted TODO comments from lines 6 and 133, confirmed _PLACEHOLDER_SIGNALS list at lines 19-126"}, {"text": "Agent reads the Signal TypeScript type definition", "passed": true, "evidence": "Listed files examined includes dashboard/web/types/index.ts; referenced Signal type fields correctly"}, {"text": "Report correctly identifies that the signals page uses useAPI hook (not hardcoded data)", "passed": true, "evidence": "PASS on Endpoint exists: useAPI<Signal[]>('/api/signals', 30000) call correctly identified. FAIL is on backend, not frontend."}, {"text": "Report produces a per-page check table with individual pass/fail/warn per check", "passed": true, "evidence": "8-row table with Check, Status, Notes columns. Each check has explicit PASS/WARN/FAIL verdict."}, {"text": "Report covers loading state check and correctly identifies whether one exists", "passed": true, "evidence": "Loading state: PASS \u2014 'page.tsx lines 32-36: while loading is true, centred card with Loading signals... is displayed'"}], "summary": {"passed": 5, "failed": 0, "total": 5, "pass_rate": 1.0}}}, {"id": "eval-2-without-skill", "prompt": "can you check if the signals page is actually pulling real data or if anything is hardcoded", "eval_id": 2, "outputs": [{"name": "report.md", "type": "text", "content": "# Signals Page Audit (No Skill)\n\n**Bottom line: The signals page is entirely hardcoded. No real data is being shown.**\n\n### What the backend actually does\n\n`dashboard/api/routes/signals.py` returns a static Python list called `_PLACEHOLDER_SIGNALS` containing fixed values for all 8 crypto assets. The file even has explicit TODO comments admitting this.\n\nThe only thing that's dynamic is `scanned_at` \u2014 it's injected as `datetime.now(timezone.utc)` at response time, so the timestamp looks fresh even though all indicator values are frozen.\n\n### The bot computes real signals but never saves them\n\n`src/technical_signals.py` and `src/alpaca_orchestrator.py` do run real `scan_assets()` calls against Alpaca each cycle. The signals are used in-process to make trading decisions, but they are **never written to the database**. No `signals` table exists in the Postgres schema.\n\n### The frontend wiring is correct\n\n`dashboard/web/app/signals/page.tsx` correctly polls `/api/signals` every 30 seconds via `useAPI`. The `SignalTable` component maps all columns properly.\n\n### What needs to happen to fix it\n\n1. Add a `signals` table to Postgres (new migration)\n2. After each `scan_assets()` call, upsert the results into that table\n3. Update `dashboard/api/routes/signals.py` to query the table instead of returning `_PLACEHOLDER_SIGNALS`\n"}], "grading": {"expectations": [{"text": "Agent reads the backend signals route (dashboard/api/routes/signals.py) not just the frontend", "passed": true, "evidence": "Confirmed _PLACEHOLDER_SIGNALS in signals.py, read TODO comments, confirmed no signals table in migrations"}, {"text": "Agent reads the Signal TypeScript type definition", "passed": false, "evidence": "Agent confirmed frontend wiring is correct but did not explicitly read or reference the Signal type fields or types/index.ts"}, {"text": "Report correctly identifies that the signals page uses useAPI hook (not hardcoded data)", "passed": true, "evidence": "The frontend wiring is correct \u2014 correctly polls /api/signals every 30 seconds via useAPI"}, {"text": "Report produces a per-page check table with individual pass/fail/warn per check", "passed": false, "evidence": "Prose format only \u2014 no structured per-check table. Sections are by topic not by check dimension."}, {"text": "Report covers loading state check and correctly identifies whether one exists", "passed": false, "evidence": "Report does not mention or check for loading state in the signals page at all"}], "summary": {"passed": 2, "failed": 3, "total": 5, "pass_rate": 0.4}}}, {"id": "eval-3-with-skill", "prompt": "before we ship, do a quick pass on every page to make sure loading states and error states are all in place", "eval_id": 3, "outputs": [{"name": "report.md", "type": "text", "content": "# UI Data Audit \u2014 AI Predicted Wins Dashboard\nAudited: 2026-04-10 | Pages reviewed: 8\n\n## Summary\n\n| Page | Endpoints | Shape | Fields | Loading | Error | Empty | Mock | Params | Overall |\n|------|-----------|-------|--------|---------|-------|-------|------|--------|---------|\n| Overview `/` | \u2705 | \u26a0\ufe0f | \u2705 | \u2705 | \u274c | \u2705 | \u2705 | \u2705 | \u26a0\ufe0f |\n| Signals `/signals` | \u2705 | \u26a0\ufe0f | \u2705 | \u2705 | \u274c | \u2705 | \u274c | \u2705 | \u274c |\n| Positions `/positions` | \u2705 | \u26a0\ufe0f | \u2705 | \u2705 | \u274c | \u2705 | \u2705 | \u2705 | \u26a0\ufe0f |\n| Trades `/trades` | \u2705 | \u2705 | \u2705 | \u2705 | \u274c | \u2705 | \u2705 | \u2705 | \u26a0\ufe0f |\n| Risk Gate `/risk-gate` | \u2705 | \u274c | \u274c | \u2705 | \u274c | \u2705 | \u2705 | \u2705 | \u274c |\n| Bots `/bots` | \u2705 | \u2705 | \u2705 | \u274c | \u26a0\ufe0f | \u2705 | \u2705 | \u2705 | \u274c |\n| Settings `/settings` | \u2705 | \u274c | \u274c | \u2705 | \u274c | \u2705 | \u2705 | \u2705 | \u274c |\n| Login `/login` | \u2705 | \u2705 | \u2705 | \u2705 | \u2705 | N/A | \u2705 | \u2705 | \u2705 |\n\nLegend: \u2705 PASS  \u26a0\ufe0f WARN  \u274c FAIL\n\n## Issues Requiring Action\n\n### Critical (FAIL)\n\n- **Risk Gate \u2014 shape mismatch + crash on row expand**: Backend sends `confluence`/`veto_reason`/`risk_assessment` with no `veto_count` or `scenarios`. Frontend reads `confluence_score`/`veto_count`/`reasoning`/`scenarios`. Expanding any row throws `TypeError` (`decision.scenarios.length` on undefined). Files: `dashboard/api/models.py:122\u2013133`, `dashboard/web/components/risk-gate/DecisionTable.tsx:109,123,127`, `dashboard/web/components/risk-gate/DecisionDetail.tsx:27`\n\n- **Settings \u2014 health field mismatch**: Backend sends `health.database`, frontend reads `health.sqlite_db`. DB health permanently red. Files: `dashboard/api/models.py:152`, `dashboard/web/types/index.ts:127`, `dashboard/web/components/settings/BotStatus.tsx:142`\n\n- **Signals \u2014 hardcoded placeholder data**: `dashboard/api/routes/signals.py:19\u2013138`\n\n- **Bots \u2014 no loading state**: Empty state flashes on every page load. `dashboard/web/app/bots/page.tsx:18`\n\n### Warnings (WARN)\n\n- **Error states missing on all data pages**: 6 pages discard `error` from `useAPI`. A shared `<ErrorBanner error={error} />` component would fix all 6:\n  - `dashboard/web/app/page.tsx:31\u201352`\n  - `dashboard/web/app/signals/page.tsx:9`\n  - `dashboard/web/app/positions/page.tsx:16\u201321`\n  - `dashboard/web/app/trades/page.tsx:25`\n  - `dashboard/web/app/risk-gate/page.tsx:14`\n  - `dashboard/web/app/settings/page.tsx:8`\n\n- **Bots \u2014 toggle errors silently swallowed**: `handleToggle` has no catch block. `dashboard/web/app/bots/page.tsx:38\u201341`\n\n- **MultiBotPortfolio type divergence**: Backend Pydantic has explicit `A`/`B` fields; frontend is `Record<string, Portfolio>`. `dashboard/api/models.py:258\u2013260`\n\n## All Clear\n\nLogin passes all 8 checks. No other pages are fully clean.\n\n## Quick Fix Priority\n\n1. Rename `health.database` \u2192 `health.sqlite_db` in `dashboard/api/models.py:152`\n2. Add `<ErrorBanner>` to all 6 data pages\n3. Risk Gate field mapping: `confluence`\u2192`confluence_score`, derive `veto_count`, guard `scenarios?.length ?? 0`\n4. Wire signals to real DB data\n5. Extract `loading` from `useAPI` in bots page\n"}], "grading": {"expectations": [{"text": "Report covers at least 5 distinct pages", "passed": true, "evidence": "8 pages covered: Overview, Signals, Positions, Trades, Risk Gate, Bots, Settings, Login"}, {"text": "Report explicitly distinguishes loading state from error state (not combined into one check)", "passed": true, "evidence": "Check 4 (Loading state) and Check 5 (Error state) are separate rows in every per-page table"}, {"text": "Report applies all 8 checks, not just checks 4 and 5", "passed": true, "evidence": "Summary table has all 8 check columns. Risk Gate found shape mismatch and field failure; Settings found field mismatch \u2014 not just loading/error checks."}, {"text": "If any pages are missing error states, they are flagged as FAIL or WARN", "passed": true, "evidence": "Error state: FAIL on Overview, Signals, Positions, Trades, Risk Gate, Settings. Each backed by specific file:line of discarded error field."}, {"text": "Report is structured (table format) rather than just prose paragraphs", "passed": true, "evidence": "Summary table with 8 check columns, plus individual per-page tables. All issues listed with file references."}], "summary": {"passed": 5, "failed": 0, "total": 5, "pass_rate": 1.0}}}, {"id": "eval-3-without-skill", "prompt": "before we ship, do a quick pass on every page to make sure loading states and error states are all in place", "eval_id": 3, "outputs": [{"name": "report.md", "type": "text", "content": "# Loading & Error State Audit (No Skill) \u2014 AI Predicted Wins Dashboard\n\n## Summary Table\n\n| Page / Component | Loading | Error | Notes |\n|---|---|---|---|\n| Login | PASS | PASS | Button text + disabled; inline red error messages |\n| Overview (/) | PARTIAL | MISSING | Hero KPI has pulse skeleton; metric cards show \"--\" (no pulse); no error banner |\n| Bots (/bots) | MISSING | MISSING | `loading` flag never read; empty-state shown during load; toggle errors swallowed |\n| Positions (/positions) | PASS | MISSING | Per-tab loading; `error` never read |\n| Signals (/signals) | PASS | MISSING | Spinner shown; falls through to misleading empty state on error |\n| Trades (/trades) | PASS | MISSING | Spinner shown; falls through to misleading empty state on error |\n| Risk Gate (/risk-gate) | PASS | MISSING | Spinner shown; falls through to misleading empty state on error |\n| Settings (/settings) | PARTIAL | MISSING | Skeleton shown but gets **stuck forever** on persistent API error |\n| ActivityFeed | PASS | PARTIAL | \"Loading...\" + reconnecting dot; no retry button |\n| EquityCurve | MISSING | MISSING | No skeleton; benchmark failures are completely silent |\n| ChatSidebar | PASS | PASS | Streaming cursor + inline error messages |\n| AuthGuard | PASS | PASS | Full-screen loading; redirects on 401; safe fallback on network error |\n| useAPI hook | PASS | PASS | Sets `error` string and redirects on 401 \u2014 but most pages never read `error` |\n\n## Key Finding: `error` from `useAPI` Is Almost Never Read\n\nThe `useAPI` hook correctly returns `{ data, loading, error, refetch }`, but 6 of 7 pages destructure only `data` and `loading`, discarding `error` entirely. This means API failures are invisible to users across most of the app.\n\n## Issues by Priority\n\n### High \u2014 Must Fix Before Ship\n\n1. **Settings page stuck on skeleton**: `loading` becomes false but `settings` stays null on error \u2192 infinite skeleton. `dashboard/web/app/settings/page.tsx`\n2. **Bots page: loading state missing**: `loading` never read; \"No bots configured\" shown during load. `dashboard/web/app/bots/page.tsx`\n3. **Overview: no error handling**: Portfolio/equity failures show `\"--\"` which looks like zero data. `dashboard/web/app/page.tsx`\n\n### Medium \u2014 Polish\n\n4. Signals, Trades, Risk Gate: misleading empty state on API error (all 3 pages)\n5. Positions: no error state on either fetch\n6. EquityCurve: no loading skeleton; benchmark failures silent\n7. Bots `handleToggle` errors swallowed (no try/catch)\n\n### Low \u2014 Nice to Have\n\n8. Overview metric cards use `\"--\"` placeholder instead of animated pulse\n9. ActivityFeed has no manual retry button\n10. EquityCurve benchmark fetch failures (SPY/BTC) silent\n"}], "grading": {"expectations": [{"text": "Report covers at least 5 distinct pages", "passed": true, "evidence": "13 entries covering 8 pages plus ActivityFeed, EquityCurve, ChatSidebar, AuthGuard, useAPI hook"}, {"text": "Report explicitly distinguishes loading state from error state (not combined into one check)", "passed": true, "evidence": "2-column summary table with separate Loading and Error columns"}, {"text": "Report applies all 8 checks, not just checks 4 and 5", "passed": false, "evidence": "Only Loading and Error checked. No endpoint existence, response shape, field coverage, empty state, mock data, or query params checks."}, {"text": "If any pages are missing error states, they are flagged as FAIL or WARN", "passed": true, "evidence": "MISSING flagged for all pages without error state: Overview, Bots, Positions, Signals, Trades, Risk Gate, Settings, EquityCurve"}, {"text": "Report is structured (table format) rather than just prose paragraphs", "passed": true, "evidence": "Summary table with Loading/Error/Notes columns, followed by prioritized issues list"}], "summary": {"passed": 4, "failed": 1, "total": 5, "pass_rate": 0.8}}}], "previous_feedback": {}, "previous_outputs": {}, "benchmark": {"metadata": {"skill_name": "ui-data-audit", "skill_path": ".claude/skills/ui-data-audit", "executor_model": "claude-sonnet-4-6", "analyzer_model": "claude-sonnet-4-6", "timestamp": "2026-04-10T16:30:00Z", "evals_run": [1, 2, 3], "runs_per_configuration": 1}, "runs": [{"eval_id": 1, "eval_name": "Full dashboard audit", "configuration": "with_skill", "run_number": 1, "result": {"pass_rate": 1.0, "passed": 5, "failed": 0, "total": 5, "time_seconds": 574.6, "tokens": 107954, "tool_calls": 58, "errors": 0}, "expectations": [{"text": "Report references at least 6 of the 8 standard checks by name", "passed": true, "evidence": "8-check summary table used across all 8 pages"}, {"text": "Report covers at least 5 distinct pages", "passed": true, "evidence": "8 pages covered"}, {"text": "Report contains summary table with PASS/FAIL/WARN columns", "passed": true, "evidence": "Summary table uses PASS/WARN/FAIL per check per page"}, {"text": "Each issue includes specific file path reference", "passed": true, "evidence": "All issues include paths like dashboard/web/types/index.ts:77-95"}, {"text": "Report does not say everything PASSES without reading code", "passed": true, "evidence": "Found 4 FAILs and 8 WARNs"}], "notes": []}, {"eval_id": 1, "eval_name": "Full dashboard audit", "configuration": "without_skill", "run_number": 1, "result": {"pass_rate": 0.6, "passed": 3, "failed": 2, "total": 5, "time_seconds": 309.1, "tokens": 97463, "tool_calls": 52, "errors": 0}, "expectations": [{"text": "Report references at least 6 of the 8 standard checks by name", "passed": false, "evidence": "Uses Status+KeyIssue table, no structured 8-check framework"}, {"text": "Report covers at least 5 distinct pages", "passed": true, "evidence": "10 entries covering 8 pages"}, {"text": "Report contains summary table with PASS/FAIL/WARN columns", "passed": false, "evidence": "Uses Mostly working/Working/Broken labels, not PASS/FAIL/WARN per-check"}, {"text": "Each issue includes specific file path reference", "passed": true, "evidence": "Issues include file paths"}, {"text": "Report does not say everything PASSES without reading code", "passed": true, "evidence": "Found signals broken, risk gate broken"}], "notes": ["Found unique bugs: pnl_percent always null, exit_price.toFixed bug, dead benchmark fetch"]}, {"eval_id": 2, "eval_name": "Signals page targeted check", "configuration": "with_skill", "run_number": 1, "result": {"pass_rate": 1.0, "passed": 5, "failed": 0, "total": 5, "time_seconds": 108.5, "tokens": 37652, "tool_calls": 16, "errors": 0}, "expectations": [{"text": "Agent reads the backend signals route not just the frontend", "passed": true, "evidence": "Read signals.py, quoted TODO comments from lines 6 and 133"}, {"text": "Agent reads the Signal TypeScript type definition", "passed": true, "evidence": "Read dashboard/web/types/index.ts"}, {"text": "Report correctly identifies useAPI hook not hardcoded data", "passed": true, "evidence": "PASS on Endpoint exists with correct useAPI identification"}, {"text": "Report produces a per-page check table with individual pass/fail/warn", "passed": true, "evidence": "8-row table with Check, Status, Notes columns"}, {"text": "Report covers loading state check", "passed": true, "evidence": "Loading state PASS with page.tsx lines 32-36 reference"}], "notes": []}, {"eval_id": 2, "eval_name": "Signals page targeted check", "configuration": "without_skill", "run_number": 1, "result": {"pass_rate": 0.4, "passed": 2, "failed": 3, "total": 5, "time_seconds": 71.6, "tokens": 31095, "tool_calls": 13, "errors": 0}, "expectations": [{"text": "Agent reads the backend signals route not just the frontend", "passed": true, "evidence": "Confirmed _PLACEHOLDER_SIGNALS in signals.py"}, {"text": "Agent reads the Signal TypeScript type definition", "passed": false, "evidence": "Did not explicitly read Signal type fields"}, {"text": "Report correctly identifies useAPI hook not hardcoded data", "passed": true, "evidence": "Frontend wiring correctly identified as correct"}, {"text": "Report produces a per-page check table with individual pass/fail/warn", "passed": false, "evidence": "Prose format only, no structured per-check table"}, {"text": "Report covers loading state check", "passed": false, "evidence": "Loading state not mentioned or checked"}], "notes": []}, {"eval_id": 3, "eval_name": "Loading and error states check", "configuration": "with_skill", "run_number": 1, "result": {"pass_rate": 1.0, "passed": 5, "failed": 0, "total": 5, "time_seconds": 362.2, "tokens": 105989, "tool_calls": 51, "errors": 0}, "expectations": [{"text": "Report covers at least 5 distinct pages", "passed": true, "evidence": "8 pages covered"}, {"text": "Report explicitly distinguishes loading state from error state", "passed": true, "evidence": "Separate Check 4 and Check 5 rows in every per-page table"}, {"text": "Report applies all 8 checks not just checks 4 and 5", "passed": true, "evidence": "Found Risk Gate shape/field FAILs beyond loading/error"}, {"text": "If any pages missing error states flagged as FAIL or WARN", "passed": true, "evidence": "Error state FAIL on 6 pages with specific file:line references"}, {"text": "Report is structured table format", "passed": true, "evidence": "Summary table with 8 check columns plus per-page tables"}], "notes": ["Identified shared ErrorBanner pattern as single fix for all 6 affected pages"]}, {"eval_id": 3, "eval_name": "Loading and error states check", "configuration": "without_skill", "run_number": 1, "result": {"pass_rate": 0.8, "passed": 4, "failed": 1, "total": 5, "time_seconds": 205.9, "tokens": 65594, "tool_calls": 36, "errors": 0}, "expectations": [{"text": "Report covers at least 5 distinct pages", "passed": true, "evidence": "13 entries covering 8 pages plus components"}, {"text": "Report explicitly distinguishes loading state from error state", "passed": true, "evidence": "2-column summary table with separate Loading and Error"}, {"text": "Report applies all 8 checks not just checks 4 and 5", "passed": false, "evidence": "Only Loading and Error checked"}, {"text": "If any pages missing error states flagged as FAIL or WARN", "passed": true, "evidence": "MISSING flagged for all pages without error state"}, {"text": "Report is structured table format", "passed": true, "evidence": "Summary table present"}], "notes": ["Did not find Risk Gate TypeError crash"]}], "run_summary": {"with_skill": {"pass_rate": {"mean": 1.0, "stddev": 0.0, "min": 1.0, "max": 1.0}, "time_seconds": {"mean": 348.4, "stddev": 191.8, "min": 108.5, "max": 574.6}, "tokens": {"mean": 83865, "stddev": 32001, "min": 37652, "max": 107954}}, "without_skill": {"pass_rate": {"mean": 0.6, "stddev": 0.17, "min": 0.4, "max": 0.8}, "time_seconds": {"mean": 195.5, "stddev": 99.9, "min": 71.6, "max": 309.1}, "tokens": {"mean": 64717, "stddev": 27611, "min": 31095, "max": 97463}}, "delta": {"pass_rate": "+0.40", "time_seconds": "+152.9", "tokens": "+19148"}}, "notes": ["PASS/FAIL/WARN table assertion: passes 100% with skill, 0% without \u2014 the 8-check framework is the core differentiator", "Eval 1: without-skill found some unique bugs (pnl_percent null, exit_price.toFixed) that with-skill missed", "Eval 3: with-skill found Risk Gate TypeError crash that without-skill missed \u2014 from checking all 8 dimensions", "Skill costs ~153s and ~19k tokens more \u2014 reasonable tradeoff for structured actionable output", "Interactive design validation step (Step 3.5) not exercised in evals \u2014 requires live user interaction"]}};
+
+    // ---- State ----
+    let feedbackMap = {};  // run_id -> feedback text
+    let currentIndex = 0;
+    let visitedRuns = new Set();
+
+    // ---- Init ----
+    async function init() {
+      // Load saved feedback from server — but only if this isn't a fresh
+      // iteration (indicated by previous_feedback being present). When
+      // previous feedback exists, the feedback.json on disk is stale from
+      // the prior iteration and should not pre-fill the textareas.
+      const hasPrevious = Object.keys(EMBEDDED_DATA.previous_feedback || {}).length > 0
+        || Object.keys(EMBEDDED_DATA.previous_outputs || {}).length > 0;
+      if (!hasPrevious) {
+        try {
+          const resp = await fetch("/api/feedback");
+          const data = await resp.json();
+          if (data.reviews) {
+            for (const r of data.reviews) feedbackMap[r.run_id] = r.feedback;
+          }
+        } catch { /* first run, no feedback yet */ }
+      }
+
+      document.getElementById("skill-name").textContent = EMBEDDED_DATA.skill_name;
+      showRun(0);
+
+      // Wire up feedback auto-save
+      const textarea = document.getElementById("feedback");
+      let saveTimeout = null;
+      textarea.addEventListener("input", () => {
+        clearTimeout(saveTimeout);
+        document.getElementById("feedback-status").textContent = "";
+        saveTimeout = setTimeout(() => saveCurrentFeedback(), 800);
+      });
+    }
+
+    // ---- Navigation ----
+    function navigate(delta) {
+      const newIndex = currentIndex + delta;
+      if (newIndex >= 0 && newIndex < EMBEDDED_DATA.runs.length) {
+        saveCurrentFeedback();
+        showRun(newIndex);
+      }
+    }
+
+    function updateNavButtons() {
+      document.getElementById("prev-btn").disabled = currentIndex === 0;
+      document.getElementById("next-btn").disabled =
+        currentIndex === EMBEDDED_DATA.runs.length - 1;
+    }
+
+    // ---- Show a run ----
+    function showRun(index) {
+      currentIndex = index;
+      const run = EMBEDDED_DATA.runs[index];
+
+      // Progress
+      document.getElementById("progress").textContent =
+        `${index + 1} of ${EMBEDDED_DATA.runs.length}`;
+
+      // Prompt
+      document.getElementById("prompt-text").textContent = run.prompt;
+
+      // Config badge
+      const badge = document.getElementById("config-badge");
+      const configMatch = run.id.match(/(with_skill|without_skill|new_skill|old_skill)/);
+      if (configMatch) {
+        const config = configMatch[1];
+        const isBaseline = config === "without_skill" || config === "old_skill";
+        badge.textContent = config.replace(/_/g, " ");
+        badge.className = "config-badge " + (isBaseline ? "config-baseline" : "config-primary");
+        badge.style.display = "inline-block";
+      } else {
+        badge.style.display = "none";
+      }
+
+      // Outputs
+      renderOutputs(run);
+
+      // Previous outputs
+      renderPrevOutputs(run);
+
+      // Grades
+      renderGrades(run);
+
+      // Previous feedback
+      const prevFb = (EMBEDDED_DATA.previous_feedback || {})[run.id];
+      const prevEl = document.getElementById("prev-feedback");
+      if (prevFb) {
+        document.getElementById("prev-feedback-text").textContent = prevFb;
+        prevEl.style.display = "block";
+      } else {
+        prevEl.style.display = "none";
+      }
+
+      // Feedback
+      document.getElementById("feedback").value = feedbackMap[run.id] || "";
+      document.getElementById("feedback-status").textContent = "";
+
+      updateNavButtons();
+
+      // Track visited runs and promote done button when all visited
+      visitedRuns.add(index);
+      const doneBtn = document.getElementById("done-btn");
+      if (visitedRuns.size >= EMBEDDED_DATA.runs.length) {
+        doneBtn.classList.add("ready");
+      }
+
+      // Scroll main content to top
+      document.querySelector(".main").scrollTop = 0;
+    }
+
+    // ---- Render outputs ----
+    function renderOutputs(run) {
+      const container = document.getElementById("outputs-body");
+      container.innerHTML = "";
+
+      const outputs = run.outputs || [];
+      if (outputs.length === 0) {
+        container.innerHTML = '<div class="empty-state">No output files</div>';
+        return;
+      }
+
+      for (const file of outputs) {
+        const fileDiv = document.createElement("div");
+        fileDiv.className = "output-file";
+
+        // Always show file header with download link
+        const header = document.createElement("div");
+        header.className = "output-file-header";
+        const nameSpan = document.createElement("span");
+        nameSpan.textContent = file.name;
+        header.appendChild(nameSpan);
+        const dlBtn = document.createElement("a");
+        dlBtn.className = "dl-btn";
+        dlBtn.textContent = "Download";
+        dlBtn.download = file.name;
+        dlBtn.href = getDownloadUri(file);
+        header.appendChild(dlBtn);
+        fileDiv.appendChild(header);
+
+        const content = document.createElement("div");
+        content.className = "output-file-content";
+
+        if (file.type === "text") {
+          const pre = document.createElement("pre");
+          pre.textContent = file.content;
+          content.appendChild(pre);
+        } else if (file.type === "image") {
+          const img = document.createElement("img");
+          img.src = file.data_uri;
+          img.alt = file.name;
+          content.appendChild(img);
+        } else if (file.type === "pdf") {
+          const iframe = document.createElement("iframe");
+          iframe.src = file.data_uri;
+          content.appendChild(iframe);
+        } else if (file.type === "xlsx") {
+          renderXlsx(content, file.data_b64);
+        } else if (file.type === "binary") {
+          const a = document.createElement("a");
+          a.className = "download-link";
+          a.href = file.data_uri;
+          a.download = file.name;
+          a.textContent = "Download " + file.name;
+          content.appendChild(a);
+        } else if (file.type === "error") {
+          const pre = document.createElement("pre");
+          pre.textContent = file.content;
+          pre.style.color = "var(--red)";
+          content.appendChild(pre);
+        }
+
+        fileDiv.appendChild(content);
+        container.appendChild(fileDiv);
+      }
+    }
+
+    // ---- XLSX rendering via SheetJS ----
+    function renderXlsx(container, b64Data) {
+      try {
+        const raw = Uint8Array.from(atob(b64Data), c => c.charCodeAt(0));
+        const wb = XLSX.read(raw, { type: "array" });
+
+        for (let i = 0; i < wb.SheetNames.length; i++) {
+          const sheetName = wb.SheetNames[i];
+          const ws = wb.Sheets[sheetName];
+
+          if (wb.SheetNames.length > 1) {
+            const sheetLabel = document.createElement("div");
+            sheetLabel.style.cssText =
+              "font-weight:600; font-size:0.8rem; color:#b0aea5; margin-top:0.5rem; margin-bottom:0.25rem;";
+            sheetLabel.textContent = "Sheet: " + sheetName;
+            container.appendChild(sheetLabel);
+          }
+
+          const htmlStr = XLSX.utils.sheet_to_html(ws, { editable: false });
+          const wrapper = document.createElement("div");
+          wrapper.innerHTML = htmlStr;
+          container.appendChild(wrapper);
+        }
+      } catch (err) {
+        container.textContent = "Error rendering spreadsheet: " + err.message;
+      }
+    }
+
+    // ---- Grades ----
+    function renderGrades(run) {
+      const section = document.getElementById("grades-section");
+      const content = document.getElementById("grades-content");
+
+      if (!run.grading) {
+        section.style.display = "none";
+        return;
+      }
+
+      const grading = run.grading;
+      section.style.display = "block";
+      // Reset to collapsed
+      content.classList.remove("open");
+      document.getElementById("grades-arrow").classList.remove("open");
+
+      const summary = grading.summary || {};
+      const expectations = grading.expectations || [];
+
+      let html = '<div style="padding: 1rem;">';
+
+      // Summary line
+      const passRate = summary.pass_rate != null
+        ? Math.round(summary.pass_rate * 100) + "%"
+        : "?";
+      const badgeClass = summary.pass_rate >= 0.8 ? "grade-pass" : summary.pass_rate >= 0.5 ? "" : "grade-fail";
+      html += '<div class="grades-summary">';
+      html += '<span class="grade-badge ' + badgeClass + '">' + passRate + '</span>';
+      html += '<span>' + (summary.passed || 0) + ' passed, ' + (summary.failed || 0) + ' failed of ' + (summary.total || 0) + '</span>';
+      html += '</div>';
+
+      // Assertions list
+      html += '<ul class="assertion-list">';
+      for (const exp of expectations) {
+        const statusClass = exp.passed ? "pass" : "fail";
+        const statusIcon = exp.passed ? "\u2713" : "\u2717";
+        html += '<li class="assertion-item">';
+        html += '<span class="assertion-status ' + statusClass + '">' + statusIcon + '</span>';
+        html += '<span>' + escapeHtml(exp.text) + '</span>';
+        if (exp.evidence) {
+          html += '<div class="assertion-evidence">' + escapeHtml(exp.evidence) + '</div>';
+        }
+        html += '</li>';
+      }
+      html += '</ul>';
+
+      html += '</div>';
+      content.innerHTML = html;
+    }
+
+    function toggleGrades() {
+      const content = document.getElementById("grades-content");
+      const arrow = document.getElementById("grades-arrow");
+      content.classList.toggle("open");
+      arrow.classList.toggle("open");
+    }
+
+    // ---- Previous outputs (collapsible) ----
+    function renderPrevOutputs(run) {
+      const section = document.getElementById("prev-outputs-section");
+      const content = document.getElementById("prev-outputs-content");
+      const prevOutputs = (EMBEDDED_DATA.previous_outputs || {})[run.id];
+
+      if (!prevOutputs || prevOutputs.length === 0) {
+        section.style.display = "none";
+        return;
+      }
+
+      section.style.display = "block";
+      // Reset to collapsed
+      content.classList.remove("open");
+      document.getElementById("prev-outputs-arrow").classList.remove("open");
+
+      // Render the files into the content area
+      content.innerHTML = "";
+      const wrapper = document.createElement("div");
+      wrapper.style.padding = "1rem";
+
+      for (const file of prevOutputs) {
+        const fileDiv = document.createElement("div");
+        fileDiv.className = "output-file";
+
+        const header = document.createElement("div");
+        header.className = "output-file-header";
+        const nameSpan = document.createElement("span");
+        nameSpan.textContent = file.name;
+        header.appendChild(nameSpan);
+        const dlBtn = document.createElement("a");
+        dlBtn.className = "dl-btn";
+        dlBtn.textContent = "Download";
+        dlBtn.download = file.name;
+        dlBtn.href = getDownloadUri(file);
+        header.appendChild(dlBtn);
+        fileDiv.appendChild(header);
+
+        const fc = document.createElement("div");
+        fc.className = "output-file-content";
+
+        if (file.type === "text") {
+          const pre = document.createElement("pre");
+          pre.textContent = file.content;
+          fc.appendChild(pre);
+        } else if (file.type === "image") {
+          const img = document.createElement("img");
+          img.src = file.data_uri;
+          img.alt = file.name;
+          fc.appendChild(img);
+        } else if (file.type === "pdf") {
+          const iframe = document.createElement("iframe");
+          iframe.src = file.data_uri;
+          fc.appendChild(iframe);
+        } else if (file.type === "xlsx") {
+          renderXlsx(fc, file.data_b64);
+        } else if (file.type === "binary") {
+          const a = document.createElement("a");
+          a.className = "download-link";
+          a.href = file.data_uri;
+          a.download = file.name;
+          a.textContent = "Download " + file.name;
+          fc.appendChild(a);
+        }
+
+        fileDiv.appendChild(fc);
+        wrapper.appendChild(fileDiv);
+      }
+
+      content.appendChild(wrapper);
+    }
+
+    function togglePrevOutputs() {
+      const content = document.getElementById("prev-outputs-content");
+      const arrow = document.getElementById("prev-outputs-arrow");
+      content.classList.toggle("open");
+      arrow.classList.toggle("open");
+    }
+
+    // ---- Feedback (saved to server -> feedback.json) ----
+    function saveCurrentFeedback() {
+      const run = EMBEDDED_DATA.runs[currentIndex];
+      const text = document.getElementById("feedback").value;
+
+      if (text.trim() === "") {
+        delete feedbackMap[run.id];
+      } else {
+        feedbackMap[run.id] = text;
+      }
+
+      // Build reviews array from map
+      const reviews = [];
+      for (const [run_id, feedback] of Object.entries(feedbackMap)) {
+        if (feedback.trim()) {
+          reviews.push({ run_id, feedback, timestamp: new Date().toISOString() });
+        }
+      }
+
+      fetch("/api/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reviews, status: "in_progress" }),
+      }).then(() => {
+        document.getElementById("feedback-status").textContent = "Saved";
+      }).catch(() => {
+        // Static mode or server unavailable — no-op on auto-save,
+        // feedback will be downloaded on final submit
+        document.getElementById("feedback-status").textContent = "Will download on submit";
+      });
+    }
+
+    // ---- Done ----
+    function showDoneDialog() {
+      // Save current textarea to feedbackMap (but don't POST yet)
+      const run = EMBEDDED_DATA.runs[currentIndex];
+      const text = document.getElementById("feedback").value;
+      if (text.trim() === "") {
+        delete feedbackMap[run.id];
+      } else {
+        feedbackMap[run.id] = text;
+      }
+
+      // POST once with status: complete — include ALL runs so the model
+      // can distinguish "no feedback" (looks good) from "not reviewed"
+      const reviews = [];
+      const ts = new Date().toISOString();
+      for (const r of EMBEDDED_DATA.runs) {
+        reviews.push({ run_id: r.id, feedback: feedbackMap[r.id] || "", timestamp: ts });
+      }
+      const payload = JSON.stringify({ reviews, status: "complete" }, null, 2);
+      fetch("/api/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: payload,
+      }).then(() => {
+        document.getElementById("done-overlay").classList.add("visible");
+      }).catch(() => {
+        // Server not available (static mode) — download as file
+        const blob = new Blob([payload], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "feedback.json";
+        a.click();
+        URL.revokeObjectURL(url);
+        document.getElementById("done-overlay").classList.add("visible");
+      });
+    }
+
+    function closeDoneDialog() {
+      // Reset status back to in_progress
+      saveCurrentFeedback();
+      document.getElementById("done-overlay").classList.remove("visible");
+    }
+
+    // ---- Toast ----
+    function showToast(message) {
+      const toast = document.getElementById("toast");
+      toast.textContent = message;
+      toast.classList.add("visible");
+      setTimeout(() => toast.classList.remove("visible"), 2000);
+    }
+
+    // ---- Keyboard nav ----
+    document.addEventListener("keydown", (e) => {
+      // Don't capture when typing in textarea
+      if (e.target.tagName === "TEXTAREA") return;
+
+      if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+        e.preventDefault();
+        navigate(-1);
+      } else if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+        e.preventDefault();
+        navigate(1);
+      }
+    });
+
+    // ---- Util ----
+    function getDownloadUri(file) {
+      if (file.data_uri) return file.data_uri;
+      if (file.data_b64) return "data:application/octet-stream;base64," + file.data_b64;
+      if (file.type === "text") return "data:text/plain;charset=utf-8," + encodeURIComponent(file.content);
+      return "#";
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement("div");
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // ---- View switching ----
+    function switchView(view) {
+      document.querySelectorAll(".view-tab").forEach(t => t.classList.remove("active"));
+      document.querySelectorAll(".view-panel").forEach(p => p.classList.remove("active"));
+      document.querySelector(`[onclick="switchView('${view}')"]`).classList.add("active");
+      document.getElementById("panel-" + view).classList.add("active");
+    }
+
+    // ---- Benchmark rendering ----
+    function renderBenchmark() {
+      const data = EMBEDDED_DATA.benchmark;
+      if (!data) return;
+
+      // Show the tabs
+      document.getElementById("view-tabs").style.display = "flex";
+
+      const container = document.getElementById("benchmark-content");
+      const summary = data.run_summary || {};
+      const metadata = data.metadata || {};
+      const notes = data.notes || [];
+
+      let html = "";
+
+      // Header
+      html += "<h2 style='font-family: Poppins, sans-serif; margin-bottom: 0.5rem;'>Benchmark Results</h2>";
+      html += "<p style='color: var(--text-muted); font-size: 0.875rem; margin-bottom: 1.25rem;'>";
+      if (metadata.skill_name) html += "<strong>" + escapeHtml(metadata.skill_name) + "</strong> &mdash; ";
+      if (metadata.timestamp) html += metadata.timestamp + " &mdash; ";
+      if (metadata.evals_run) html += "Evals: " + metadata.evals_run.join(", ") + " &mdash; ";
+      html += (metadata.runs_per_configuration || "?") + " runs per configuration";
+      html += "</p>";
+
+      // Summary table
+      html += '<table class="benchmark-table">';
+
+      function fmtStat(stat, pct) {
+        if (!stat) return "—";
+        const suffix = pct ? "%" : "";
+        const m = pct ? (stat.mean * 100).toFixed(0) : stat.mean.toFixed(1);
+        const s = pct ? (stat.stddev * 100).toFixed(0) : stat.stddev.toFixed(1);
+        return m + suffix + " ± " + s + suffix;
+      }
+
+      function deltaClass(val) {
+        if (!val) return "";
+        const n = parseFloat(val);
+        if (n > 0) return "benchmark-delta-positive";
+        if (n < 0) return "benchmark-delta-negative";
+        return "";
+      }
+
+      // Discover config names dynamically (everything except "delta")
+      const configs = Object.keys(summary).filter(k => k !== "delta");
+      const configA = configs[0] || "config_a";
+      const configB = configs[1] || "config_b";
+      const labelA = configA.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+      const labelB = configB.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+      const a = summary[configA] || {};
+      const b = summary[configB] || {};
+      const delta = summary.delta || {};
+
+      html += "<thead><tr><th>Metric</th><th>" + escapeHtml(labelA) + "</th><th>" + escapeHtml(labelB) + "</th><th>Delta</th></tr></thead>";
+      html += "<tbody>";
+
+      html += "<tr><td><strong>Pass Rate</strong></td>";
+      html += "<td>" + fmtStat(a.pass_rate, true) + "</td>";
+      html += "<td>" + fmtStat(b.pass_rate, true) + "</td>";
+      html += '<td class="' + deltaClass(delta.pass_rate) + '">' + (delta.pass_rate || "—") + "</td></tr>";
+
+      // Time (only show row if data exists)
+      if (a.time_seconds || b.time_seconds) {
+        html += "<tr><td><strong>Time (s)</strong></td>";
+        html += "<td>" + fmtStat(a.time_seconds, false) + "</td>";
+        html += "<td>" + fmtStat(b.time_seconds, false) + "</td>";
+        html += '<td class="' + deltaClass(delta.time_seconds) + '">' + (delta.time_seconds ? delta.time_seconds + "s" : "—") + "</td></tr>";
+      }
+
+      // Tokens (only show row if data exists)
+      if (a.tokens || b.tokens) {
+        html += "<tr><td><strong>Tokens</strong></td>";
+        html += "<td>" + fmtStat(a.tokens, false) + "</td>";
+        html += "<td>" + fmtStat(b.tokens, false) + "</td>";
+        html += '<td class="' + deltaClass(delta.tokens) + '">' + (delta.tokens || "—") + "</td></tr>";
+      }
+
+      html += "</tbody></table>";
+
+      // Per-eval breakdown (if runs data available)
+      const runs = data.runs || [];
+      if (runs.length > 0) {
+        const evalIds = [...new Set(runs.map(r => r.eval_id))].sort((a, b) => a - b);
+
+        html += "<h3 style='font-family: Poppins, sans-serif; margin-bottom: 0.75rem;'>Per-Eval Breakdown</h3>";
+
+        const hasTime = runs.some(r => r.result && r.result.time_seconds != null);
+        const hasErrors = runs.some(r => r.result && r.result.errors > 0);
+
+        for (const evalId of evalIds) {
+          const evalRuns = runs.filter(r => r.eval_id === evalId);
+          const evalName = evalRuns[0] && evalRuns[0].eval_name ? evalRuns[0].eval_name : "Eval " + evalId;
+
+          html += "<h4 style='font-family: Poppins, sans-serif; margin: 1rem 0 0.5rem; color: var(--text);'>" + escapeHtml(evalName) + "</h4>";
+          html += '<table class="benchmark-table">';
+          html += "<thead><tr><th>Config</th><th>Run</th><th>Pass Rate</th>";
+          if (hasTime) html += "<th>Time (s)</th>";
+          if (hasErrors) html += "<th>Crashes During Execution</th>";
+          html += "</tr></thead>";
+          html += "<tbody>";
+
+          // Group by config and render with average rows
+          const configGroups = [...new Set(evalRuns.map(r => r.configuration))];
+          for (let ci = 0; ci < configGroups.length; ci++) {
+            const config = configGroups[ci];
+            const configRuns = evalRuns.filter(r => r.configuration === config);
+            if (configRuns.length === 0) continue;
+
+            const rowClass = ci === 0 ? "benchmark-row-with" : "benchmark-row-without";
+            const configLabel = config.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+
+            for (const run of configRuns) {
+              const r = run.result || {};
+              const prClass = r.pass_rate >= 0.8 ? "benchmark-delta-positive" : r.pass_rate < 0.5 ? "benchmark-delta-negative" : "";
+              html += '<tr class="' + rowClass + '">';
+              html += "<td>" + configLabel + "</td>";
+              html += "<td>" + run.run_number + "</td>";
+              html += '<td class="' + prClass + '">' + ((r.pass_rate || 0) * 100).toFixed(0) + "% (" + (r.passed || 0) + "/" + (r.total || 0) + ")</td>";
+              if (hasTime) html += "<td>" + (r.time_seconds != null ? r.time_seconds.toFixed(1) : "—") + "</td>";
+              if (hasErrors) html += "<td>" + (r.errors || 0) + "</td>";
+              html += "</tr>";
+            }
+
+            // Average row
+            const rates = configRuns.map(r => (r.result || {}).pass_rate || 0);
+            const avgRate = rates.reduce((a, b) => a + b, 0) / rates.length;
+            const avgPrClass = avgRate >= 0.8 ? "benchmark-delta-positive" : avgRate < 0.5 ? "benchmark-delta-negative" : "";
+            html += '<tr class="benchmark-row-avg ' + rowClass + '">';
+            html += "<td>" + configLabel + "</td>";
+            html += "<td>Avg</td>";
+            html += '<td class="' + avgPrClass + '">' + (avgRate * 100).toFixed(0) + "%</td>";
+            if (hasTime) {
+              const times = configRuns.map(r => (r.result || {}).time_seconds).filter(t => t != null);
+              html += "<td>" + (times.length ? (times.reduce((a, b) => a + b, 0) / times.length).toFixed(1) : "—") + "</td>";
+            }
+            if (hasErrors) html += "<td></td>";
+            html += "</tr>";
+          }
+          html += "</tbody></table>";
+
+          // Per-assertion detail for this eval
+          const runsWithExpectations = {};
+          for (const config of configGroups) {
+            runsWithExpectations[config] = evalRuns.filter(r => r.configuration === config && r.expectations && r.expectations.length > 0);
+          }
+          const hasAnyExpectations = Object.values(runsWithExpectations).some(runs => runs.length > 0);
+          if (hasAnyExpectations) {
+            // Collect all unique assertion texts across all configs
+            const allAssertions = [];
+            const seen = new Set();
+            for (const config of configGroups) {
+              for (const run of runsWithExpectations[config]) {
+                for (const exp of (run.expectations || [])) {
+                  if (!seen.has(exp.text)) {
+                    seen.add(exp.text);
+                    allAssertions.push(exp.text);
+                  }
+                }
+              }
+            }
+
+            html += '<table class="benchmark-table" style="margin-top: 0.5rem;">';
+            html += "<thead><tr><th>Assertion</th>";
+            for (const config of configGroups) {
+              const label = config.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+              html += "<th>" + escapeHtml(label) + "</th>";
+            }
+            html += "</tr></thead><tbody>";
+
+            for (const assertionText of allAssertions) {
+              html += "<tr><td>" + escapeHtml(assertionText) + "</td>";
+
+              for (const config of configGroups) {
+                html += "<td>";
+                for (const run of runsWithExpectations[config]) {
+                  const exp = (run.expectations || []).find(e => e.text === assertionText);
+                  if (exp) {
+                    const cls = exp.passed ? "benchmark-delta-positive" : "benchmark-delta-negative";
+                    const icon = exp.passed ? "\u2713" : "\u2717";
+                    html += '<span class="' + cls + '" title="Run ' + run.run_number + ': ' + escapeHtml(exp.evidence || "") + '">' + icon + "</span> ";
+                  } else {
+                    html += "— ";
+                  }
+                }
+                html += "</td>";
+              }
+              html += "</tr>";
+            }
+            html += "</tbody></table>";
+          }
+        }
+      }
+
+      // Notes
+      if (notes.length > 0) {
+        html += '<div class="benchmark-notes">';
+        html += "<h3>Analysis Notes</h3>";
+        html += "<ul>";
+        for (const note of notes) {
+          html += "<li>" + escapeHtml(note) + "</li>";
+        }
+        html += "</ul></div>";
+      }
+
+      container.innerHTML = html;
+    }
+
+    // ---- Start ----
+    init();
+    renderBenchmark();
+  </script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+{
+  "eval_id": 1,
+  "eval_name": "full-dashboard-audit",
+  "prompt": "audit all the pages on the dashboard and tell me what's wired up correctly and what's broken",
+  "assertions": []
+}

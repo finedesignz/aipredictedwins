@@ -1,0 +1,30 @@
+{
+  "expectations": [
+    {
+      "text": "Report covers at least 5 distinct pages",
+      "passed": true,
+      "evidence": "13 entries covering 8 pages plus ActivityFeed, EquityCurve, ChatSidebar, AuthGuard, useAPI hook"
+    },
+    {
+      "text": "Report explicitly distinguishes loading state from error state (not combined into one check)",
+      "passed": true,
+      "evidence": "2-column summary table with separate Loading and Error columns"
+    },
+    {
+      "text": "Report applies all 8 checks, not just checks 4 and 5",
+      "passed": false,
+      "evidence": "Only Loading and Error checked. No endpoint existence, response shape, field coverage, empty state, mock data, or query params checks."
+    },
+    {
+      "text": "If any pages are missing error states, they are flagged as FAIL or WARN",
+      "passed": true,
+      "evidence": "MISSING flagged for all pages without error state: Overview, Bots, Positions, Signals, Trades, Risk Gate, Settings, EquityCurve"
+    },
+    {
+      "text": "Report is structured (table format) rather than just prose paragraphs",
+      "passed": true,
+      "evidence": "Summary table with Loading/Error/Notes columns, followed by prioritized issues list"
+    }
+  ],
+  "summary": {"passed": 4, "failed": 1, "total": 5, "pass_rate": 0.80}
+}

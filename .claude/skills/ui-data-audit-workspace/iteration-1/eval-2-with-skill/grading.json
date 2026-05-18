@@ -1,0 +1,30 @@
+{
+  "expectations": [
+    {
+      "text": "Agent reads the backend signals route (dashboard/api/routes/signals.py) not just the frontend",
+      "passed": true,
+      "evidence": "Explicitly read signals.py, quoted TODO comments from lines 6 and 133, confirmed _PLACEHOLDER_SIGNALS list at lines 19-126"
+    },
+    {
+      "text": "Agent reads the Signal TypeScript type definition",
+      "passed": true,
+      "evidence": "Listed files examined includes dashboard/web/types/index.ts; referenced Signal type fields correctly"
+    },
+    {
+      "text": "Report correctly identifies that the signals page uses useAPI hook (not hardcoded data)",
+      "passed": true,
+      "evidence": "PASS on Endpoint exists: useAPI<Signal[]>('/api/signals', 30000) call correctly identified. FAIL is on backend, not frontend."
+    },
+    {
+      "text": "Report produces a per-page check table with individual pass/fail/warn per check",
+      "passed": true,
+      "evidence": "8-row table with Check, Status, Notes columns. Each check has explicit PASS/WARN/FAIL verdict."
+    },
+    {
+      "text": "Report covers loading state check and correctly identifies whether one exists",
+      "passed": true,
+      "evidence": "Loading state: PASS — 'page.tsx lines 32-36: while loading is true, centred card with Loading signals... is displayed'"
+    }
+  ],
+  "summary": {"passed": 5, "failed": 0, "total": 5, "pass_rate": 1.0}
+}

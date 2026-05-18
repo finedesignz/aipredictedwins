@@ -15,6 +15,13 @@ from psycopg_pool import ConnectionPool
 
 _pool: ConnectionPool | None = None
 
+KNOWN_BOTS: tuple[str, ...] = ("A", "B", "C")
+
+
+def is_specific_bot(bot: str) -> bool:
+    """True when `bot` names a specific bot (vs the 'both'/'all' aggregate)."""
+    return bot in KNOWN_BOTS
+
 
 def _get_pool() -> ConnectionPool:
     global _pool
@@ -42,7 +49,7 @@ def query_filtered(sql: str, params: tuple, bot: str) -> list[dict]:
     bot='both' returns all rows unfiltered.
     bot='A' or bot='B' wraps the query to add a bot_id filter.
     """
-    if bot in ("A", "B"):
+    if is_specific_bot(bot):
         wrapped = f"SELECT * FROM ({sql}) _q WHERE bot_id = %s"
         final_params = params + (bot,)
     else:

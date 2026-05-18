@@ -13,7 +13,7 @@ from typing import Literal, Optional
 import httpx
 from fastapi import APIRouter, Query
 
-from db import get_db
+from db import KNOWN_BOTS, get_db, is_specific_bot
 from models import Envelope, Meta, OpenPosition
 
 router = APIRouter(prefix="/api/positions", tags=["positions"])
@@ -29,7 +29,7 @@ def _fetch_latest_prices(symbols: list[str]) -> dict[str, float]:
     """
     if not symbols:
         return {}
-    for bot_id in ("A", "B"):
+    for bot_id in KNOWN_BOTS:
         key = os.environ.get(f"ALPACA_API_KEY_{bot_id}", "")
         sec = os.environ.get(f"ALPACA_SECRET_KEY_{bot_id}", "")
         if not key or not sec:
@@ -69,7 +69,7 @@ def get_open_positions(bot: str = Query("both")):
     if bot == "all":
         bot = "both"
     params: list = []
-    if bot in ("A", "B"):
+    if is_specific_bot(bot):
         sql += " AND bot_id = %s"
         params.append(bot)
     sql += " ORDER BY timestamp DESC"
@@ -131,7 +131,7 @@ def get_closed_positions(
         WHERE status IN ('closed', 'stopped', 'target_hit')
     """
     params: list = []
-    if bot in ("A", "B"):
+    if is_specific_bot(bot):
         sql += " AND bot_id = %s"
         params.append(bot)
     sql += " ORDER BY closed_at DESC NULLS LAST LIMIT %s OFFSET %s"
@@ -199,9 +199,9 @@ def reconcile_positions():
     Alpaca, we mark it closed with the best-available price estimate.
     Returns a summary of what was reconciled.
     """
-    # Load Alpaca keys for all known bots (A and B)
+    # Load Alpaca keys for all known bots
     bot_keys: dict[str, tuple[str, str]] = {}
-    for bot_id in ("A", "B"):
+    for bot_id in KNOWN_BOTS:
         key = os.environ.get(f"ALPACA_API_KEY_{bot_id}", "")
         sec = os.environ.get(f"ALPACA_SECRET_KEY_{bot_id}", "")
         if key and sec:

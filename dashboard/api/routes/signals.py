@@ -11,7 +11,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Query
 
-from db import get_db
+from db import KNOWN_BOTS, get_db
 from models import Envelope, Meta
 
 router = APIRouter(prefix="/api", tags=["signals"])
@@ -79,7 +79,7 @@ def get_signals(bot: str = Query("both")):
     """
     if bot == "all":
         bot = "both"
-    bot_ids = ["A", "B"] if bot == "both" else [bot]
+    bot_ids = list(KNOWN_BOTS) if bot == "both" else [bot]
 
     rows = []
     with get_db() as conn:

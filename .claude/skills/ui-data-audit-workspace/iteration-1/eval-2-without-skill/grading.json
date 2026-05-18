@@ -1,0 +1,30 @@
+{
+  "expectations": [
+    {
+      "text": "Agent reads the backend signals route (dashboard/api/routes/signals.py) not just the frontend",
+      "passed": true,
+      "evidence": "Confirmed _PLACEHOLDER_SIGNALS in signals.py, read TODO comments, confirmed no signals table in migrations"
+    },
+    {
+      "text": "Agent reads the Signal TypeScript type definition",
+      "passed": false,
+      "evidence": "Agent confirmed frontend wiring is correct but did not explicitly read or reference the Signal type fields or types/index.ts"
+    },
+    {
+      "text": "Report correctly identifies that the signals page uses useAPI hook (not hardcoded data)",
+      "passed": true,
+      "evidence": "The frontend wiring is correct — correctly polls /api/signals every 30 seconds via useAPI"
+    },
+    {
+      "text": "Report produces a per-page check table with individual pass/fail/warn per check",
+      "passed": false,
+      "evidence": "Prose format only — no structured per-check table. Sections are by topic not by check dimension."
+    },
+    {
+      "text": "Report covers loading state check and correctly identifies whether one exists",
+      "passed": false,
+      "evidence": "Report does not mention or check for loading state in the signals page at all"
+    }
+  ],
+  "summary": {"passed": 2, "failed": 3, "total": 5, "pass_rate": 0.40}
+}

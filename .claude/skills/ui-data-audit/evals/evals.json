@@ -1,0 +1,89 @@
+{
+  "skill_name": "ui-data-audit",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "audit all the pages on the dashboard and tell me what's wired up correctly and what's broken",
+      "expected_output": "Discovers all pages, applies the 8-check framework to each, produces a summary table with pass/fail/warn per page, lists specific issues with file references.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Report references at least 6 of the 8 standard checks by name (endpoint, response shape, rendered fields, loading, error, empty state, mock data, query params)",
+          "type": "contains_all_checks"
+        },
+        {
+          "text": "Report covers at least 5 distinct pages (Overview, Signals, Positions, Trades, Risk Gate, Bots, Settings)",
+          "type": "page_coverage"
+        },
+        {
+          "text": "Report contains a summary table with at least PASS/FAIL/WARN status columns",
+          "type": "structured_table"
+        },
+        {
+          "text": "Each issue listed includes a specific file path reference (e.g., dashboard/web/...) not just vague descriptions",
+          "type": "file_references"
+        },
+        {
+          "text": "Report does not simply say everything PASSES without reading the actual code files",
+          "type": "not_all_pass_without_evidence"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "can you check if the signals page is actually pulling real data or if anything is hardcoded",
+      "expected_output": "Reads signals page, SignalTable, signals backend route, and Signal type. Applies all 8 checks. Correctly identifies useAPI hook call and verifies it hits a real backend endpoint with matching types.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Agent reads the backend signals route (dashboard/api/routes/signals.py) not just the frontend",
+          "type": "reads_backend"
+        },
+        {
+          "text": "Agent reads the Signal TypeScript type definition",
+          "type": "reads_type"
+        },
+        {
+          "text": "Report correctly identifies that the signals page uses useAPI hook (not hardcoded data)",
+          "type": "identifies_useapi"
+        },
+        {
+          "text": "Report produces a per-page check table with individual pass/fail/warn per check",
+          "type": "per_page_table"
+        },
+        {
+          "text": "Report covers loading state check and correctly identifies whether one exists",
+          "type": "loading_state_check"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "before we ship, do a quick pass on every page to make sure loading states and error states are all in place",
+      "expected_output": "Covers all pages. Explicitly checks for loading states and error states on each. Distinguishes between the two. Produces structured output showing which pages pass/fail on these two checks.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Report covers at least 5 distinct pages",
+          "type": "page_coverage"
+        },
+        {
+          "text": "Report explicitly distinguishes loading state from error state (not combined into one check)",
+          "type": "distinguishes_states"
+        },
+        {
+          "text": "Report applies all 8 checks, not just checks 4 and 5 (user asked about those but skill applies full audit)",
+          "type": "full_8_checks"
+        },
+        {
+          "text": "If any pages are missing error states, they are flagged as FAIL or WARN",
+          "type": "flags_missing_error_states"
+        },
+        {
+          "text": "Report is structured (table format) rather than just prose paragraphs",
+          "type": "structured_output"
+        }
+      ]
+    }
+  ]
+}

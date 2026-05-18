@@ -9,7 +9,7 @@ from typing import Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
-from db import get_db
+from db import get_db, is_specific_bot
 from models import (
     Envelope,
     Meta,
@@ -38,7 +38,7 @@ def get_risk_gate_decisions(
     clauses: list[str] = []
     params: list = []
 
-    if bot in ("A", "B"):
+    if is_specific_bot(bot):
         clauses.append("bot_id = %s")
         params.append(bot)
     if decision:

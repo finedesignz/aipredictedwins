@@ -1,0 +1,6 @@
+{
+  "eval_id": 3,
+  "eval_name": "loading-error-states-check",
+  "prompt": "before we ship, do a quick pass on every page to make sure loading states and error states are all in place",
+  "assertions": []
+}

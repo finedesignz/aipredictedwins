@@ -1,0 +1,30 @@
+{
+  "expectations": [
+    {
+      "text": "Report references at least 6 of the 8 standard checks by name (endpoint, response shape, rendered fields, loading, error, empty state, mock data, query params)",
+      "passed": false,
+      "evidence": "Report uses a Status+KeyIssue table format — no structured check framework. Doesn't systematically visit all 8 check dimensions for each page."
+    },
+    {
+      "text": "Report covers at least 5 distinct pages",
+      "passed": true,
+      "evidence": "10 entries including 8 pages plus sidebar and activity feed"
+    },
+    {
+      "text": "Report contains a summary table with at least PASS/FAIL/WARN status columns",
+      "passed": false,
+      "evidence": "Table uses 'Mostly working / Working / Broken' not PASS/FAIL/WARN. No per-check breakdown."
+    },
+    {
+      "text": "Each issue listed includes a specific file path reference",
+      "passed": true,
+      "evidence": "Issues include file paths like dashboard/api/routes/signals.py, dashboard/web/types/index.ts"
+    },
+    {
+      "text": "Report does not simply say everything PASSES without reading actual code files",
+      "passed": true,
+      "evidence": "Found signals broken, risk gate broken, settings partially broken with specific evidence"
+    }
+  ],
+  "summary": {"passed": 3, "failed": 2, "total": 5, "pass_rate": 0.60}
+}

@@ -1,0 +1,30 @@
+{
+  "expectations": [
+    {
+      "text": "Report covers at least 5 distinct pages",
+      "passed": true,
+      "evidence": "8 pages covered: Overview, Signals, Positions, Trades, Risk Gate, Bots, Settings, Login"
+    },
+    {
+      "text": "Report explicitly distinguishes loading state from error state (not combined into one check)",
+      "passed": true,
+      "evidence": "Check 4 (Loading state) and Check 5 (Error state) are separate rows in every per-page table"
+    },
+    {
+      "text": "Report applies all 8 checks, not just checks 4 and 5",
+      "passed": true,
+      "evidence": "Summary table has all 8 check columns. Risk Gate found shape mismatch and field failure; Settings found field mismatch — not just loading/error checks."
+    },
+    {
+      "text": "If any pages are missing error states, they are flagged as FAIL or WARN",
+      "passed": true,
+      "evidence": "Error state: FAIL on Overview, Signals, Positions, Trades, Risk Gate, Settings. Each backed by specific file:line of discarded error field."
+    },
+    {
+      "text": "Report is structured (table format) rather than just prose paragraphs",
+      "passed": true,
+      "evidence": "Summary table with 8 check columns, plus individual per-page tables. All issues listed with file references."
+    }
+  ],
+  "summary": {"passed": 5, "failed": 0, "total": 5, "pass_rate": 1.0}
+}
