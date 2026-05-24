@@ -33,6 +33,11 @@ from routes import (
     trades,
 )
 
+logging.basicConfig(
+    level=os.environ.get("LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    force=True,
+)
 _log = logging.getLogger(__name__)
 
 DASHBOARD_TOKEN = os.environ.get("DASHBOARD_TOKEN", "")
