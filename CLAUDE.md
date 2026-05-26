@@ -14,7 +14,7 @@ Automated trading system for crypto swing trading on Alpaca. Uses technical indi
 - **MiroFish Exit Advisor** (`src/exit_advisor.py`) — smart stop-loss/take-profit (HOLD/TIGHTEN/EXIT)
 - **Kalshi orchestrator** (`src/orchestrator.py`) — PAUSED. Scans prediction markets, runs MiroFish simulations, trades gaps > 15%
 - **MiroFish client** (`src/mirofish_client.py`) — 7-step pipeline: project → graph → simulation → prepare → start → report → extract probability
-- **Gateway** (`gateway/`) — Claude Code CLI bridge on Coolify, OpenAI-compatible API backed by Claude Max plan
+- **Gateway** (`gateway/`) — Claude Code CLI bridge on Coolify, OpenAI-compatible API backed by Claude Max plan. Exposes OpenAPI 3.1 at `/openapi.json` + Scalar at `/docs` per repo docs convention; see `gateway/README.md`.
 - **Trade logger** (`src/trade_logger.py`) — SQLite at `data/trades.db`
 
 ## Infrastructure

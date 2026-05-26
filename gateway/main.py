@@ -15,7 +15,9 @@ import uuid
 from pathlib import Path
 
 from fastapi import FastAPI, Header, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from pydantic import BaseModel
+from scalar_fastapi import get_scalar_api_reference
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -24,14 +26,34 @@ PROJECTS_DIR = Path(os.getenv("PROJECTS_DIR", "./projects"))
 CLI_TIMEOUT = int(os.getenv("CLI_TIMEOUT", "300"))
 DEFAULT_PROJECT = os.getenv("DEFAULT_PROJECT", "mirofish")
 
-app = FastAPI(title="Claude Code Bridge", version="2.0.0")
+app = FastAPI(
+    title="Claude Code Bridge",
+    version="2.0.0",
+    description="OpenAI-compatible API backed by the Claude CLI (Claude Max subscription).",
+    docs_url=None,
+    redoc_url=None,
+)
+
+
+@app.get("/docs", include_in_schema=False)
+def _scalar_docs() -> HTMLResponse:
+    return get_scalar_api_reference(openapi_url=app.openapi_url, title=app.title)
 
 
 # ── Health & Models ──────────────────────────────────────────────────
 
-@app.get("/health")
-async def health():
-    return {"status": "ok"}
+class HealthResponse(BaseModel):
+    status: str
+
+
+@app.get(
+    "/health",
+    response_model=HealthResponse,
+    tags=["health"],
+    summary="Liveness probe",
+)
+async def health() -> HealthResponse:
+    return HealthResponse(status="ok")
 
 
 @app.get("/v1/models")
