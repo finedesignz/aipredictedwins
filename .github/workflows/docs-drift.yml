@@ -1,0 +1,41 @@
+name: docs-drift
+
+on:
+  pull_request:
+    paths:
+      - 'gateway/main.py'
+      - 'gateway/requirements.txt'
+      - 'gateway/docs/openapi.json'
+      - 'gateway/scripts/dump_openapi.py'
+      - 'gateway/Makefile'
+      - '.github/workflows/docs-drift.yml'
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gateway
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install deps
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: docs-sync
+        run: make docs-sync
+      - name: Check for drift
+        run: |
+          if ! git diff --quiet -- docs/openapi.json; then
+            echo "::error::Docs drift detected. Run \`make docs-sync\` in gateway/ and commit docs/openapi.json."
+            git --no-pager diff -- docs/openapi.json | head -200
+            exit 1
+          fi
+          echo "no drift"
