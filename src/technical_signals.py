@@ -210,12 +210,30 @@ def _detect_regime(adx_value: float, plus_di: float, minus_di: float) -> str:
         return "mixed"
 
 
-def _vwap_bullish(closes: list[float], volumes: list[float], vwaps: list[float]) -> bool:
+def _vwap_bullish(
+    closes: list[float],
+    volumes: list[float],
+    vwaps: list[float],
+    timestamps: list[str] | None = None,
+    session_anchor: bool = False,
+) -> bool:
     """True if the latest close is above the latest VWAP.
 
-    If VWAP data is not available from bars, we compute a rolling VWAP
-    from the last 20 bars.
+    When ``session_anchor`` and ``timestamps`` are provided (daytrade path), the
+    VWAP is anchored to the current UTC day: only bars sharing the last bar's
+    date (ISO ``timestamp[:10]``) contribute to the cumulative VWAP. This resets
+    the anchor at each UTC-day boundary. Otherwise the existing swing behavior is
+    used unchanged (per-bar ``vwap`` if present, else a rolling-20 fallback).
     """
+    if session_anchor and timestamps:
+        last_day = timestamps[-1][:10]
+        idx = [i for i, t in enumerate(timestamps) if t and t[:10] == last_day]
+        cum_vol = sum(volumes[i] for i in idx)
+        if cum_vol <= 0:
+            return False
+        cum_pv = sum(closes[i] * volumes[i] for i in idx)
+        return closes[-1] > cum_pv / cum_vol
+
     if vwaps and vwaps[-1] > 0:
         return closes[-1] > vwaps[-1]
 
@@ -320,8 +338,13 @@ def analyze(symbol: str, bars: list[dict], bars_4h: list[dict] | None = None, pr
     # --- Volume Spike ---
     vol_spike = _volume_spike(volumes, lookback=20, threshold=1.5)
 
-    # --- VWAP ---
-    vwap_bull = _vwap_bullish(closes, volumes, vwaps)
+    # --- VWAP (session-anchored for daytrade; swing semantics unchanged) ---
+    timestamps = [b.get("timestamp") for b in bars]
+    vwap_bull = _vwap_bullish(
+        closes, volumes, vwaps,
+        timestamps=timestamps,
+        session_anchor=(profile.name == "daytrade"),
+    )
 
     # --- Confluence Score (max 4, regime-aware) ---
     # Scoring adapts to market regime so the bot captures BOTH pullbacks (ranging)

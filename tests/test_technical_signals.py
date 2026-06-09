@@ -195,6 +195,55 @@ class TestVWAP:
         assert _vwap_bullish(closes, volumes, vwaps) is True
 
 
+class TestSessionVWAP:
+    def test_session_anchor_excludes_prior_day(self):
+        # Prior UTC day: very high prices (would drag session VWAP up if included).
+        # Current UTC day: lower prices but last close above the current-day VWAP.
+        closes = [200.0, 200.0, 100.0, 101.0, 105.0]
+        volumes = [1000.0] * 5
+        vwaps = [0.0] * 5  # force computed path
+        timestamps = [
+            "2026-06-07T22:00:00",
+            "2026-06-07T23:00:00",
+            "2026-06-08T00:00:00",
+            "2026-06-08T01:00:00",
+            "2026-06-08T02:00:00",
+        ]
+        # Current-day bars: closes [100,101,105], vwap = (100+101+105)/3 = 102 ; 105 > 102 -> True
+        assert _vwap_bullish(closes, volumes, vwaps, timestamps=timestamps, session_anchor=True) is True
+
+    def test_session_anchor_below_current_day_vwap(self):
+        closes = [50.0, 50.0, 110.0, 109.0, 100.0]
+        volumes = [1000.0] * 5
+        vwaps = [0.0] * 5
+        timestamps = [
+            "2026-06-07T22:00:00",
+            "2026-06-07T23:00:00",
+            "2026-06-08T00:00:00",
+            "2026-06-08T01:00:00",
+            "2026-06-08T02:00:00",
+        ]
+        # Current-day vwap = (110+109+100)/3 = 106.33 ; last close 100 < 106.33 -> False
+        assert _vwap_bullish(closes, volumes, vwaps, timestamps=timestamps, session_anchor=True) is False
+
+    def test_session_anchor_false_unchanged(self):
+        # session_anchor=False must match legacy behavior (vwap[-1] path)
+        closes = [105.0]
+        volumes = [1000.0]
+        vwaps = [100.0]
+        assert _vwap_bullish(closes, volumes, vwaps, session_anchor=False) is True
+        # and the fallback path
+        closes2 = [100.0, 101.0, 102.0, 103.0, 104.0]
+        assert _vwap_bullish(closes2, [1000.0] * 5, [0.0] * 5, session_anchor=False) is True
+
+    def test_daytrade_uses_session_anchor(self):
+        # analyze with DAYTRADE profile should not crash and produce a Signal
+        bars = _make_uptrend_bars(50)
+        s = analyze("BTC/USD", bars, profile=DAYTRADE)
+        # may be None only by score contract; just ensure no crash on session path
+        assert s is None or hasattr(s, "vwap_bullish")
+
+
 # ---------------------------------------------------------------------------
 # Full analyze() integration tests
 # ---------------------------------------------------------------------------
