@@ -2,15 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Day-Trading Upgrade
-status: roadmapped
-last_updated: "2026-06-09T00:41:29.331Z"
+status: ready_to_plan
+last_updated: 2026-06-09T00:57:49.565Z
 last_activity: 2026-06-09
 progress:
   total_phases: 10
   completed_phases: 0
   total_plans: 0
-  completed_plans: 0
+  completed_plans: 1
   percent: 0
+stopped_at: Phase 1 complete (1/1) — ready to discuss Phase 2
 ---
 
 # Project State
@@ -18,15 +19,15 @@ progress:
 ## Project Reference
 
 **Core value:** Compounding, self-improving automated trading edge — the bot gets measurably better as it accumulates trade outcomes, without manual retuning.
-**Current focus:** v1.0 Day-Trading Upgrade — add self-learning intraday Bot D via a StrategyProfile abstraction, drop MiroFish from the Alpaca path, replace LLM exits with deterministic ATR logic, and close the self-learning loop.
+**Current focus:** Phase 2 — daytrade preset + profile selection
 
 ## Current Position
 
-Phase: Not started — roadmap created (10 phases, FINE granularity)
-Plan: —
-Status: Roadmapped, awaiting phase planning
+Phase: 2
+Plan: Not started
+Status: Ready to plan
 Progress: [          ] 0/10 phases
-Last activity: 2026-06-09 — ROADMAP.md created, 21/21 requirements mapped
+Last activity: 2026-06-09
 
 ## Accumulated Context
 

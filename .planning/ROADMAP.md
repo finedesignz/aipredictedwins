@@ -16,7 +16,7 @@ orchestrator" / "PositionMonitor" apply to both the shared helpers and `BotThrea
 
 ## Phases
 
-- [ ] **Phase 1: StrategyProfile Abstraction + SWING Parity** - Frozen profile dataclass with SWING preset reproducing current behavior byte-for-byte
+- [x] **Phase 1: StrategyProfile Abstraction + SWING Parity** - Frozen profile dataclass with SWING preset reproducing current behavior byte-for-byte (completed 2026-06-09)
 - [ ] **Phase 2: DAYTRADE Preset + Profile Selection** - DAYTRADE preset and `BOT_PROFILE` env wiring (default swing)
 - [ ] **Phase 3: Parameterized Signal Engine + ATR + Session VWAP** - Profile-driven indicator periods, ATR on Signal, session-anchored VWAP
 - [ ] **Phase 4: Deterministic ATR Exits** - ATR-scaled stop + trailing stop with hard-stop and max-hold overrides
@@ -39,7 +39,7 @@ orchestrator" / "PositionMonitor" apply to both the shared helpers and `BotThrea
   3. Running the existing swing path through the SWING preset produces byte-for-byte identical decisions versus the pre-change code (parity check passes).
   4. Bots A and B continue trading unchanged on their own accounts.
 **Plans**: 1 plan
-- [ ] 01-01-PLAN.md — StrategyProfile module + SWING preset + parity tests + minimal orchestrator wiring
+- [x] 01-01-PLAN.md — StrategyProfile module + SWING preset + parity tests + minimal orchestrator wiring
 
 ### Phase 2: DAYTRADE Preset + Profile Selection
 **Goal**: A DAYTRADE preset exists and the orchestrator/BotThread selects its profile from `BOT_PROFILE` (default swing).
@@ -141,7 +141,7 @@ orchestrator" / "PositionMonitor" apply to both the shared helpers and `BotThrea
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. StrategyProfile + SWING Parity | 0/0 | Not started | - |
+| 1. StrategyProfile + SWING Parity | 1/1 | Complete    | 2026-06-09 |
 | 2. DAYTRADE Preset + Selection | 0/0 | Not started | - |
 | 3. Signal Engine + ATR + Session VWAP | 0/0 | Not started | - |
 | 4. Deterministic ATR Exits | 0/0 | Not started | - |
