@@ -159,6 +159,30 @@ def test_memory_none_no_op():
     assert res == legacy
 
 
+def test_orchestrator_bot_thread_parity():
+    """Both runtimes import the SAME _kelly_technical and must size identically
+    for identical inputs + learning adjustment (D-03 behavioural parity)."""
+    from src.alpaca_orchestrator import _kelly_technical as orch_kelly
+    from src.bot_thread import _kelly_technical as bot_kelly
+    assert orch_kelly is bot_kelly
+    a = orch_kelly(4, 100.0, 10_000.0, kelly_fraction=0.05,
+                   confidence_adjustment=0.5, min_position_pct=0.02, max_position_pct=0.03)
+    b = bot_kelly(4, 100.0, 10_000.0, kelly_fraction=0.05,
+                  confidence_adjustment=0.5, min_position_pct=0.02, max_position_pct=0.03)
+    assert a == b
+
+
+def test_orchestrator_learning_enforce_flag(monkeypatch):
+    import src.alpaca_orchestrator as ao
+    monkeypatch.setenv("LEARNING_ENFORCE", "0")
+    reloaded = importlib.reload(ao)
+    try:
+        assert reloaded.LEARNING_ENFORCE is False
+    finally:
+        monkeypatch.delenv("LEARNING_ENFORCE", raising=False)
+        importlib.reload(ao)
+
+
 def test_learning_enforce_flag_default(monkeypatch):
     import src.bot_thread as bt
     monkeypatch.setenv("LEARNING_ENFORCE", "0")

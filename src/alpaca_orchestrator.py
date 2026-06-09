@@ -63,6 +63,8 @@ PROFILE = PROFILES[_PROFILE_NAME]
 
 MAX_POSITION_PCT = float(_os.environ.get("MAX_POSITION_PCT", str(PROFILE.max_position_pct)))
 MAX_TOTAL_EXPOSURE_PCT = float(_os.environ.get("MAX_TOTAL_EXPOSURE_PCT", "0.80"))
+# Shadow seam: "1" (default) enforces learning veto/scaling; "0" logs only.
+LEARNING_ENFORCE = _os.environ.get("LEARNING_ENFORCE", "1") == "1"
 DRAWDOWN_STOP_PCT = float(_os.environ.get("DRAWDOWN_STOP_PCT", "0.10"))
 MIN_PAPER_TRADES = int(_os.environ.get("MIN_PAPER_TRADES", "50"))
 MIN_WIN_RATE = float(_os.environ.get("MIN_WIN_RATE", "0.40"))
@@ -849,6 +851,8 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                     log.exception("Risk gate failed for %s", symbol)
 
             # -- 4d. Layer 3: Size and place orders ---------------------------
+            # Dynamic thresholds computed ONCE per cycle (not per-candidate).
+            thresholds = memory.get_dynamic_thresholds() if memory is not None else None
             cycle_exposure = 0.0
             for state in approved_states:
                 # Re-check total exposure before each trade
@@ -862,6 +866,29 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                 signal = state.signal
                 symbol = signal.symbol
                 price = side_data[symbol]["price"]
+                signal_type = f"technical_confluence_{signal.confluence_score}"
+
+                # -- Memory advisory: consult trade history (mirrors bot_thread) --
+                adj = 1.0
+                if memory is not None:
+                    try:
+                        advice = memory.get_advice(
+                            symbol=symbol,
+                            signal_type=signal_type,
+                            sentiment=signal.confluence_score / 4.0,
+                            price_change=side_data[symbol]["change_pct"],
+                        )
+                        if not advice["should_trade"]:
+                            console.print(
+                                f"  [yellow]learn_veto[/yellow] {symbol} — {advice['reasoning']} "
+                                f"(enforce={LEARNING_ENFORCE})"
+                            )
+                            if LEARNING_ENFORCE:
+                                continue
+                        elif LEARNING_ENFORCE:
+                            adj = advice.get("confidence_adjustment", 1.0)
+                    except Exception as exc:
+                        log.warning("Memory advisory failed for %s: %s", symbol, exc)
 
                 expected_move_pct = 0.08  # long soft target: price * (1 + 0.08)
                 if not clears_fee_hurdle(expected_move_pct, TAKER_FEE, SLIPPAGE_BUFFER):
@@ -871,12 +898,21 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                     )
                     continue
 
+                if thresholds is not None and LEARNING_ENFORCE:
+                    eff_max = min(MAX_POSITION_PCT, thresholds["max_position_pct"])
+                    eff_min = thresholds["min_position_pct"]
+                else:
+                    eff_max = MAX_POSITION_PCT
+                    eff_min = None
+
                 sizing = _kelly_technical(
                     confluence=signal.confluence_score,
                     current_price=price,
                     bankroll=bankroll,
                     kelly_fraction=config.kelly_fraction,
-                    max_position_pct=MAX_POSITION_PCT,
+                    max_position_pct=eff_max,
+                    confidence_adjustment=adj,
+                    min_position_pct=eff_min,
                 )
 
                 if sizing["side"] == "none" or sizing["shares"] <= 0 or sizing["dollar_amount"] < 10:
@@ -897,14 +933,14 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                         side="buy",
                     )
 
-                    logger.log_alpaca_trade({
+                    trade_id = logger.log_alpaca_trade({
                         "symbol": symbol,
                         "asset_class": "crypto",
                         "side": "buy",
                         "qty": sizing["shares"],
                         "entry_price": price,
                         "mirofish_prob": signal.confluence_score / 4.0,
-                        "market_sentiment": f"technical_confluence_{signal.confluence_score}",
+                        "market_sentiment": signal_type,
                         "target_price": price * (1 + 0.08),  # soft take-profit at 8%
                         "stop_loss": price * (1 + HARD_STOP_PCT),
                         "simulation_id": f"tech_{symbol}_{int(time.time())}",
@@ -930,8 +966,9 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                     if memory is not None:
                         try:
                             memory.record_trade_context({
+                                "trade_id": trade_id,
                                 "symbol": symbol,
-                                "signal_type": f"technical_confluence_{signal.confluence_score}",
+                                "signal_type": signal_type,
                                 "sentiment": signal.confluence_score / 4.0,
                                 "confidence": signal.confluence_score / 4.0,
                                 "price_at_entry": price,
@@ -974,6 +1011,32 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
 
                     risk_gate_passed += 1
 
+                    # Canonical short signal_type for advice + context (NOT the
+                    # short_technical_ order-log string).
+                    signal_type = f"technical_short_{signal.short_score}"
+
+                    # -- Memory advisory: consult trade history (mirrors bot_thread) --
+                    adj = 1.0
+                    if memory is not None:
+                        try:
+                            advice = memory.get_advice(
+                                symbol=symbol,
+                                signal_type=signal_type,
+                                sentiment=signal.short_score / 4.0,
+                                price_change=change_pct,
+                            )
+                            if not advice["should_trade"]:
+                                console.print(
+                                    f"  [yellow]learn_veto SHORT[/yellow] {symbol} — "
+                                    f"{advice['reasoning']} (enforce={LEARNING_ENFORCE})"
+                                )
+                                if LEARNING_ENFORCE:
+                                    continue
+                            elif LEARNING_ENFORCE:
+                                adj = advice.get("confidence_adjustment", 1.0)
+                        except Exception as exc:
+                            log.warning("Memory advisory failed for %s: %s", symbol, exc)
+
                     expected_move_pct = 0.08  # short soft target: price * (1 - 0.08)
                     if not clears_fee_hurdle(expected_move_pct, TAKER_FEE, SLIPPAGE_BUFFER):
                         console.print(
@@ -982,13 +1045,22 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                         )
                         continue
 
+                    if thresholds is not None and LEARNING_ENFORCE:
+                        eff_max = min(MAX_POSITION_PCT, thresholds["max_position_pct"])
+                        eff_min = thresholds["min_position_pct"]
+                    else:
+                        eff_max = MAX_POSITION_PCT
+                        eff_min = None
+
                     # Kelly sizing for short (same formula, different side)
                     sizing = _kelly_technical(
                         confluence=signal.short_score,
                         current_price=price,
                         bankroll=bankroll,
                         kelly_fraction=config.kelly_fraction,
-                        max_position_pct=MAX_POSITION_PCT,
+                        max_position_pct=eff_max,
+                        confidence_adjustment=adj,
+                        min_position_pct=eff_min,
                     )
                     if sizing["dollar_amount"] <= 0:
                         continue
@@ -1006,7 +1078,7 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                     order = alpaca.place_market_order(symbol, qty, side="sell")
 
                     # Log to trade DB with side="sell"
-                    logger.log_alpaca_trade({
+                    trade_id = logger.log_alpaca_trade({
                         "symbol": symbol,
                         "asset_class": "crypto",
                         "side": "sell",
@@ -1031,6 +1103,23 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                         f"    [green]Short order placed:[/green] {order.get('order_id', 'N/A')} "
                         f"-- status: {order.get('status', 'submitted')}"
                     )
+
+                    # Record to learning system (canonical technical_short_ signal_type)
+                    if memory is not None and trade_id:
+                        try:
+                            memory.record_trade_context({
+                                "trade_id": trade_id,
+                                "symbol": symbol,
+                                "signal_type": signal_type,
+                                "sentiment": signal.short_score / 4.0,
+                                "confidence": signal.short_score / 4.0,
+                                "price_at_entry": price,
+                                "price_change_24h": change_pct,
+                                "volume_24h": volume_24h,
+                                "trajectory": "down" if not signal.ema_bullish else "mixed",
+                            })
+                        except Exception as exc:
+                            log.warning("Failed to record short trade context for %s: %s", symbol, exc)
 
                 except Exception as exc:
                     log.error("Short entry failed for %s: %s", symbol, exc)
