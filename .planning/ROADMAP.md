@@ -98,7 +98,8 @@ orchestrator" / "PositionMonitor" apply to both the shared helpers and `BotThrea
   1. A deterministic pre-trade check skips a candidate when expected move to soft-target does not exceed `2 Ã taker_fee + slippage_buffer`.
   2. The check runs before sizing and is logged when it skips a candidate.
   3. Swing candidates with wide targets are unaffected (gate only bites on thin intraday moves).
-**Plans**: TBD
+**Plans**: 1 plan
+- [ ] 06-01-PLAN.md — fee_gate helper (clears_fee_hurdle + TAKER_FEE/SLIPPAGE_BUFFER knobs), gate wired into orchestrator+bot_thread long/short entry blocks, boundary+flow tests
 
 ### Phase 7: Close the Self-Learning Loop (Entry + Sizing)
 **Goal**: Learning advice and dynamic thresholds drive real entry and sizing decisions instead of being printed and ignored.
@@ -152,7 +153,7 @@ orchestrator" / "PositionMonitor" apply to both the shared helpers and `BotThrea
 | 3. Signal Engine + ATR + Session VWAP | 3/2 | Complete    | 2026-06-09 |
 | 4. Deterministic ATR Exits | 3/2 | Complete    | 2026-06-09 |
 | 5. MiroFish Removal | 1/1 | Complete    | 2026-06-09 |
-| 6. Fee/Slippage Gate | 0/0 | Not started | - |
+| 6. Fee/Slippage Gate | 0/1 | Planned | - |
 | 7. Self-Learning Loop (Entry+Sizing) | 0/0 | Not started | - |
 | 8. Intraday Dimensions + Shadow | 0/0 | Not started | - |
 | 9. Bot D Deployment | 0/0 | Not started | - |
