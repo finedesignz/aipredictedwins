@@ -21,7 +21,7 @@ orchestrator" / "PositionMonitor" apply to both the shared helpers and `BotThrea
 - [x] **Phase 3: Parameterized Signal Engine + ATR + Session VWAP** - Profile-driven indicator periods, ATR on Signal, session-anchored VWAP (completed 2026-06-09)
 - [x] **Phase 4: Deterministic ATR Exits** - ATR-scaled stop + trailing stop with hard-stop and max-hold overrides (completed 2026-06-09)
 - [x] **Phase 5: MiroFish Removal from Alpaca Path** - Drop ExitAdvisor + Claude-CLI auth checks from the trading path (completed 2026-06-09)
-- [ ] **Phase 6: Fee/Slippage Pre-Trade Gate** - Skip candidates whose move-to-target can't clear round-trip fees
+- [x] **Phase 6: Fee/Slippage Pre-Trade Gate** - Skip candidates whose move-to-target can't clear round-trip fees (completed 2026-06-09)
 - [ ] **Phase 7: Close the Self-Learning Loop (Entry + Sizing)** - Wire `get_advice()` veto + `get_dynamic_thresholds()` into entry and Kelly sizing
 - [ ] **Phase 8: Intraday Learning Dimensions + Shadow Mode** - Time-of-day/hold/volatility dimensions and shadowâauto gate
 - [ ] **Phase 9: Bot D Deployment** - New paper account, daytrade profile, Coolify service, dashboard attribution
@@ -99,7 +99,7 @@ orchestrator" / "PositionMonitor" apply to both the shared helpers and `BotThrea
   2. The check runs before sizing and is logged when it skips a candidate.
   3. Swing candidates with wide targets are unaffected (gate only bites on thin intraday moves).
 **Plans**: 1 plan
-- [ ] 06-01-PLAN.md — fee_gate helper (clears_fee_hurdle + TAKER_FEE/SLIPPAGE_BUFFER knobs), gate wired into orchestrator+bot_thread long/short entry blocks, boundary+flow tests
+- [x] 06-01-PLAN.md — fee_gate helper (clears_fee_hurdle + TAKER_FEE/SLIPPAGE_BUFFER knobs), gate wired into orchestrator+bot_thread long/short entry blocks, boundary+flow tests
 
 ### Phase 7: Close the Self-Learning Loop (Entry + Sizing)
 **Goal**: Learning advice and dynamic thresholds drive real entry and sizing decisions instead of being printed and ignored.
@@ -153,7 +153,7 @@ orchestrator" / "PositionMonitor" apply to both the shared helpers and `BotThrea
 | 3. Signal Engine + ATR + Session VWAP | 3/2 | Complete    | 2026-06-09 |
 | 4. Deterministic ATR Exits | 3/2 | Complete    | 2026-06-09 |
 | 5. MiroFish Removal | 1/1 | Complete    | 2026-06-09 |
-| 6. Fee/Slippage Gate | 0/1 | Planned | - |
+| 6. Fee/Slippage Gate | 1/1 | Complete    | 2026-06-09 |
 | 7. Self-Learning Loop (Entry+Sizing) | 0/0 | Not started | - |
 | 8. Intraday Dimensions + Shadow | 0/0 | Not started | - |
 | 9. Bot D Deployment | 0/0 | Not started | - |

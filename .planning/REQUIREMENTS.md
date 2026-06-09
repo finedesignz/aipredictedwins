@@ -30,7 +30,7 @@ Derived from `docs/superpowers/specs/2026-06-08-day-trading-upgrade-design.md`.
 - [x] **SIGNAL-03**: VWAP is session-anchored (rolling intraday window) for the daytrade profile.
 
 ### Fee Gate (FEE)
-- [ ] **FEE-01**: A pre-trade check skips a candidate when expected move to soft-target does not clear `2 × taker_fee + slippage_buffer`.
+- [x] **FEE-01**: A pre-trade check skips a candidate when expected move to soft-target does not clear `2 × taker_fee + slippage_buffer`.
 
 ### Bot D Deployment (BOT)
 - [ ] **BOT-01**: Bot D runs on its own Alpaca paper account (`ALPACA_API_KEY_D` / `ALPACA_SECRET_KEY_D`), `BOT_ID=D`, `BOT_PROFILE=daytrade`.
@@ -64,7 +64,7 @@ Derived from `docs/superpowers/specs/2026-06-08-day-trading-upgrade-design.md`.
 | EXIT-03 | Phase 4 | Complete |
 | EXIT-01 | Phase 5 | Complete |
 | EXIT-04 | Phase 5 | Complete |
-| FEE-01 | Phase 6 | Pending |
+| FEE-01 | Phase 6 | Complete |
 | LEARN-01 | Phase 7 | Pending |
 | LEARN-02 | Phase 7 | Pending |
 | LEARN-03 | Phase 7 | Pending |
