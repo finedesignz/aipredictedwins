@@ -387,6 +387,8 @@ def _kelly_technical(
     bankroll: float,
     kelly_fraction: float = 0.25,
     max_position_pct: float = 0.05,
+    confidence_adjustment: float = 1.0,
+    min_position_pct: float | None = None,
 ) -> dict:
     """Kelly sizing adapted for technical confluence signals.
 
@@ -413,6 +415,14 @@ def _kelly_technical(
     kelly_pct = max(0.0, (b * p - q) / b)
     adjusted_pct = kelly_pct * kelly_fraction
 
+    # LEARN-02: scale by learned confidence before any cap.
+    adjusted_pct *= confidence_adjustment
+
+    # LEARN-03: dynamic floor (only when position is non-zero).
+    if min_position_pct and adjusted_pct > 0:
+        adjusted_pct = max(adjusted_pct, min_position_pct)
+
+    # Hard ceiling clamp stays LAST so the static cap is inviolate.
     capped = adjusted_pct > max_position_pct
     if capped:
         adjusted_pct = max_position_pct

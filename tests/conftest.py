@@ -67,6 +67,59 @@ def mock_advisor():
     return MagicMock(name="exit_advisor")
 
 
+# --- Phase 7 learning: in-memory fake TradeMemory (no DB) ------------------
+
+class FakeTradeMemory:
+    """Stand-in for src.trade_memory.TradeMemory used by the learning-wiring
+    tests. Returns canned advice/thresholds so the candidate loops in
+    bot_thread / alpaca_orchestrator can be driven without Postgres.
+
+    Constructor takes the canned dicts; record_trade_context just appends the
+    payload to ``self.recorded`` so tests can assert signal_type alignment.
+    """
+
+    def __init__(self, advice=None, thresholds=None):
+        self._advice = advice or {
+            "should_trade": True,
+            "confidence_adjustment": 1.0,
+            "win_rate_for_pattern": None,
+            "sample_size": 0,
+            "reasoning": "fake-default",
+            "similar_trades": [],
+            "lessons": [],
+        }
+        self._thresholds = thresholds or {
+            "bullish_threshold": 0.53,
+            "bearish_threshold": 0.47,
+            "min_position_pct": 0.02,
+            "max_position_pct": 0.05,
+            "signal_scores": {},
+            "overall_win_rate": 0.5,
+            "total_closed_trades": 0,
+        }
+        self.recorded = []
+        self.advice_calls = []
+
+    def get_advice(self, symbol, signal_type, sentiment, price_change):
+        self.advice_calls.append({
+            "symbol": symbol, "signal_type": signal_type,
+            "sentiment": sentiment, "price_change": price_change,
+        })
+        return dict(self._advice)
+
+    def get_dynamic_thresholds(self):
+        return dict(self._thresholds)
+
+    def record_trade_context(self, trade_data):
+        self.recorded.append(trade_data)
+        return len(self.recorded)
+
+
+@pytest.fixture
+def fake_memory():
+    return FakeTradeMemory
+
+
 # --- sanity: the generator really produces the documented ATR -------------
 
 def test_make_bars_for_atr_matches_atr():
