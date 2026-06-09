@@ -223,7 +223,8 @@ class BotThread(threading.Thread):
                 universe = list(cfg.symbols)
 
         # -- Start position monitor --------------------------------------------
-        monitor = PositionMonitor(alpaca, logger, exit_advisor)
+        _monitor_profile = PROFILES.get(os.environ.get("BOT_PROFILE", "swing").lower(), SWING)
+        monitor = PositionMonitor(alpaca, logger, exit_advisor, _monitor_profile)
         monitor.start()
         log.info("[bot:%s] Position monitor started", bot_id)
 

@@ -611,7 +611,7 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
         send_alert("Claude CLI Missing", "Claude CLI is not installed in the container. Risk gate disabled.")
 
     # -- 1b. Start position monitor with exit advisor -------------------------
-    monitor = PositionMonitor(alpaca, logger, exit_advisor)
+    monitor = PositionMonitor(alpaca, logger, exit_advisor, PROFILE)
     monitor.start()
     console.print(f"  [green]Position monitor started[/green] (MiroFish exit advisor active)")
 
