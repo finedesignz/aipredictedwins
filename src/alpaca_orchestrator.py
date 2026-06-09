@@ -731,7 +731,7 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
             # -- 4b. Layer 1: Technical Signal Engine --------------------------
             console.print("[cyan]Layer 1: Technical signal scan...[/cyan]")
             try:
-                signals = scan_assets(alpaca, universe, timeframe="1Hour", bar_count=50, fetch_4h=True)
+                signals = scan_assets(alpaca, universe, timeframe="1Hour", bar_count=50, fetch_4h=True, profile=PROFILE)
                 signals = _apply_volume_context_filter(signals)
             except Exception as exc:
                 console.print(f"  [red]Technical scan failed: {exc}[/red]")
@@ -1148,7 +1148,7 @@ def evaluate() -> None:
     console.print(f"  Balance: ${balance:,.2f}\n")
 
     console.print("[cyan]Running technical analysis on all assets...[/cyan]")
-    signals = scan_assets(alpaca, TOP_CRYPTO_TICKERS, timeframe="1Hour", bar_count=50)
+    signals = scan_assets(alpaca, TOP_CRYPTO_TICKERS, timeframe="1Hour", bar_count=50, profile=PROFILE)
 
     table = Table(title="Technical Signal Scan")
     table.add_column("Symbol", style="cyan bold")

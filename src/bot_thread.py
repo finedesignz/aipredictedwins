@@ -8,6 +8,7 @@ hot-swapped (via update_config) without restarting the thread.
 
 import datetime
 import logging
+import os
 import threading
 import time
 from typing import Callable
@@ -58,6 +59,7 @@ from src.trade_logger import TradeLogger
 from src.rules_gate import RulesGate
 from src.exit_advisor import ExitAdvisor, HARD_STOP_PCT, SOFT_STOP_PCT, SOFT_TAKE_PROFIT_PCT
 from src.technical_signals import scan_assets
+from src.strategy_profile import PROFILES, SWING
 from src.alpaca_orchestrator import (
     PositionMonitor,
     _kelly_technical,
@@ -379,8 +381,9 @@ class BotThread(threading.Thread):
         scan_universe = universe or list(cfg.symbols)
         is_stock = cfg.asset_class == "stock"
         log.info("[bot:%s] Layer 1: technical scan (%d %s symbols)", bot_id, len(scan_universe), cfg.asset_class)
+        _profile = PROFILES.get(os.environ.get("BOT_PROFILE", "swing").lower(), SWING)
         try:
-            signals = scan_assets(alpaca, scan_universe, timeframe="1Hour", bar_count=50, fetch_4h=not is_stock)
+            signals = scan_assets(alpaca, scan_universe, timeframe="1Hour", bar_count=50, fetch_4h=not is_stock, profile=_profile)
         except Exception as exc:
             log.error("[bot:%s] Technical scan failed: %s", bot_id, exc)
             return
