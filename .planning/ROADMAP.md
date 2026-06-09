@@ -18,7 +18,7 @@ orchestrator" / "PositionMonitor" apply to both the shared helpers and `BotThrea
 
 - [x] **Phase 1: StrategyProfile Abstraction + SWING Parity** - Frozen profile dataclass with SWING preset reproducing current behavior byte-for-byte (completed 2026-06-09)
 - [x] **Phase 2: DAYTRADE Preset + Profile Selection** - DAYTRADE preset and `BOT_PROFILE` env wiring (default swing) (completed 2026-06-09)
-- [ ] **Phase 3: Parameterized Signal Engine + ATR + Session VWAP** - Profile-driven indicator periods, ATR on Signal, session-anchored VWAP
+- [x] **Phase 3: Parameterized Signal Engine + ATR + Session VWAP** - Profile-driven indicator periods, ATR on Signal, session-anchored VWAP (completed 2026-06-09)
 - [ ] **Phase 4: Deterministic ATR Exits** - ATR-scaled stop + trailing stop with hard-stop and max-hold overrides
 - [ ] **Phase 5: MiroFish Removal from Alpaca Path** - Drop ExitAdvisor + Claude-CLI auth checks from the trading path
 - [ ] **Phase 6: Fee/Slippage Pre-Trade Gate** - Skip candidates whose move-to-target can't clear round-trip fees
@@ -62,8 +62,8 @@ orchestrator" / "PositionMonitor" apply to both the shared helpers and `BotThrea
   3. For the daytrade profile, VWAP is session-anchored (rolling intraday window); the swing profile's VWAP semantics are unchanged.
   4. SWING-preset signal output remains identical to Phase 1 parity baseline.
 **Plans**: 2 plans
-- [ ] 03-01-PLAN.md — Parameterize analyze()/scan_assets periods, add _atr + atr_value, session-anchored VWAP, parity + new tests
-- [ ] 03-02-PLAN.md — Thread profile through 3 scan_assets call-sites; remediate 6 stale-threshold tests; full suite green
+- [x] 03-01-PLAN.md — Parameterize analyze()/scan_assets periods, add _atr + atr_value, session-anchored VWAP, parity + new tests
+- [x] 03-02-PLAN.md — Thread profile through 3 scan_assets call-sites; remediate 6 stale-threshold tests; full suite green
 
 ### Phase 4: Deterministic ATR Exits
 **Goal**: Position exits are driven by deterministic ATR math plus absolute overrides, no LLM consult.
@@ -146,7 +146,7 @@ orchestrator" / "PositionMonitor" apply to both the shared helpers and `BotThrea
 |-------|----------------|--------|-----------|
 | 1. StrategyProfile + SWING Parity | 1/1 | Complete    | 2026-06-09 |
 | 2. DAYTRADE Preset + Selection | 1/1 | Complete    | 2026-06-09 |
-| 3. Signal Engine + ATR + Session VWAP | 0/2 | Planned     | - |
+| 3. Signal Engine + ATR + Session VWAP | 3/2 | Complete    | 2026-06-09 |
 | 4. Deterministic ATR Exits | 0/0 | Not started | - |
 | 5. MiroFish Removal | 0/0 | Not started | - |
 | 6. Fee/Slippage Gate | 0/0 | Not started | - |

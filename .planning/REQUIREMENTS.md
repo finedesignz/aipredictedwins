@@ -25,9 +25,9 @@ Derived from `docs/superpowers/specs/2026-06-08-day-trading-upgrade-design.md`.
 - [ ] **LEARN-06**: Shadow mode logs would-be vetoes/scaling until `LEARNING_SHADOW_UNTIL_TRADES` (default 30) closed trades, then auto-applies.
 
 ### Signal Engine (SIGNAL)
-- [ ] **SIGNAL-01**: `analyze()` takes indicator periods from the profile (no hardcoded 9/21/14).
-- [ ] **SIGNAL-02**: `Signal` carries an `atr_value` computed from bar data.
-- [ ] **SIGNAL-03**: VWAP is session-anchored (rolling intraday window) for the daytrade profile.
+- [x] **SIGNAL-01**: `analyze()` takes indicator periods from the profile (no hardcoded 9/21/14).
+- [x] **SIGNAL-02**: `Signal` carries an `atr_value` computed from bar data.
+- [x] **SIGNAL-03**: VWAP is session-anchored (rolling intraday window) for the daytrade profile.
 
 ### Fee Gate (FEE)
 - [ ] **FEE-01**: A pre-trade check skips a candidate when expected move to soft-target does not clear `2 × taker_fee + slippage_buffer`.
@@ -57,9 +57,9 @@ Derived from `docs/superpowers/specs/2026-06-08-day-trading-upgrade-design.md`.
 | PROFILE-02 | Phase 1 | Complete |
 | PROFILE-03 | Phase 2 | Complete |
 | PROFILE-04 | Phase 2 | Complete |
-| SIGNAL-01 | Phase 3 | Pending |
-| SIGNAL-02 | Phase 3 | Pending |
-| SIGNAL-03 | Phase 3 | Pending |
+| SIGNAL-01 | Phase 3 | Complete |
+| SIGNAL-02 | Phase 3 | Complete |
+| SIGNAL-03 | Phase 3 | Complete |
 | EXIT-02 | Phase 4 | Pending |
 | EXIT-03 | Phase 4 | Pending |
 | EXIT-01 | Phase 5 | Pending |
