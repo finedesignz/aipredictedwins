@@ -16,7 +16,7 @@ orchestrator" / "PositionMonitor" apply to both the shared helpers and `BotThrea
 
 ## Phases
 
-- [x] **Phase 1: StrategyProfile Abstraction + SWING Parity** - Frozen profile dataclass with SWING preset reproducing current behavior byte-for-byte (completed 2026-06-09)
+- [x] **Phase 1: StrategyProfile Abstraction + SWING Parity** - Frozen profile dataclass with SWING preset reproducing current behavior byte-for-byte (completed 2026-06-09)
 - [ ] **Phase 2: DAYTRADE Preset + Profile Selection** - DAYTRADE preset and `BOT_PROFILE` env wiring (default swing)
 - [ ] **Phase 3: Parameterized Signal Engine + ATR + Session VWAP** - Profile-driven indicator periods, ATR on Signal, session-anchored VWAP
 - [ ] **Phase 4: Deterministic ATR Exits** - ATR-scaled stop + trailing stop with hard-stop and max-hold overrides
@@ -49,7 +49,8 @@ orchestrator" / "PositionMonitor" apply to both the shared helpers and `BotThrea
   1. A `DAYTRADE` preset configures 5-min bars, ~2-min scan, 1h HTF filter, ATR exit params, and a 4–8h max-hold.
   2. The trading entry point reads `BOT_PROFILE` env and loads the matching preset; unset/`swing` yields the SWING preset.
   3. An unknown `BOT_PROFILE` value fails fast (no silent fallback to wrong constants).
-**Plans**: TBD
+**Plans**: 1 plan
+- [ ] 02-01-PLAN.md — DAYTRADE preset + registry, BOT_PROFILE selection at startup, banner line, tests
 
 ### Phase 3: Parameterized Signal Engine + ATR + Session VWAP
 **Goal**: The signal engine takes its periods from the active profile, emits an ATR value, and uses session-anchored VWAP for daytrade.
@@ -142,7 +143,7 @@ orchestrator" / "PositionMonitor" apply to both the shared helpers and `BotThrea
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. StrategyProfile + SWING Parity | 1/1 | Complete    | 2026-06-09 |
-| 2. DAYTRADE Preset + Selection | 0/0 | Not started | - |
+| 2. DAYTRADE Preset + Selection | 0/1 | Not started | - |
 | 3. Signal Engine + ATR + Session VWAP | 0/0 | Not started | - |
 | 4. Deterministic ATR Exits | 0/0 | Not started | - |
 | 5. MiroFish Removal | 0/0 | Not started | - |
