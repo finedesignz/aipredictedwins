@@ -12,8 +12,8 @@ Derived from `docs/superpowers/specs/2026-06-08-day-trading-upgrade-design.md`.
 
 ### Deterministic Exits (EXIT)
 - [ ] **EXIT-01**: `PositionMonitor` no longer imports or calls the MiroFish `ExitAdvisor`.
-- [ ] **EXIT-02**: Exits use an ATR-scaled stop (entry − atr_mult × ATR) and an ATR-scaled trailing stop.
-- [ ] **EXIT-03**: Hard-stop percentage and max-hold-duration auto-close act as absolute overrides.
+- [x] **EXIT-02**: Exits use an ATR-scaled stop (entry − atr_mult × ATR) and an ATR-scaled trailing stop.
+- [x] **EXIT-03**: Hard-stop percentage and max-hold-duration auto-close act as absolute overrides.
 - [ ] **EXIT-04**: Claude-CLI auth startup/daily checks (which only served MiroFish) are removed from the Alpaca path.
 
 ### Self-Learning Loop (LEARN)
@@ -60,8 +60,8 @@ Derived from `docs/superpowers/specs/2026-06-08-day-trading-upgrade-design.md`.
 | SIGNAL-01 | Phase 3 | Complete |
 | SIGNAL-02 | Phase 3 | Complete |
 | SIGNAL-03 | Phase 3 | Complete |
-| EXIT-02 | Phase 4 | Pending |
-| EXIT-03 | Phase 4 | Pending |
+| EXIT-02 | Phase 4 | Complete |
+| EXIT-03 | Phase 4 | Complete |
 | EXIT-01 | Phase 5 | Pending |
 | EXIT-04 | Phase 5 | Pending |
 | FEE-01 | Phase 6 | Pending |

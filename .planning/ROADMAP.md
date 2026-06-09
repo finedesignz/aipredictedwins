@@ -19,7 +19,7 @@ orchestrator" / "PositionMonitor" apply to both the shared helpers and `BotThrea
 - [x] **Phase 1: StrategyProfile Abstraction + SWING Parity** - Frozen profile dataclass with SWING preset reproducing current behavior byte-for-byte (completed 2026-06-09)
 - [x] **Phase 2: DAYTRADE Preset + Profile Selection** - DAYTRADE preset and `BOT_PROFILE` env wiring (default swing) (completed 2026-06-09)
 - [x] **Phase 3: Parameterized Signal Engine + ATR + Session VWAP** - Profile-driven indicator periods, ATR on Signal, session-anchored VWAP (completed 2026-06-09)
-- [ ] **Phase 4: Deterministic ATR Exits** - ATR-scaled stop + trailing stop with hard-stop and max-hold overrides
+- [x] **Phase 4: Deterministic ATR Exits** - ATR-scaled stop + trailing stop with hard-stop and max-hold overrides (completed 2026-06-09)
 - [ ] **Phase 5: MiroFish Removal from Alpaca Path** - Drop ExitAdvisor + Claude-CLI auth checks from the trading path
 - [ ] **Phase 6: Fee/Slippage Pre-Trade Gate** - Skip candidates whose move-to-target can't clear round-trip fees
 - [ ] **Phase 7: Close the Self-Learning Loop (Entry + Sizing)** - Wire `get_advice()` veto + `get_dynamic_thresholds()` into entry and Kelly sizing
@@ -75,8 +75,8 @@ orchestrator" / "PositionMonitor" apply to both the shared helpers and `BotThrea
   3. Max-hold-duration auto-close exits a daytrade position once `max_hold_hours` elapses; swing (max-hold None) is never force-closed by time.
   4. ATR exit math is exercised by a unit test (covered fully in Phase 10).
 **Plans**: 2 plans
-- [ ] 04-01-PLAN.md — Test scaffold (RED) + TrailingStop ATR-distance & short-side extension
-- [ ] 04-02-PLAN.md — Deterministic ATR decision ladder + hard-stop/max-hold overrides in shared PositionMonitor; thread profile into both instantiation sites
+- [x] 04-01-PLAN.md — Test scaffold (RED) + TrailingStop ATR-distance & short-side extension
+- [x] 04-02-PLAN.md — Deterministic ATR decision ladder + hard-stop/max-hold overrides in shared PositionMonitor; thread profile into both instantiation sites
 
 ### Phase 5: MiroFish Removal from Alpaca Path
 **Goal**: MiroFish exit advisory and its Claude-CLI auth scaffolding no longer run in the Alpaca trading path.
@@ -149,7 +149,7 @@ orchestrator" / "PositionMonitor" apply to both the shared helpers and `BotThrea
 | 1. StrategyProfile + SWING Parity | 1/1 | Complete    | 2026-06-09 |
 | 2. DAYTRADE Preset + Selection | 1/1 | Complete    | 2026-06-09 |
 | 3. Signal Engine + ATR + Session VWAP | 3/2 | Complete    | 2026-06-09 |
-| 4. Deterministic ATR Exits | 0/2 | Not started | - |
+| 4. Deterministic ATR Exits | 3/2 | Complete    | 2026-06-09 |
 | 5. MiroFish Removal | 0/0 | Not started | - |
 | 6. Fee/Slippage Gate | 0/0 | Not started | - |
 | 7. Self-Learning Loop (Entry+Sizing) | 0/0 | Not started | - |
