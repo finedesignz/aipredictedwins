@@ -65,6 +65,23 @@ def volatility_regime(atr: float, price: float) -> str:
     return "high"
 
 
+def should_enforce_learning(memory, bot_id: str, shadow_until: int | None = None) -> bool:
+    """Decide whether learning veto/scale should ENFORCE (vs shadow log-only).
+
+    Precedence (D-06): explicit LEARNING_ENFORCE=0 forces shadow regardless of
+    count. Otherwise enforce once the bot's closed-trade count reaches
+    shadow_until (arg overrides LEARNING_SHADOW_UNTIL_TRADES env, default 30).
+    memory is None -> False (no-op, back-compat).
+    """
+    if os.environ.get("LEARNING_ENFORCE") == "0":
+        return False
+    if memory is None:
+        return False
+    if shadow_until is None:
+        shadow_until = int(os.environ.get("LEARNING_SHADOW_UNTIL_TRADES", "30"))
+    return memory.count_closed_trades() >= shadow_until
+
+
 class TradeMemory:
     """Self-learning trade memory that stores context, finds patterns, and advises
     future trades based on historical outcomes.
@@ -282,6 +299,16 @@ class TradeMemory:
                 )
         log.info("Updated trade context for trade_id=%d: outcome=%s pnl=$%.2f",
                  trade_id, outcome, pnl)
+
+    def count_closed_trades(self) -> int:
+        """Number of closed (win/loss) trade_context rows for this bot."""
+        with connection() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM trade_context "
+                "WHERE bot_id = %s AND outcome IN ('win', 'loss')",
+                (self.bot_id,),
+            ).fetchone()
+        return row["n"]
 
     # ------------------------------------------------------------------
     # Learning
