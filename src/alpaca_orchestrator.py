@@ -28,7 +28,7 @@ from rich.table import Table
 from src.config import load_config
 from src.alpaca_client import AlpacaClient
 from src.alpaca_evaluator import get_trending_crypto, TOP_CRYPTO_TICKERS, MEME_CRYPTO, get_dynamic_crypto_universe
-from src.technical_signals import scan_assets, analyze
+from src.technical_signals import scan_assets, analyze, _atr
 from src.rules_gate import RulesGate
 from src.risk_gate import RiskGate  # keep for backward compat / type hints
 from src.exit_advisor import ExitAdvisor, TrailingStop, check_position_thresholds, HARD_STOP_PCT, SOFT_STOP_PCT, SOFT_TAKE_PROFIT_PCT
@@ -49,7 +49,7 @@ except ImportError:
 # ---------------------------------------------------------------------------
 import os as _os
 
-from src.strategy_profile import PROFILES
+from src.strategy_profile import PROFILES, SWING
 # Resolve active profile from BOT_PROFILE at module load, BEFORE the style-constant
 # defaults below read PROFILE.* — keeps the Phase-1 env-default chain intact.
 # Unknown value fails fast (no silent fallback); selection is case-insensitive.
@@ -106,11 +106,12 @@ class PositionMonitor(threading.Thread):
     Immediately exits on hard thresholds (-4%, +10%).
     """
 
-    def __init__(self, alpaca: AlpacaClient, logger: TradeLogger, exit_advisor: ExitAdvisor):
+    def __init__(self, alpaca: AlpacaClient, logger: TradeLogger, exit_advisor: ExitAdvisor, profile=SWING):
         super().__init__(daemon=True, name="position-monitor")
         self.alpaca = alpaca
         self.logger = logger
-        self.exit_advisor = exit_advisor
+        self.exit_advisor = exit_advisor  # retained (Phase 5 removes); NOT used for exit decisions
+        self.profile = profile
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
         self.checks = 0
@@ -205,104 +206,97 @@ class PositionMonitor(threading.Thread):
                 pnl_pct = (current_price - entry_price) / entry_price
                 trade_pnl = (current_price - entry_price) * qty
 
-            # Trailing stop only for long positions
-            trail_trigger = None
-            if side not in ("sell", "short"):
-                trail_trigger = self._trailing.update(trade_id, entry_price, current_price)
-            if trail_trigger:
-                threshold = trail_trigger
-            else:
-                # Use side-aware pnl_pct (already correct for long and short)
-                if pnl_pct <= HARD_STOP_PCT:
-                    threshold = "hard_stop"
-                elif pnl_pct <= SOFT_STOP_PCT:
-                    threshold = "soft_stop"
-                elif pnl_pct >= SOFT_TAKE_PROFIT_PCT:
-                    threshold = "soft_take_profit"
-                else:
-                    threshold = None
+            # Hours held — computed per position, unconditionally (used by max_hold).
+            ts = trade.get("timestamp", "")
+            hours_held = 0.0
+            if ts:
+                try:
+                    entry_dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                    hours_held = (datetime.now(timezone.utc) - entry_dt).total_seconds() / 3600
+                except ValueError:
+                    hours_held = 0.0
 
-            # If tightened to breakeven, exit if below entry
+            # ATR at the active profile's timeframe (live fetch; 0.0 on insufficient bars).
+            atr = 0.0
+            try:
+                atr_bars = self.alpaca.get_bars(
+                    symbol, timeframe=self.profile.timeframe, limit=self.profile.atr_period + 5
+                )
+                if atr_bars:
+                    highs = [b["high"] for b in atr_bars]
+                    lows = [b["low"] for b in atr_bars]
+                    closes = [b["close"] for b in atr_bars]
+                    atr = _atr(highs, lows, closes, self.profile.atr_period)
+            except Exception as exc:
+                log.warning("ATR fetch failed for %s (%s) — falling back to overrides only", symbol, exc)
+
+            # ----- Deterministic exit ladder (EXIT-02/EXIT-03), first-match wins -----
+            # Precedence: hard_stop_pct -> max_hold -> ATR trailing stop -> ATR stop.
+            # No LLM: ExitAdvisor.should_exit() is never called here.
+            threshold = None
+
+            # 1. Hard stop — absolute, side-aware pnl_pct already computed above.
+            if pnl_pct <= self.profile.hard_stop_pct:
+                threshold = "hard_stop"
+            # 2. Max hold — only when configured (swing = None never time-closes).
+            elif self.profile.max_hold_hours is not None and hours_held > self.profile.max_hold_hours:
+                threshold = "max_hold"
+            # 3. ATR trailing stop (side-aware, only when ATR is valid).
+            elif atr > 0 and self._trailing.update_atr(
+                trade_id, side, entry_price, current_price, atr, self.profile.atr_mult_trail
+            ):
+                threshold = "trailing_stop"
+            # 4. ATR fixed stop (side-aware) — only when ATR is valid.
+            elif atr > 0:
+                if side in ("sell", "short"):
+                    atr_stop_level = entry_price + self.profile.atr_mult_stop * atr
+                    if current_price >= atr_stop_level:
+                        threshold = "atr_stop"
+                else:
+                    atr_stop_level = entry_price - self.profile.atr_mult_stop * atr
+                    if current_price <= atr_stop_level:
+                        threshold = "atr_stop"
+
+            # Dormant tightened-stop rung (harmless; nothing sets _tightened this phase).
             if not threshold and trade_id in self._tightened and current_price < entry_price:
                 threshold = "tightened_stop"
 
             if not threshold:
                 continue
 
-            should_close = False
             close_reason = threshold
 
-            if threshold in ("hard_stop", "tightened_stop", "trailing_stop"):
-                should_close = True
-            elif threshold in ("soft_stop", "soft_take_profit"):
-                # Consult MiroFish Exit Advisor
+            pnl_display = f"${trade_pnl:+,.2f}"
+            trigger_label = close_reason.upper().replace("_", " ")
+            color = "red" if trade_pnl < 0 else "green"
+
+            log.info(
+                "[MONITOR] %s triggered for %s: entry=$%.2f current=$%.2f (%.1f%%) P&L=$%.2f",
+                trigger_label, symbol, entry_price, current_price, pnl_pct * 100, trade_pnl,
+            )
+            console.print(
+                f"  [bold {color}][MONITOR] {trigger_label}[/bold {color}] "
+                f"{symbol} {side.upper()} | entry=${entry_price:.2f} -> ${current_price:.2f} "
+                f"({pnl_pct * 100:+.1f}%) | P&L: {pnl_display}"
+            )
+
+            with self._lock:
                 try:
-                    ts = trade.get("timestamp", "")
-                    hours_held = 0.0
-                    if ts:
-                        entry_dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-                        hours_held = (datetime.now(timezone.utc) - entry_dt).total_seconds() / 3600
-
-                    bars = self.alpaca.get_bars(symbol, timeframe="1Hour", limit=10)
-                    advice = self.exit_advisor.should_exit(
-                        symbol=symbol,
-                        entry_price=entry_price,
-                        current_price=current_price,
-                        side=side,
-                        hours_held=hours_held,
-                        bars=bars,
+                    self.alpaca.close_position(symbol)
+                    self.logger.update_alpaca_trade(
+                        trade_id=trade_id,
+                        status="closed",
+                        exit_price=current_price,
+                        pnl=trade_pnl,
                     )
-
-                    if advice and advice.decision == "EXIT":
-                        should_close = True
-                        close_reason = f"exit_advisor_{threshold}"
-                    elif advice and advice.decision == "TIGHTEN":
-                        self._tightened.add(trade_id)
-                        log.info("TIGHTENED stop for %s (trade %d) to breakeven", symbol, trade_id)
-                        console.print(
-                            f"  [yellow][MONITOR] TIGHTENED[/yellow] {symbol} — "
-                            f"stop moved to breakeven (${entry_price:.2f})"
-                        )
-                        continue
-                    else:
-                        # HOLD — do nothing
-                        continue
+                    self.closes += 1
+                    self.total_pnl += trade_pnl
+                    self._tightened.discard(trade_id)
+                    self._trailing.remove(trade_id)
+                    alert_position_closed(symbol, side, entry_price, current_price, trade_pnl, close_reason)
                 except Exception as exc:
-                    log.warning("Exit advisor failed for %s, holding: %s", symbol, exc)
-                    continue
-
-            if should_close:
-                pnl_display = f"${trade_pnl:+,.2f}"
-                trigger_label = close_reason.upper().replace("_", " ")
-                color = "red" if trade_pnl < 0 else "green"
-
-                log.info(
-                    "[MONITOR] %s triggered for %s: entry=$%.2f current=$%.2f (%.1f%%) P&L=$%.2f",
-                    trigger_label, symbol, entry_price, current_price, pnl_pct * 100, trade_pnl,
-                )
-                console.print(
-                    f"  [bold {color}][MONITOR] {trigger_label}[/bold {color}] "
-                    f"{symbol} {side.upper()} | entry=${entry_price:.2f} -> ${current_price:.2f} "
-                    f"({pnl_pct * 100:+.1f}%) | P&L: {pnl_display}"
-                )
-
-                with self._lock:
-                    try:
-                        self.alpaca.close_position(symbol)
-                        self.logger.update_alpaca_trade(
-                            trade_id=trade_id,
-                            status="closed",
-                            exit_price=current_price,
-                            pnl=trade_pnl,
-                        )
-                        self.closes += 1
-                        self.total_pnl += trade_pnl
-                        self._tightened.discard(trade_id)
-                        self._trailing.remove(trade_id)
-                        alert_position_closed(symbol, side, entry_price, current_price, trade_pnl, close_reason)
-                    except Exception as exc:
-                        log.error("[MONITOR] Failed to close %s: %s", symbol, exc)
-                        alert_monitor_error(symbol, exc)
+                    log.error("[MONITOR] Failed to close %s: %s", symbol, exc)
+                    alert_monitor_error(symbol, exc)
 
     def get_stats(self) -> dict:
         return {
