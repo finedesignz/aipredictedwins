@@ -32,6 +32,7 @@ from src.technical_signals import scan_assets, analyze, _atr
 from src.rules_gate import RulesGate
 from src.risk_gate import RiskGate  # keep for backward compat / type hints
 from src.exit_advisor import TrailingStop, HARD_STOP_PCT, SOFT_STOP_PCT, SOFT_TAKE_PROFIT_PCT
+from src.fee_gate import clears_fee_hurdle, TAKER_FEE, SLIPPAGE_BUFFER
 from src.trade_logger import TradeLogger
 
 from src.notifier import alert_bot_crash, alert_drawdown_stop, alert_monitor_error, alert_position_closed, send_alert
@@ -852,6 +853,14 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                 symbol = signal.symbol
                 price = side_data[symbol]["price"]
 
+                expected_move_pct = 0.08  # long soft target: price * (1 + 0.08)
+                if not clears_fee_hurdle(expected_move_pct, TAKER_FEE, SLIPPAGE_BUFFER):
+                    console.print(
+                        f"  Skipping {symbol} -- fee_gate_skip "
+                        f"move={expected_move_pct:.4f} hurdle={2*TAKER_FEE+SLIPPAGE_BUFFER:.4f}"
+                    )
+                    continue
+
                 sizing = _kelly_technical(
                     confluence=signal.confluence_score,
                     current_price=price,
@@ -954,6 +963,14 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                             continue
 
                     risk_gate_passed += 1
+
+                    expected_move_pct = 0.08  # short soft target: price * (1 - 0.08)
+                    if not clears_fee_hurdle(expected_move_pct, TAKER_FEE, SLIPPAGE_BUFFER):
+                        console.print(
+                            f"  Skipping {symbol} -- fee_gate_skip "
+                            f"move={expected_move_pct:.4f} hurdle={2*TAKER_FEE+SLIPPAGE_BUFFER:.4f}"
+                        )
+                        continue
 
                     # Kelly sizing for short (same formula, different side)
                     sizing = _kelly_technical(

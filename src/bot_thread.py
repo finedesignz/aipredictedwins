@@ -58,6 +58,7 @@ from src.alpaca_client import AlpacaClient
 from src.trade_logger import TradeLogger
 from src.rules_gate import RulesGate
 from src.exit_advisor import HARD_STOP_PCT, SOFT_STOP_PCT, SOFT_TAKE_PROFIT_PCT
+from src.fee_gate import clears_fee_hurdle, TAKER_FEE, SLIPPAGE_BUFFER
 from src.technical_signals import scan_assets
 from src.strategy_profile import PROFILES, SWING
 from src.alpaca_orchestrator import (
@@ -531,6 +532,14 @@ class BotThread(threading.Thread):
                 except Exception as exc:
                     log.warning("[bot:%s] Memory advisory failed for %s: %s", bot_id, symbol, exc)
 
+            expected_move_pct = abs(SOFT_TAKE_PROFIT_PCT)
+            if not clears_fee_hurdle(expected_move_pct, TAKER_FEE, SLIPPAGE_BUFFER):
+                log.info(
+                    "[bot:%s] fee_gate_skip %s move=%.4f hurdle=%.4f",
+                    bot_id, symbol, expected_move_pct, 2 * TAKER_FEE + SLIPPAGE_BUFFER,
+                )
+                continue
+
             sizing = _kelly_technical(
                 confluence=signal.confluence_score,
                 current_price=price,
@@ -677,6 +686,14 @@ class BotThread(threading.Thread):
                 if decision == "VETO":
                     log.info("[bot:%s] VALIDATOR VETO %s (short): %s", bot_id, symbol, reason)
                     continue
+
+            expected_move_pct = abs(SOFT_TAKE_PROFIT_PCT)
+            if not clears_fee_hurdle(expected_move_pct, TAKER_FEE, SLIPPAGE_BUFFER):
+                log.info(
+                    "[bot:%s] fee_gate_skip %s move=%.4f hurdle=%.4f",
+                    bot_id, symbol, expected_move_pct, 2 * TAKER_FEE + SLIPPAGE_BUFFER,
+                )
+                continue
 
             sizing = _kelly_technical(
                 confluence=short_score,
