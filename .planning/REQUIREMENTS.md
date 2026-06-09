@@ -17,9 +17,9 @@ Derived from `docs/superpowers/specs/2026-06-08-day-trading-upgrade-design.md`.
 - [x] **EXIT-04**: Claude-CLI auth startup/daily checks (which only served MiroFish) are removed from the Alpaca path.
 
 ### Self-Learning Loop (LEARN)
-- [ ] **LEARN-01**: Before sizing, the orchestrator calls `get_advice()`; `should_trade=False` vetoes the candidate.
-- [ ] **LEARN-02**: `confidence_adjustment` from advice scales position size.
-- [ ] **LEARN-03**: `get_dynamic_thresholds()` feeds min/max position % and confluence thresholds into Kelly sizing.
+- [x] **LEARN-01**: Before sizing, the orchestrator calls `get_advice()`; `should_trade=False` vetoes the candidate.
+- [x] **LEARN-02**: `confidence_adjustment` from advice scales position size.
+- [x] **LEARN-03**: `get_dynamic_thresholds()` feeds min/max position % and confluence thresholds into Kelly sizing.
 - [ ] **LEARN-04**: `trade_context` records intraday dimensions: time-of-day bucket, hold-minutes, volatility regime.
 - [ ] **LEARN-05**: Lessons incorporate the new intraday dimensions.
 - [ ] **LEARN-06**: Shadow mode logs would-be vetoes/scaling until `LEARNING_SHADOW_UNTIL_TRADES` (default 30) closed trades, then auto-applies.
@@ -65,9 +65,9 @@ Derived from `docs/superpowers/specs/2026-06-08-day-trading-upgrade-design.md`.
 | EXIT-01 | Phase 5 | Complete |
 | EXIT-04 | Phase 5 | Complete |
 | FEE-01 | Phase 6 | Complete |
-| LEARN-01 | Phase 7 | Pending |
-| LEARN-02 | Phase 7 | Pending |
-| LEARN-03 | Phase 7 | Pending |
+| LEARN-01 | Phase 7 | Complete |
+| LEARN-02 | Phase 7 | Complete |
+| LEARN-03 | Phase 7 | Complete |
 | LEARN-04 | Phase 8 | Pending |
 | LEARN-05 | Phase 8 | Pending |
 | LEARN-06 | Phase 8 | Pending |

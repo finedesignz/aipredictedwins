@@ -23,7 +23,7 @@ orchestrator" / "PositionMonitor" apply to both the shared helpers and `BotThrea
 - [x] **Phase 5: MiroFish Removal from Alpaca Path** - Drop ExitAdvisor + Claude-CLI auth checks from the trading path (completed 2026-06-09)
 - [x] **Phase 6: Fee/Slippage Pre-Trade Gate** - Skip candidates whose move-to-target can't clear round-trip fees
  (completed 2026-06-09)
-- [ ] **Phase 7: Close the Self-Learning Loop (Entry + Sizing)** - Wire `get_advice()` veto + `get_dynamic_thresholds()` into entry and Kelly sizing
+- [x] **Phase 7: Close the Self-Learning Loop (Entry + Sizing)** - Wire `get_advice()` veto + `get_dynamic_thresholds()` into entry and Kelly sizing (completed 2026-06-09)
 - [ ] **Phase 8: Intraday Learning Dimensions + Shadow Mode** - Time-of-day/hold/volatility dimensions and shadowâauto gate
 - [ ] **Phase 9: Bot D Deployment** - New paper account, daytrade profile, Coolify service, dashboard attribution
 - [ ] **Phase 10: Verification + Backtest** - Unit tests for new logic + 5-min backtest validating signal frequency
@@ -112,7 +112,7 @@ orchestrator" / "PositionMonitor" apply to both the shared helpers and `BotThrea
   3. `get_dynamic_thresholds()` feeds min/max position % and confluence thresholds into `_kelly_technical`.
   4. With no learning history, behavior matches the pre-loop baseline (no veto, neutral scaling).
 **Plans**: 3 plans
-- [ ] 07-01-PLAN.md — Test scaffold + extend _kelly_technical (confidence_adjustment, min_position_pct)
+- [x] 07-01-PLAN.md — Test scaffold + extend _kelly_technical (confidence_adjustment, min_position_pct)
 - [ ] 07-02-PLAN.md — Wire bot_thread (live): extend LONG, add full SHORT block + short context recording
 - [ ] 07-03-PLAN.md — Wire alpaca_orchestrator: fresh LONG + SHORT advisory, canonical short context
 
@@ -158,7 +158,7 @@ orchestrator" / "PositionMonitor" apply to both the shared helpers and `BotThrea
 | 4. Deterministic ATR Exits | 3/2 | Complete    | 2026-06-09 |
 | 5. MiroFish Removal | 1/1 | Complete    | 2026-06-09 |
 | 6. Fee/Slippage Gate | 1/1 | Complete    | 2026-06-09 |
-| 7. Self-Learning Loop (Entry+Sizing) | 0/3 | Planned     | - |
+| 7. Self-Learning Loop (Entry+Sizing) | 1/3 | Complete    | 2026-06-09 |
 | 8. Intraday Dimensions + Shadow | 0/0 | Not started | - |
 | 9. Bot D Deployment | 0/0 | Not started | - |
 | 10. Verification + Backtest | 0/0 | Not started | - |
