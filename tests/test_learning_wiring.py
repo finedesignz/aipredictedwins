@@ -172,23 +172,22 @@ def test_orchestrator_bot_thread_parity():
     assert a == b
 
 
-def test_orchestrator_learning_enforce_flag(monkeypatch):
+def test_orchestrator_imports_shadow_gate():
+    # Phase 8: static LEARNING_ENFORCE bool replaced by the count-based gate.
     import src.alpaca_orchestrator as ao
-    monkeypatch.setenv("LEARNING_ENFORCE", "0")
-    reloaded = importlib.reload(ao)
-    try:
-        assert reloaded.LEARNING_ENFORCE is False
-    finally:
-        monkeypatch.delenv("LEARNING_ENFORCE", raising=False)
-        importlib.reload(ao)
+    assert not hasattr(ao, "LEARNING_ENFORCE")
+    assert ao.should_enforce_learning is not None
 
 
-def test_learning_enforce_flag_default(monkeypatch):
+def test_bot_thread_imports_shadow_gate():
     import src.bot_thread as bt
+    assert not hasattr(bt, "LEARNING_ENFORCE")
+    assert bt.should_enforce_learning is not None
+
+
+def test_explicit_zero_forces_shadow_both_runtimes(fake_memory, monkeypatch):
+    from src.alpaca_orchestrator import should_enforce_learning as oo
+    from src.bot_thread import should_enforce_learning as bb
     monkeypatch.setenv("LEARNING_ENFORCE", "0")
-    reloaded = importlib.reload(bt)
-    try:
-        assert reloaded.LEARNING_ENFORCE is False
-    finally:
-        monkeypatch.delenv("LEARNING_ENFORCE", raising=False)
-        importlib.reload(bt)
+    assert oo(fake_memory(closed_count=999), "A") is False
+    assert bb(fake_memory(closed_count=999), "A") is False

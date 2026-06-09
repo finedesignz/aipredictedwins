@@ -40,6 +40,7 @@ from src.pipeline_state import PipelineState
 
 try:
     from src.trade_memory import TradeMemory
+    from src.trade_memory import should_enforce_learning
     from src.learning_loop import LearningLoop
     _HAS_LEARNING = True
 except ImportError:
@@ -63,8 +64,6 @@ PROFILE = PROFILES[_PROFILE_NAME]
 
 MAX_POSITION_PCT = float(_os.environ.get("MAX_POSITION_PCT", str(PROFILE.max_position_pct)))
 MAX_TOTAL_EXPOSURE_PCT = float(_os.environ.get("MAX_TOTAL_EXPOSURE_PCT", "0.80"))
-# Shadow seam: "1" (default) enforces learning veto/scaling; "0" logs only.
-LEARNING_ENFORCE = _os.environ.get("LEARNING_ENFORCE", "1") == "1"
 DRAWDOWN_STOP_PCT = float(_os.environ.get("DRAWDOWN_STOP_PCT", "0.10"))
 MIN_PAPER_TRADES = int(_os.environ.get("MIN_PAPER_TRADES", "50"))
 MIN_WIN_RATE = float(_os.environ.get("MIN_WIN_RATE", "0.40"))
@@ -853,6 +852,11 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
             # -- 4d. Layer 3: Size and place orders ---------------------------
             # Dynamic thresholds computed ONCE per cycle (not per-candidate).
             thresholds = memory.get_dynamic_thresholds() if memory is not None else None
+            # Shadow gate computed ONCE per cycle (Phase 8 / LEARN-06): count-based,
+            # explicit LEARNING_ENFORCE=0 forces shadow. Replaces static flag.
+            enforce = should_enforce_learning(
+                memory, getattr(memory, "bot_id", "") if memory is not None else ""
+            )
             cycle_exposure = 0.0
             for state in approved_states:
                 # Re-check total exposure before each trade
@@ -881,12 +885,18 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                         if not advice["should_trade"]:
                             console.print(
                                 f"  [yellow]learn_veto[/yellow] {symbol} — {advice['reasoning']} "
-                                f"(enforce={LEARNING_ENFORCE})"
+                                f"(enforce={enforce})"
                             )
-                            if LEARNING_ENFORCE:
+                            if enforce:
                                 continue
-                        elif LEARNING_ENFORCE:
+                            log.info("learn_shadow: WOULD veto %s", symbol)
+                        elif enforce:
                             adj = advice.get("confidence_adjustment", 1.0)
+                        elif advice.get("confidence_adjustment", 1.0) != 1.0:
+                            log.info(
+                                "learn_shadow: WOULD scale ×%.2f %s",
+                                advice.get("confidence_adjustment", 1.0), symbol,
+                            )
                     except Exception as exc:
                         log.warning("Memory advisory failed for %s: %s", symbol, exc)
 
@@ -898,7 +908,7 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                     )
                     continue
 
-                if thresholds is not None and LEARNING_ENFORCE:
+                if thresholds is not None and enforce:
                     eff_max = min(MAX_POSITION_PCT, thresholds["max_position_pct"])
                     eff_min = thresholds["min_position_pct"]
                 else:
@@ -1029,12 +1039,18 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                             if not advice["should_trade"]:
                                 console.print(
                                     f"  [yellow]learn_veto SHORT[/yellow] {symbol} — "
-                                    f"{advice['reasoning']} (enforce={LEARNING_ENFORCE})"
+                                    f"{advice['reasoning']} (enforce={enforce})"
                                 )
-                                if LEARNING_ENFORCE:
+                                if enforce:
                                     continue
-                            elif LEARNING_ENFORCE:
+                                log.info("learn_shadow: WOULD veto %s (short)", symbol)
+                            elif enforce:
                                 adj = advice.get("confidence_adjustment", 1.0)
+                            elif advice.get("confidence_adjustment", 1.0) != 1.0:
+                                log.info(
+                                    "learn_shadow: WOULD scale ×%.2f %s (short)",
+                                    advice.get("confidence_adjustment", 1.0), symbol,
+                                )
                         except Exception as exc:
                             log.warning("Memory advisory failed for %s: %s", symbol, exc)
 
@@ -1046,7 +1062,7 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                         )
                         continue
 
-                    if thresholds is not None and LEARNING_ENFORCE:
+                    if thresholds is not None and enforce:
                         eff_max = min(MAX_POSITION_PCT, thresholds["max_position_pct"])
                         eff_min = thresholds["min_position_pct"]
                     else:

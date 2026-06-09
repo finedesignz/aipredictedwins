@@ -77,16 +77,13 @@ from src import db as _db
 
 try:
     from src.trade_memory import TradeMemory
+    from src.trade_memory import should_enforce_learning
     from src.learning_loop import LearningLoop
     _HAS_LEARNING = True
 except ImportError:
     _HAS_LEARNING = False
 
 log = logging.getLogger(__name__)
-
-# Shadow seam: "1" (default) enforces learning veto/scaling; "0" logs would-be
-# effect only and falls through (no change to placed orders).
-LEARNING_ENFORCE = os.environ.get("LEARNING_ENFORCE", "1") == "1"
 
 
 # ---------------------------------------------------------------------------
@@ -440,6 +437,11 @@ class BotThread(threading.Thread):
         # -- Dynamic thresholds computed ONCE per cycle (not per-candidate) ----
         thresholds = memory.get_dynamic_thresholds() if memory is not None else None
 
+        # -- Shadow gate computed ONCE per cycle (Phase 8 / LEARN-06) ----------
+        # Replaces the static LEARNING_ENFORCE flag: count-based, with explicit
+        # LEARNING_ENFORCE=0 forcing shadow. Avoids N count queries per cycle.
+        enforce = should_enforce_learning(memory, bot_id)
+
         # -- Layer 2+3: Risk gate → size → order (LONG) -----------------------
 
         # -- Layer 2: Risk gate ------------------------------------------------
@@ -532,12 +534,18 @@ class BotThread(threading.Thread):
                             "[bot:%s] learn_veto %s — %s (WR=%.0f%% over %d trades, enforce=%s)",
                             bot_id, symbol, advice["reasoning"],
                             (advice.get("win_rate_for_pattern") or 0) * 100,
-                            advice.get("sample_size", 0), LEARNING_ENFORCE,
+                            advice.get("sample_size", 0), enforce,
                         )
-                        if LEARNING_ENFORCE:
+                        if enforce:
                             continue
-                    elif LEARNING_ENFORCE:
+                        log.info("[bot:%s] learn_shadow: WOULD veto %s", bot_id, symbol)
+                    elif enforce:
                         adj = advice.get("confidence_adjustment", 1.0)
+                    elif advice.get("confidence_adjustment", 1.0) != 1.0:
+                        log.info(
+                            "[bot:%s] learn_shadow: WOULD scale ×%.2f %s",
+                            bot_id, advice.get("confidence_adjustment", 1.0), symbol,
+                        )
                     if advice.get("sample_size", 0) >= 2:
                         log.info("[bot:%s] Memory: %s", bot_id, advice["reasoning"])
                 except Exception as exc:
@@ -551,7 +559,7 @@ class BotThread(threading.Thread):
                 )
                 continue
 
-            if thresholds is not None and LEARNING_ENFORCE:
+            if thresholds is not None and enforce:
                 eff_max = min(cfg.max_position_pct, thresholds["max_position_pct"])
                 eff_min = thresholds["min_position_pct"]
             else:
@@ -726,12 +734,18 @@ class BotThread(threading.Thread):
                             "[bot:%s] learn_veto %s (short) — %s (WR=%.0f%% over %d trades, enforce=%s)",
                             bot_id, symbol, advice["reasoning"],
                             (advice.get("win_rate_for_pattern") or 0) * 100,
-                            advice.get("sample_size", 0), LEARNING_ENFORCE,
+                            advice.get("sample_size", 0), enforce,
                         )
-                        if LEARNING_ENFORCE:
+                        if enforce:
                             continue
-                    elif LEARNING_ENFORCE:
+                        log.info("[bot:%s] learn_shadow: WOULD veto %s (short)", bot_id, symbol)
+                    elif enforce:
                         adj = advice.get("confidence_adjustment", 1.0)
+                    elif advice.get("confidence_adjustment", 1.0) != 1.0:
+                        log.info(
+                            "[bot:%s] learn_shadow: WOULD scale ×%.2f %s (short)",
+                            bot_id, advice.get("confidence_adjustment", 1.0), symbol,
+                        )
                     if advice.get("sample_size", 0) >= 2:
                         log.info("[bot:%s] Memory (short): %s", bot_id, advice["reasoning"])
                 except Exception as exc:
@@ -745,7 +759,7 @@ class BotThread(threading.Thread):
                 )
                 continue
 
-            if thresholds is not None and LEARNING_ENFORCE:
+            if thresholds is not None and enforce:
                 eff_max = min(cfg.max_position_pct, thresholds["max_position_pct"])
                 eff_min = thresholds["min_position_pct"]
             else:
