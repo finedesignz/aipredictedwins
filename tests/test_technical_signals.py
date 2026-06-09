@@ -1,7 +1,8 @@
 """Tests for the technical signal engine."""
 
 import pytest
-from src.technical_signals import _ema, _rsi, _adx, _volume_spike, _vwap_bullish, analyze
+from src.technical_signals import _ema, _rsi, _adx, _atr, _volume_spike, _vwap_bullish, analyze
+from src.strategy_profile import SWING, DAYTRADE, StrategyProfile
 
 
 # ---------------------------------------------------------------------------
@@ -123,6 +124,33 @@ class TestADX:
         assert isinstance(result, tuple)
         adx, plus_di, minus_di = result
         assert isinstance(adx, float)
+
+
+# ---------------------------------------------------------------------------
+# ATR tests (SIGNAL-02)
+# ---------------------------------------------------------------------------
+
+class TestATR:
+    def test_hand_fixture(self):
+        # Per RESEARCH §2 hand-computed: _atr(...,2) == 2.5
+        highs = [10, 11, 12, 11, 13]
+        lows = [9, 10, 10, 9, 11]
+        closes = [9, 11, 11, 10, 12]
+        assert _atr(highs, lows, closes, 2) == 2.5
+
+    def test_insufficient_data(self):
+        # n < period + 1 -> 0.0
+        assert _atr([10, 11], [9, 10], [9, 11], 14) == 0.0
+
+    def test_mismatched_lengths(self):
+        assert _atr([10, 11, 12], [9, 10], [9, 11, 11], 2) == 0.0
+
+    def test_atr_value_populated_on_signal(self):
+        bars = _make_uptrend_bars(50)
+        signal = analyze("BTC/USD", bars)
+        assert signal is not None
+        assert hasattr(signal, "atr_value")
+        assert signal.atr_value > 0.0
 
 
 # ---------------------------------------------------------------------------

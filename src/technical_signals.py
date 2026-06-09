@@ -40,6 +40,7 @@ class Signal:
     market_regime: str = "ranging"  # "trending", "ranging", or "mixed"
     short_score: int = 0     # 0-4: how many short indicators are bearish
     trend_4h: str = "unknown"  # "bullish", "bearish", "neutral", or "unknown"
+    atr_value: float = 0.0   # Average True Range over profile.atr_period (Phase 4 consumes)
 
 
 # ---------------------------------------------------------------------------
@@ -154,6 +155,30 @@ def _adx(highs: list[float], lows: list[float], closes: list[float], period: int
     final_plus_di = (plus_dm_smooth / atr * 100) if atr > 0 else 0.0
     final_minus_di = (minus_dm_smooth / atr * 100) if atr > 0 else 0.0
     return (adx, final_plus_di, final_minus_di)
+
+
+def _atr(highs: list[float], lows: list[float], closes: list[float], period: int = 14) -> float:
+    """Average True Range (Wilder smoothing). Returns latest ATR, 0.0 on insufficient data.
+
+    Reuses the true-range formula from ``_adx`` (max of high-low, |high-prev_close|,
+    |low-prev_close|). First ATR = simple mean of the first ``period`` TRs, then Wilder
+    smoothing for the rest. Needs only ``period + 1`` bars (looser than ``_adx``).
+    """
+    n = len(closes)
+    if n < period + 1 or len(highs) != n or len(lows) != n:
+        return 0.0
+    tr_list = []
+    for i in range(1, n):
+        tr = max(
+            highs[i] - lows[i],
+            abs(highs[i] - closes[i - 1]),
+            abs(lows[i] - closes[i - 1]),
+        )
+        tr_list.append(tr)
+    atr = sum(tr_list[:period]) / period
+    for tr in tr_list[period:]:
+        atr = (atr * (period - 1) + tr) / period
+    return atr
 
 
 def _volume_spike(volumes: list[float], lookback: int = 20, threshold: float = 1.5) -> bool:
@@ -287,6 +312,9 @@ def analyze(symbol: str, bars: list[dict], bars_4h: list[dict] | None = None) ->
             symbol, rsi_value, RSI_ENTRY_CEILING,
         )
 
+    # --- ATR (computed for Phase 4 exits; not wired into scoring/exits here) ---
+    atr_value = _atr(highs, lows, closes, 14)
+
     # --- Volume Spike ---
     vol_spike = _volume_spike(volumes, lookback=20, threshold=1.5)
 
@@ -409,6 +437,7 @@ def analyze(symbol: str, bars: list[dict], bars_4h: list[dict] | None = None) ->
         market_regime=regime,
         short_score=short_score,
         trend_4h=trend_4h,
+        atr_value=atr_value,
     )
 
 
