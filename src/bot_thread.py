@@ -84,6 +84,10 @@ except ImportError:
 
 log = logging.getLogger(__name__)
 
+# Shadow seam: "1" (default) enforces learning veto/scaling; "0" logs would-be
+# effect only and falls through (no change to placed orders).
+LEARNING_ENFORCE = os.environ.get("LEARNING_ENFORCE", "1") == "1"
+
 
 # ---------------------------------------------------------------------------
 # Helper
@@ -433,6 +437,9 @@ class BotThread(threading.Thread):
             log.info("[bot:%s] No candidates this cycle", bot_id)
             return
 
+        # -- Dynamic thresholds computed ONCE per cycle (not per-candidate) ----
+        thresholds = memory.get_dynamic_thresholds() if memory is not None else None
+
         # -- Layer 2+3: Risk gate → size → order (LONG) -----------------------
 
         # -- Layer 2: Risk gate ------------------------------------------------
@@ -511,6 +518,7 @@ class BotThread(threading.Thread):
                     continue
 
             # -- Memory advisory (layer 3a): consult trade history --------------
+            adj = 1.0
             if memory is not None:
                 try:
                     advice = memory.get_advice(
@@ -521,12 +529,15 @@ class BotThread(threading.Thread):
                     )
                     if not advice["should_trade"]:
                         log.info(
-                            "[bot:%s] MEMORY SKIP %s — %s (WR=%.0f%% over %d trades)",
+                            "[bot:%s] learn_veto %s — %s (WR=%.0f%% over %d trades, enforce=%s)",
                             bot_id, symbol, advice["reasoning"],
                             (advice.get("win_rate_for_pattern") or 0) * 100,
-                            advice.get("sample_size", 0),
+                            advice.get("sample_size", 0), LEARNING_ENFORCE,
                         )
-                        continue
+                        if LEARNING_ENFORCE:
+                            continue
+                    elif LEARNING_ENFORCE:
+                        adj = advice.get("confidence_adjustment", 1.0)
                     if advice.get("sample_size", 0) >= 2:
                         log.info("[bot:%s] Memory: %s", bot_id, advice["reasoning"])
                 except Exception as exc:
@@ -540,12 +551,21 @@ class BotThread(threading.Thread):
                 )
                 continue
 
+            if thresholds is not None and LEARNING_ENFORCE:
+                eff_max = min(cfg.max_position_pct, thresholds["max_position_pct"])
+                eff_min = thresholds["min_position_pct"]
+            else:
+                eff_max = cfg.max_position_pct
+                eff_min = None
+
             sizing = _kelly_technical(
                 confluence=signal.confluence_score,
                 current_price=price,
                 bankroll=bankroll,
                 kelly_fraction=cfg.kelly_fraction,
-                max_position_pct=cfg.max_position_pct,
+                max_position_pct=eff_max,
+                confidence_adjustment=adj,
+                min_position_pct=eff_min,
             )
 
             if sizing["side"] == "none" or sizing["shares"] <= 0 or sizing["dollar_amount"] < 10:
@@ -687,6 +707,35 @@ class BotThread(threading.Thread):
                     log.info("[bot:%s] VALIDATOR VETO %s (short): %s", bot_id, symbol, reason)
                     continue
 
+            change_pct = short_side_data[symbol]["change_pct"]
+            volume_24h = short_side_data[symbol]["volume_24h"]
+
+            # -- Memory advisory (layer 3a): consult trade history --------------
+            adj = 1.0
+            if memory is not None:
+                try:
+                    advice = memory.get_advice(
+                        symbol=symbol,
+                        signal_type=signal_type,
+                        sentiment=short_score / 4.0,
+                        price_change=change_pct,
+                    )
+                    if not advice["should_trade"]:
+                        log.info(
+                            "[bot:%s] learn_veto %s (short) — %s (WR=%.0f%% over %d trades, enforce=%s)",
+                            bot_id, symbol, advice["reasoning"],
+                            (advice.get("win_rate_for_pattern") or 0) * 100,
+                            advice.get("sample_size", 0), LEARNING_ENFORCE,
+                        )
+                        if LEARNING_ENFORCE:
+                            continue
+                    elif LEARNING_ENFORCE:
+                        adj = advice.get("confidence_adjustment", 1.0)
+                    if advice.get("sample_size", 0) >= 2:
+                        log.info("[bot:%s] Memory (short): %s", bot_id, advice["reasoning"])
+                except Exception as exc:
+                    log.warning("[bot:%s] Memory advisory failed for %s: %s", bot_id, symbol, exc)
+
             expected_move_pct = abs(SOFT_TAKE_PROFIT_PCT)
             if not clears_fee_hurdle(expected_move_pct, TAKER_FEE, SLIPPAGE_BUFFER):
                 log.info(
@@ -695,12 +744,21 @@ class BotThread(threading.Thread):
                 )
                 continue
 
+            if thresholds is not None and LEARNING_ENFORCE:
+                eff_max = min(cfg.max_position_pct, thresholds["max_position_pct"])
+                eff_min = thresholds["min_position_pct"]
+            else:
+                eff_max = cfg.max_position_pct
+                eff_min = None
+
             sizing = _kelly_technical(
                 confluence=short_score,
                 current_price=price,
                 bankroll=bankroll,
                 kelly_fraction=cfg.kelly_fraction,
-                max_position_pct=cfg.max_position_pct,
+                max_position_pct=eff_max,
+                confidence_adjustment=adj,
+                min_position_pct=eff_min,
             )
 
             if sizing["side"] == "none" or sizing["shares"] <= 0 or sizing["dollar_amount"] < 10:
@@ -734,6 +792,31 @@ class BotThread(threading.Thread):
                         f"bot={bot_id}"
                     ),
                 })
+
+                # -- Record trade context for learning loop (SHORT) ----------
+                if memory is not None and trade_id:
+                    try:
+                        memory.record_trade_context({
+                            "trade_id": trade_id,
+                            "symbol": symbol,
+                            "signal_type": signal_type,
+                            "sentiment": short_score / 4.0,
+                            "confidence": short_score / 4.0,
+                            "price_at_entry": price,
+                            "price_change_24h": change_pct,
+                            "volume_24h": volume_24h,
+                            "trajectory": "down" if not signal.ema_bullish else "mixed",
+                            "bull_arguments": [
+                                f"RSI={signal.rsi_value:.1f}",
+                            ],
+                            "bear_arguments": [
+                                f"EMA_bull={signal.ema_bullish}",
+                                f"ADX={signal.adx_value:.1f}",
+                                f"trend_4h={getattr(signal, 'trend_4h', '?')}",
+                            ],
+                        })
+                    except Exception as exc:
+                        log.warning("[bot:%s] Failed to record short trade context: %s", bot_id, exc)
 
                 cycle_exposure += sizing["dollar_amount"]
                 bankroll -= sizing["dollar_amount"]
