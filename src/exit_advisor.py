@@ -209,7 +209,8 @@ class TrailingStop:
     """
 
     def __init__(self):
-        self._peaks: dict[int, float] = {}  # trade_id → highest price seen
+        self._peaks: dict[int, float] = {}    # trade_id → highest price seen (longs)
+        self._troughs: dict[int, float] = {}  # trade_id → lowest price seen (shorts)
 
     def update(self, trade_id: int, entry_price: float, current_price: float) -> str | None:
         """Update trailing stop. Returns "trailing_stop" if triggered, else None."""
@@ -230,9 +231,56 @@ class TrailingStop:
             return "trailing_stop"
         return None
 
+    def update_atr(
+        self,
+        trade_id: int,
+        side: str,
+        entry_price: float,
+        current_price: float,
+        atr: float,
+        mult_trail: float,
+    ) -> str | None:
+        """ATR-distance, side-aware trailing stop (Phase 4 EXIT-02).
+
+        Long: ratchet a high-water mark up only; arm only once the high-water
+        exceeds entry; trail level = highwater - mult_trail*atr; trigger when
+        current_price <= trail.
+        Short: ratchet a low-water mark down only; arm once low-water < entry;
+        trail level = lowwater + mult_trail*atr; trigger when current_price >= trail.
+        atr <= 0 -> no trail (returns None). On trigger, clears tracking.
+        """
+        if atr <= 0 or entry_price <= 0:
+            return None
+
+        if side in ("sell", "short"):
+            prev = self._troughs.get(trade_id)
+            if prev is None or current_price < prev:
+                self._troughs[trade_id] = current_price
+                prev = current_price
+            if prev >= entry_price:  # not yet in profit — don't arm
+                return None
+            trail = prev + mult_trail * atr
+            if current_price >= trail:
+                self.remove(trade_id)
+                return "trailing_stop"
+            return None
+
+        prev = self._peaks.get(trade_id)
+        if prev is None or current_price > prev:
+            self._peaks[trade_id] = current_price
+            prev = current_price
+        if prev <= entry_price:  # not yet in profit — don't arm
+            return None
+        trail = prev - mult_trail * atr
+        if current_price <= trail:
+            self.remove(trade_id)
+            return "trailing_stop"
+        return None
+
     def remove(self, trade_id: int):
         """Remove tracking for a closed position."""
         self._peaks.pop(trade_id, None)
+        self._troughs.pop(trade_id, None)
 
 
 def check_position_thresholds(entry_price: float, current_price: float) -> str | None:
