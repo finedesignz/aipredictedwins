@@ -19,6 +19,52 @@ from src.db import connection
 log = logging.getLogger(__name__)
 
 
+# ----------------------------------------------------------------------
+# Pure intraday-dimension helpers (Phase 8 — no DB, side-effect-free)
+# ----------------------------------------------------------------------
+
+def time_of_day_bucket(entry_iso: str | None) -> str:
+    """Map an ISO-8601 entry timestamp to a UTC session label.
+
+    Buckets (UTC hour): asia 00-07, eu 07-13, us_am 13-17, us_pm 17-21,
+    off 21-24. Returns "unknown" if entry_iso is None or unparseable.
+    """
+    if not entry_iso:
+        return "unknown"
+    try:
+        dt = datetime.fromisoformat(entry_iso)
+    except (ValueError, TypeError):
+        return "unknown"
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc)
+    h = dt.hour
+    if h < 7:
+        return "asia"
+    if h < 13:
+        return "eu"
+    if h < 17:
+        return "us_am"
+    if h < 21:
+        return "us_pm"
+    return "off"
+
+
+def volatility_regime(atr: float, price: float) -> str:
+    """Classify volatility from ATR as a percentage of price.
+
+    r = atr/price; low < 0.01, med 0.01-0.025, high >= 0.025.
+    Returns "unknown" if atr <= 0 or price <= 0.
+    """
+    if atr is None or atr <= 0 or price is None or price <= 0:
+        return "unknown"
+    r = atr / price
+    if r < 0.01:
+        return "low"
+    if r < 0.025:
+        return "med"
+    return "high"
+
+
 class TradeMemory:
     """Self-learning trade memory that stores context, finds patterns, and advises
     future trades based on historical outcomes.
