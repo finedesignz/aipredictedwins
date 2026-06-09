@@ -302,7 +302,7 @@ class TradeMemory:
                 """
                 SELECT id, trade_id, symbol, signal_type, sentiment, confidence,
                        price_at_entry, price_change_24h, volume_24h, trajectory,
-                       outcome, pnl
+                       outcome, pnl, time_of_day_bucket, volatility_regime, hold_minutes
                 FROM trade_context
                 WHERE bot_id = %s
                   AND outcome IN ('win', 'loss')
@@ -434,6 +434,66 @@ class TradeMemory:
                     "sample_size": analysis["sample_size"],
                     "win_rate": analysis["win_rate"],
                 })
+
+            # Additive dimension-conditioned passes (Phase 8 / LEARN-05).
+            # Group by (signal_type, dimension); skip NULL/"unknown" dimension
+            # rows so legacy data never forms a bogus group. Existing lessons
+            # above are untouched; advice key (symbol, signal_type) unchanged.
+            for dim in ("time_of_day_bucket", "volatility_regime"):
+                dim_groups: dict[tuple, list[dict]] = {}
+                for t in trades:
+                    dval = t.get(dim)
+                    if not dval or dval == "unknown":
+                        continue
+                    dim_groups.setdefault((t["signal_type"], dval), []).append(t)
+
+                for (signal_type, dval), group_trades in dim_groups.items():
+                    if len(group_trades) < min_sample:
+                        continue
+
+                    analysis = self._analyze_pattern(group_trades)
+                    lesson_text = (
+                        f"Signal '{signal_type}' during {dim}={dval}: "
+                        f"{analysis['win_rate']:.0%} win rate over "
+                        f"{analysis['sample_size']} trades. "
+                        f"Avg P&L: ${analysis['avg_pnl']:+.2f}."
+                    )
+
+                    applies_to = json.dumps({
+                        "signal_type": signal_type,
+                        "symbol": None,
+                        "dimension": dim,
+                        "dimension_value": dval,
+                    })
+
+                    conn.execute(
+                        """
+                        INSERT INTO trade_lessons (
+                            bot_id, timestamp, lesson_type, symbol, signal_type, lesson,
+                            confidence, sample_size, applies_to, active
+                        ) VALUES (%s, %s, 'dimension', NULL, %s, %s, %s, %s, %s, TRUE)
+                        """,
+                        (
+                            self.bot_id,
+                            timestamp,
+                            signal_type,
+                            lesson_text,
+                            min(analysis["win_rate"], 1.0 - analysis["win_rate"]) * 2,
+                            analysis["sample_size"],
+                            applies_to,
+                        ),
+                    )
+
+                    new_lessons.append({
+                        "lesson_type": "dimension",
+                        "symbol": None,
+                        "signal_type": signal_type,
+                        "dimension": dim,
+                        "dimension_value": dval,
+                        "lesson": lesson_text,
+                        "sample_size": analysis["sample_size"],
+                        "win_rate": analysis["win_rate"],
+                    })
 
             # Mark all closed trades as lesson-generated
             conn.execute(
@@ -781,6 +841,52 @@ class TradeMemory:
                     (self.bot_id, timestamp, row["signal_type"], row["symbol"], wr,
                      row["avg_pnl"], total, rec_threshold, rec_pos),
                 )
+
+            # Additive dimension passes (Phase 8 / LEARN-05): encode the
+            # dimension into signal_type ("<signal_type>@<value>") so no schema
+            # change is needed. Skip NULL/"unknown"; HAVING COUNT(*) >= 2.
+            for dim_col in ("time_of_day_bucket", "volatility_regime"):
+                rows = conn.execute(
+                    f"""
+                    SELECT signal_type, {dim_col} AS dim_value,
+                           COUNT(*) AS total,
+                           SUM(CASE WHEN outcome = 'win' THEN 1 ELSE 0 END) AS wins,
+                           AVG(pnl) AS avg_pnl
+                    FROM trade_context
+                    WHERE bot_id = %s AND outcome IN ('win', 'loss')
+                      AND {dim_col} IS NOT NULL AND {dim_col} <> 'unknown'
+                    GROUP BY signal_type, {dim_col}
+                    HAVING COUNT(*) >= 2
+                    """,
+                    (self.bot_id,),
+                ).fetchall()
+
+                for row in rows:
+                    total = row["total"]
+                    wins = row["wins"]
+                    wr = wins / total if total > 0 else 0.0
+
+                    if wr >= 0.60:
+                        rec_threshold, rec_pos = 0.51, 0.05
+                    elif wr >= 0.50:
+                        rec_threshold, rec_pos = 0.53, 0.04
+                    elif wr >= 0.40:
+                        rec_threshold, rec_pos = 0.55, 0.03
+                    else:
+                        rec_threshold, rec_pos = 0.60, 0.0
+
+                    encoded = f"{row['signal_type']}@{row['dim_value']}"
+                    conn.execute(
+                        """
+                        INSERT INTO strategy_scores (
+                            bot_id, updated_at, signal_type, symbol, win_rate, avg_pnl,
+                            total_trades, recommended_threshold,
+                            recommended_position_pct, active
+                        ) VALUES (%s, %s, %s, NULL, %s, %s, %s, %s, %s, TRUE)
+                        """,
+                        (self.bot_id, timestamp, encoded, wr, row["avg_pnl"],
+                         total, rec_threshold, rec_pos),
+                    )
 
         log.info("Strategy scores updated")
 

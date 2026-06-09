@@ -107,3 +107,25 @@ def test_update_trade_outcome_back_compat_kwarg():
     from src.trade_memory import TradeMemory
     sig = inspect.signature(TradeMemory.update_trade_outcome)
     assert sig.parameters["hold_minutes"].default is None
+
+
+# --- dimension lessons (additive, NULL/unknown-skip, advice unchanged) -----
+
+def test_dimension_lesson_pass_is_additive_and_null_safe():
+    tm = Path("src/trade_memory.py").read_text()
+    # additive grouping over both dimensions
+    assert 'for dim in ("time_of_day_bucket", "volatility_regime"):' in tm
+    # NULL/"unknown" rows skipped
+    assert 'if not dval or dval == "unknown":' in tm
+    # min_sample gate reused
+    assert "if len(group_trades) < min_sample:" in tm
+
+
+def test_get_advice_key_unchanged():
+    # advice/runtime key must NOT consult the new dimensions
+    import inspect
+    from src.trade_memory import TradeMemory
+    src = inspect.getsource(TradeMemory.get_advice)
+    assert "time_of_day_bucket" not in src
+    assert "volatility_regime" not in src
+    assert "hold_minutes" not in src
