@@ -50,4 +50,31 @@ Derived from `docs/superpowers/specs/2026-06-08-day-trading-upgrade-design.md`.
 - Live trading (paper-gated this milestone)
 
 ## Traceability
-*(filled by roadmap — REQ-ID → Phase)*
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| PROFILE-01 | Phase 1 | Pending |
+| PROFILE-02 | Phase 1 | Pending |
+| PROFILE-03 | Phase 2 | Pending |
+| PROFILE-04 | Phase 2 | Pending |
+| SIGNAL-01 | Phase 3 | Pending |
+| SIGNAL-02 | Phase 3 | Pending |
+| SIGNAL-03 | Phase 3 | Pending |
+| EXIT-02 | Phase 4 | Pending |
+| EXIT-03 | Phase 4 | Pending |
+| EXIT-01 | Phase 5 | Pending |
+| EXIT-04 | Phase 5 | Pending |
+| FEE-01 | Phase 6 | Pending |
+| LEARN-01 | Phase 7 | Pending |
+| LEARN-02 | Phase 7 | Pending |
+| LEARN-03 | Phase 7 | Pending |
+| LEARN-04 | Phase 8 | Pending |
+| LEARN-05 | Phase 8 | Pending |
+| LEARN-06 | Phase 8 | Pending |
+| BOT-01 | Phase 9 | Pending |
+| BOT-02 | Phase 9 | Pending |
+| BOT-03 | Phase 9 | Pending |
+| VERIFY-01 | Phase 10 | Pending |
+| VERIFY-02 | Phase 10 | Pending |
+
+**Coverage:** 21/21 requirements mapped — no orphans, no duplicates.
