@@ -19,6 +19,8 @@ No LLM calls. Pure math on price data.
 import logging
 from dataclasses import dataclass
 
+from src.strategy_profile import SWING
+
 log = logging.getLogger(__name__)
 
 
@@ -233,7 +235,7 @@ def _vwap_bullish(closes: list[float], volumes: list[float], vwaps: list[float])
 # Public API
 # ---------------------------------------------------------------------------
 
-def analyze(symbol: str, bars: list[dict], bars_4h: list[dict] | None = None) -> Signal | None:
+def analyze(symbol: str, bars: list[dict], bars_4h: list[dict] | None = None, profile=SWING) -> Signal | None:
     """Run all technical indicators on OHLCV bars and return a Signal.
 
     Parameters
@@ -262,9 +264,9 @@ def analyze(symbol: str, bars: list[dict], bars_4h: list[dict] | None = None) ->
     volumes = [b["volume"] for b in bars]
     vwaps = [b.get("vwap", 0) for b in bars]
 
-    # --- EMA Crossover (9/21) ---
-    ema9 = _ema(closes, 9)
-    ema21 = _ema(closes, 21)
+    # --- EMA Crossover (profile-sourced periods) ---
+    ema9 = _ema(closes, profile.ema_fast)
+    ema21 = _ema(closes, profile.ema_slow)
     if ema9 and ema21:
         # Align: ema9 starts at index 8, ema21 at index 20
         # Latest values:
@@ -277,7 +279,7 @@ def analyze(symbol: str, bars: list[dict], bars_4h: list[dict] | None = None) ->
         ema21_latest = 0
 
     # --- ADX (14-period) ---
-    adx_result = _adx(highs, lows, closes, 14)
+    adx_result = _adx(highs, lows, closes, profile.adx_period)
     if adx_result is None:
         adx_value = 0.0
         plus_di = 0.0
@@ -291,7 +293,7 @@ def analyze(symbol: str, bars: list[dict], bars_4h: list[dict] | None = None) ->
     regime = _detect_regime(adx_value, plus_di, minus_di)
 
     # --- RSI (14-period) ---
-    rsi_value = _rsi(closes, 14)
+    rsi_value = _rsi(closes, profile.rsi_period)
     if rsi_value is None:
         rsi_value = 50.0
     if rsi_value < 30:
@@ -313,7 +315,7 @@ def analyze(symbol: str, bars: list[dict], bars_4h: list[dict] | None = None) ->
         )
 
     # --- ATR (computed for Phase 4 exits; not wired into scoring/exits here) ---
-    atr_value = _atr(highs, lows, closes, 14)
+    atr_value = _atr(highs, lows, closes, profile.atr_period)
 
     # --- Volume Spike ---
     vol_spike = _volume_spike(volumes, lookback=20, threshold=1.5)
@@ -388,8 +390,8 @@ def analyze(symbol: str, bars: list[dict], bars_4h: list[dict] | None = None) ->
     trend_4h = "unknown"
     if bars_4h is not None and len(bars_4h) >= 21:
         closes_4h = [b["close"] for b in bars_4h]
-        ema9_4h = _ema(closes_4h, 9)
-        ema21_4h = _ema(closes_4h, 21)
+        ema9_4h = _ema(closes_4h, profile.ema_fast)
+        ema21_4h = _ema(closes_4h, profile.ema_slow)
         if ema9_4h and ema21_4h:
             if ema9_4h[-1] > ema21_4h[-1]:
                 trend_4h = "bullish"
@@ -447,6 +449,7 @@ def scan_assets(
     timeframe: str = "1Hour",
     bar_count: int = 50,
     fetch_4h: bool = True,
+    profile=SWING,
 ) -> list[Signal]:
     """Scan multiple assets and return signals sorted by confluence score.
 
@@ -473,7 +476,7 @@ def scan_assets(
     signals = []
     for symbol in symbols:
         try:
-            bars = alpaca_client.get_bars(symbol, timeframe=timeframe, limit=bar_count)
+            bars = alpaca_client.get_bars(symbol, timeframe=profile.timeframe, limit=profile.bar_count)
             if not bars:
                 log.warning("No bars returned for %s", symbol)
                 continue
@@ -481,11 +484,11 @@ def scan_assets(
             bars_4h = None
             if fetch_4h:
                 try:
-                    bars_4h = alpaca_client.get_bars(symbol, timeframe="4Hour", limit=30)
+                    bars_4h = alpaca_client.get_bars(symbol, timeframe=profile.htf_filter_timeframe, limit=30)
                 except Exception as exc_4h:
                     log.debug("Could not fetch 4H bars for %s: %s", symbol, exc_4h)
 
-            signal = analyze(symbol, bars, bars_4h=bars_4h)
+            signal = analyze(symbol, bars, bars_4h=bars_4h, profile=profile)
             if signal and (signal.confluence_score >= 1 or signal.short_score >= 1):
                 signals.append(signal)
                 log.info(

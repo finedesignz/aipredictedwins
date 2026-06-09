@@ -250,6 +250,53 @@ class TestAnalyze:
 
 
 # ---------------------------------------------------------------------------
+# Profile parameterization + swing parity (SIGNAL-01)
+# ---------------------------------------------------------------------------
+
+class TestProfilePeriods:
+    def test_analyze_accepts_profile_last_param(self):
+        bars = _make_uptrend_bars(50)
+        # profile must be the LAST param (D-01) — positional call form
+        signal = analyze("BTC/USD", bars, None, SWING)
+        assert signal is not None
+
+    def test_profile_periods_sourced(self):
+        # A profile with distinct periods drives indicator computation without crashing
+        prof = StrategyProfile(
+            name="custom", timeframe="1Hour", scan_interval_s=600, bar_count=50,
+            htf_filter_timeframe="4Hour", ema_fast=5, ema_slow=13, rsi_period=7,
+            adx_period=7, atr_period=7, atr_mult_stop=2.0, atr_mult_trail=1.5,
+            hard_stop_pct=-0.15, max_hold_hours=None, kelly_fraction=0.25,
+            max_position_pct=0.05, min_confluence=4, min_short_confluence=3,
+        )
+        bars = _make_uptrend_bars(50)
+        s_default = analyze("BTC/USD", bars, profile=SWING)
+        s_custom = analyze("BTC/USD", bars, profile=prof)
+        assert s_custom is not None
+        # Different ATR period -> different atr_value vs swing(14)
+        assert s_custom.atr_value != s_default.atr_value
+
+    def test_swing_parity_snapshot(self):
+        """analyze(profile=SWING) reproduces pre-change 9/21/14 output byte-for-byte."""
+        bars = _make_uptrend_bars(50)
+        s = analyze("BTC/USD", bars, profile=SWING)
+        assert s is not None
+        assert s.confluence_score == 3
+        assert s.short_score == 0
+        assert round(s.adx_value, 6) == 25.308993
+        assert round(s.rsi_value, 6) == 63.086041
+        assert s.ema_bullish is True
+        assert s.vwap_bullish is False
+        assert round(s.atr_value, 6) == 2.814057
+        assert s.market_regime == "trending"
+
+    def test_none_contract_preserved(self):
+        bars = _make_sideways_bars(50, center=100.0, amplitude=0.0001)
+        # flat-ish market still returns a Signal or None per score==0 contract; just no crash
+        _ = analyze("XRP/USD", bars, profile=SWING)
+
+
+# ---------------------------------------------------------------------------
 # Risk gate response parsing tests
 # ---------------------------------------------------------------------------
 
