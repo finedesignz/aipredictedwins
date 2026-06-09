@@ -16,6 +16,22 @@ from src.trade_memory import TradeMemory
 log = logging.getLogger(__name__)
 
 
+def _hold_minutes(entry_ts: str | None, exit_ts: str | None) -> float | None:
+    """Compute holding time in minutes from two ISO-8601 TEXT timestamps.
+
+    Returns None if either is missing/unparseable (Pitfall 4 — parse in Python,
+    not SQL, since alpaca_trades stores TEXT ISO strings).
+    """
+    if not entry_ts or not exit_ts:
+        return None
+    try:
+        e = datetime.fromisoformat(entry_ts)
+        x = datetime.fromisoformat(exit_ts)
+    except (ValueError, TypeError):
+        return None
+    return (x - e).total_seconds() / 60.0
+
+
 class LearningLoop:
     """Periodic learning cycle that turns trade outcomes into actionable
     intelligence.
@@ -96,6 +112,8 @@ class LearningLoop:
                        at.status,
                        at.pnl,
                        at.exit_price,
+                       at.timestamp AS entry_ts,
+                       at.closed_at AS exit_ts,
                        tc.id AS context_id
                 FROM alpaca_trades at
                 INNER JOIN trade_context tc ON tc.trade_id = at.id
@@ -112,6 +130,7 @@ class LearningLoop:
                 trade_id=row["trade_id"],
                 outcome=outcome,
                 pnl=pnl,
+                hold_minutes=_hold_minutes(row["entry_ts"], row["exit_ts"]),
             )
             updated += 1
 

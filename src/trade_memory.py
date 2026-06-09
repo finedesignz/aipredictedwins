@@ -245,23 +245,41 @@ class TradeMemory:
 
         return results[:10]
 
-    def update_trade_outcome(self, trade_id: int, outcome: str, pnl: float):
+    def update_trade_outcome(
+        self,
+        trade_id: int,
+        outcome: str,
+        pnl: float,
+        hold_minutes: float | None = None,
+    ):
         """Called when a trade closes. Updates the context record.
 
         Args:
             trade_id: The alpaca_trades.id of the closed trade.
             outcome: "win" or "loss".
             pnl: Realized profit/loss in dollars.
+            hold_minutes: Optional holding time in minutes (computed at close).
+                When None, the column is left unchanged (back-compat).
         """
         with connection() as conn:
-            conn.execute(
-                """
-                UPDATE trade_context
-                SET outcome = %s, pnl = %s
-                WHERE bot_id = %s AND trade_id = %s
-                """,
-                (outcome, pnl, self.bot_id, trade_id),
-            )
+            if hold_minutes is None:
+                conn.execute(
+                    """
+                    UPDATE trade_context
+                    SET outcome = %s, pnl = %s
+                    WHERE bot_id = %s AND trade_id = %s
+                    """,
+                    (outcome, pnl, self.bot_id, trade_id),
+                )
+            else:
+                conn.execute(
+                    """
+                    UPDATE trade_context
+                    SET outcome = %s, pnl = %s, hold_minutes = %s
+                    WHERE bot_id = %s AND trade_id = %s
+                    """,
+                    (outcome, pnl, hold_minutes, self.bot_id, trade_id),
+                )
         log.info("Updated trade context for trade_id=%d: outcome=%s pnl=$%.2f",
                  trade_id, outcome, pnl)
 

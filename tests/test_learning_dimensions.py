@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from src.learning_loop import _hold_minutes
 from src.trade_memory import time_of_day_bucket, volatility_regime
 
 
@@ -85,3 +86,24 @@ def test_record_trade_context_persists_entry_dimensions():
     # INSERT must list both entry dimension columns
     tm = Path("src/trade_memory.py").read_text()
     assert "time_of_day_bucket, volatility_regime, outcome" in tm
+
+
+# --- hold_minutes at close -------------------------------------------------
+
+def test_hold_minutes_basic():
+    assert _hold_minutes(
+        "2026-06-08T14:00:00+00:00", "2026-06-08T15:30:00+00:00"
+    ) == 90.0
+
+
+def test_hold_minutes_none_and_bad():
+    assert _hold_minutes(None, "2026-06-08T15:30:00+00:00") is None
+    assert _hold_minutes("2026-06-08T14:00:00+00:00", None) is None
+    assert _hold_minutes("bad", "bad") is None
+
+
+def test_update_trade_outcome_back_compat_kwarg():
+    import inspect
+    from src.trade_memory import TradeMemory
+    sig = inspect.signature(TradeMemory.update_trade_outcome)
+    assert sig.parameters["hold_minutes"].default is None
