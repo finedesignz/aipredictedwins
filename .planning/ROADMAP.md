@@ -61,7 +61,9 @@ orchestrator" / "PositionMonitor" apply to both the shared helpers and `BotThrea
   2. `Signal` carries an `atr_value` computed from bar data (reusing the existing true-range math).
   3. For the daytrade profile, VWAP is session-anchored (rolling intraday window); the swing profile's VWAP semantics are unchanged.
   4. SWING-preset signal output remains identical to Phase 1 parity baseline.
-**Plans**: TBD
+**Plans**: 2 plans
+- [ ] 03-01-PLAN.md — Parameterize analyze()/scan_assets periods, add _atr + atr_value, session-anchored VWAP, parity + new tests
+- [ ] 03-02-PLAN.md — Thread profile through 3 scan_assets call-sites; remediate 6 stale-threshold tests; full suite green
 
 ### Phase 4: Deterministic ATR Exits
 **Goal**: Position exits are driven by deterministic ATR math plus absolute overrides, no LLM consult.
@@ -144,7 +146,7 @@ orchestrator" / "PositionMonitor" apply to both the shared helpers and `BotThrea
 |-------|----------------|--------|-----------|
 | 1. StrategyProfile + SWING Parity | 1/1 | Complete    | 2026-06-09 |
 | 2. DAYTRADE Preset + Selection | 1/1 | Complete    | 2026-06-09 |
-| 3. Signal Engine + ATR + Session VWAP | 0/0 | Not started | - |
+| 3. Signal Engine + ATR + Session VWAP | 0/2 | Planned     | - |
 | 4. Deterministic ATR Exits | 0/0 | Not started | - |
 | 5. MiroFish Removal | 0/0 | Not started | - |
 | 6. Fee/Slippage Gate | 0/0 | Not started | - |
