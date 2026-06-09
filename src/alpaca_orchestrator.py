@@ -49,8 +49,16 @@ except ImportError:
 # ---------------------------------------------------------------------------
 import os as _os
 
-from src.strategy_profile import SWING, PROFILES
-PROFILE = SWING  # Phase 2 selects via BOT_PROFILE
+from src.strategy_profile import PROFILES
+# Resolve active profile from BOT_PROFILE at module load, BEFORE the style-constant
+# defaults below read PROFILE.* — keeps the Phase-1 env-default chain intact.
+# Unknown value fails fast (no silent fallback); selection is case-insensitive.
+_PROFILE_NAME = _os.environ.get("BOT_PROFILE", "swing").lower()
+if _PROFILE_NAME not in PROFILES:
+    raise ValueError(
+        f"Unknown BOT_PROFILE={_PROFILE_NAME!r}; valid: {sorted(PROFILES)}"
+    )
+PROFILE = PROFILES[_PROFILE_NAME]
 
 MAX_POSITION_PCT = float(_os.environ.get("MAX_POSITION_PCT", str(PROFILE.max_position_pct)))
 MAX_TOTAL_EXPOSURE_PCT = float(_os.environ.get("MAX_TOTAL_EXPOSURE_PCT", "0.80"))
@@ -323,6 +331,7 @@ def _print_banner(mode: str, balance: float, config) -> None:
         f"[bold cyan]Alpaca Technical + MiroFish Guardian Bot[/bold cyan]\n"
         f"\n"
         f"  Bot label       : [bold]{BOT_LABEL}[/bold]\n"
+        f"  Profile         : [bold]{PROFILE.name}[/bold]\n"
         f"  Mode            : [bold {'red' if mode == 'live' else 'yellow'}]{mode.upper()}[/]\n"
         f"  Signal          : Technical indicators (EMA/ADX/RSI/Volume/VWAP)\n"
         f"  Guardian        : {risk_mode}\n"
