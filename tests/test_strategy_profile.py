@@ -59,6 +59,67 @@ def test_profiles_registry():
     assert PROFILES["swing"] is SWING
 
 
+def _reload_orchestrator():
+    import src.alpaca_orchestrator as o
+
+    return importlib.reload(o)
+
+
+def test_bot_profile_selects_daytrade(monkeypatch):
+    """PROFILE-04: BOT_PROFILE=daytrade selects the DAYTRADE preset."""
+    monkeypatch.setenv("BOT_PROFILE", "daytrade")
+    o = _reload_orchestrator()
+    try:
+        assert o.PROFILE.name == "daytrade"
+        assert o.PROFILE is DAYTRADE
+    finally:
+        monkeypatch.delenv("BOT_PROFILE", raising=False)
+        _reload_orchestrator()
+
+
+def test_bot_profile_swing_and_unset_resolve_swing(monkeypatch):
+    """PROFILE-04 parity: explicit swing and unset both resolve to SWING."""
+    monkeypatch.setenv("BOT_PROFILE", "swing")
+    o = _reload_orchestrator()
+    assert o.PROFILE is SWING
+    monkeypatch.delenv("BOT_PROFILE", raising=False)
+    o = _reload_orchestrator()
+    assert o.PROFILE is SWING
+
+
+def test_bot_profile_case_insensitive(monkeypatch):
+    """PROFILE-04: selection is case-insensitive (DAYTRADE resolves)."""
+    monkeypatch.setenv("BOT_PROFILE", "DAYTRADE")
+    o = _reload_orchestrator()
+    try:
+        assert o.PROFILE.name == "daytrade"
+    finally:
+        monkeypatch.delenv("BOT_PROFILE", raising=False)
+        _reload_orchestrator()
+
+
+def test_bot_profile_unknown_raises(monkeypatch):
+    """T-02-01: unknown BOT_PROFILE fails fast with ValueError."""
+    monkeypatch.setenv("BOT_PROFILE", "scalp")
+    try:
+        with pytest.raises(ValueError):
+            _reload_orchestrator()
+    finally:
+        monkeypatch.delenv("BOT_PROFILE", raising=False)
+        _reload_orchestrator()
+
+
+def test_daytrade_import_does_not_crash(monkeypatch):
+    """Smoke: selecting daytrade imports cleanly (no startup crash)."""
+    monkeypatch.setenv("BOT_PROFILE", "daytrade")
+    try:
+        o = _reload_orchestrator()
+        assert o.PROFILE.name == "daytrade"
+    finally:
+        monkeypatch.delenv("BOT_PROFILE", raising=False)
+        _reload_orchestrator()
+
+
 def test_env_override_wins_over_profile_default(monkeypatch):
     """PROFILE-02 / D-05: env override beats the profile default (env still wins)."""
     monkeypatch.setenv("MIN_CONFLUENCE", "2")
