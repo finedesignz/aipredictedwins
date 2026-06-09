@@ -5,7 +5,32 @@ import importlib
 
 import pytest
 
-from src.strategy_profile import SWING, PROFILES
+from src.strategy_profile import SWING, DAYTRADE, PROFILES
+
+
+def test_daytrade_values_match_spec():
+    """PROFILE-03: DAYTRADE field values equal the design spec (D-01..D-03)."""
+    assert DAYTRADE.name == "daytrade"
+    assert DAYTRADE.timeframe == "5Min"
+    assert DAYTRADE.scan_interval_s == 120
+    assert DAYTRADE.bar_count == 100
+    assert DAYTRADE.htf_filter_timeframe == "1Hour"
+    assert (DAYTRADE.ema_fast, DAYTRADE.ema_slow) == (9, 21)
+    assert DAYTRADE.rsi_period == 14 and DAYTRADE.adx_period == 14
+    assert DAYTRADE.atr_period == 14
+    assert DAYTRADE.atr_mult_stop == 1.5
+    assert DAYTRADE.atr_mult_trail == 2.0
+    assert DAYTRADE.hard_stop_pct == -0.04
+    assert DAYTRADE.max_hold_hours == 6.0
+    assert DAYTRADE.kelly_fraction == 0.25
+    assert DAYTRADE.max_position_pct == 0.05
+    assert DAYTRADE.min_confluence == 4 and DAYTRADE.min_short_confluence == 3
+
+
+def test_profiles_registry_keys():
+    """PROFILE-03/D-04: PROFILES has exactly swing + daytrade."""
+    assert set(PROFILES) == {"swing", "daytrade"}
+    assert PROFILES["daytrade"] is DAYTRADE
 
 
 def test_swing_values_match_current_constants():

@@ -6,8 +6,9 @@ cadence, indicator periods, exit params, max-hold, sizing, and confluence
 thresholds for a trading style. Presets are exposed as module constants and via
 the ``PROFILES`` registry.
 
-Phase 1 delivers only the ``SWING`` preset, whose field values reproduce the
-current swing-bot behavior byte-for-byte (PROFILE-02). The orchestrator sources
+Phase 1 delivered the ``SWING`` preset, whose field values reproduce the
+current swing-bot behavior byte-for-byte (PROFILE-02). Phase 2 adds the
+``DAYTRADE`` preset (5-min intraday style) and registers it. The orchestrator sources
 its style-constant *defaults* from the active profile while the existing
 ``os.environ.get`` layer continues to win — so bots A/B running with their
 current Coolify env produce identical behavior.
@@ -66,5 +67,29 @@ SWING = StrategyProfile(
     min_short_confluence=3,
 )
 
-# Registry keyed by name (Phase 2 will select via BOT_PROFILE). DAYTRADE is Phase 2.
-PROFILES = {"swing": SWING}
+# DAYTRADE — 5-min intraday style (PROFILE-03). Same indicator periods as swing
+# (now measuring 5-min bars), tighter hard stop, capped 6h hold. atr_mult_* are
+# Phase-4 placeholders; periods/atr/max_hold are consumed in Phase 3/4, not here.
+DAYTRADE = StrategyProfile(
+    name="daytrade",
+    timeframe="5Min",
+    scan_interval_s=120,
+    bar_count=100,
+    htf_filter_timeframe="1Hour",
+    ema_fast=9,
+    ema_slow=21,
+    rsi_period=14,
+    adx_period=14,
+    atr_period=14,
+    atr_mult_stop=1.5,
+    atr_mult_trail=2.0,
+    hard_stop_pct=-0.04,
+    max_hold_hours=6.0,
+    kelly_fraction=0.25,
+    max_position_pct=0.05,
+    min_confluence=4,
+    min_short_confluence=3,
+)
+
+# Registry keyed by name (Phase 2 selects via BOT_PROFILE).
+PROFILES = {"swing": SWING, "daytrade": DAYTRADE}
