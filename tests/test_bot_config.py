@@ -23,7 +23,10 @@ def test_from_row_defaults():
     assert cfg.rsi_ceiling == 65.0
     assert cfg.skip_risk_gate is False
     assert cfg.max_position_pct == 0.05
-    assert cfg.symbols == ["BTC/USD", "ETH/USD", "SOL/USD", "XRP/USD"]
+    assert cfg.symbols == [
+        "BTC/USD", "ETH/USD", "SOL/USD", "XRP/USD",
+        "ADA/USD", "AVAX/USD", "DOT/USD", "LINK/USD",
+    ]
 
 
 def test_from_row_custom():

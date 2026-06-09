@@ -435,15 +435,15 @@ class TestTrailingStop:
         # Build up to peak
         ts.update(1, 100.0, 108.0)  # peak at 108
         ts.update(1, 100.0, 110.0)  # new peak at 110
-        # Trail stop = 110 * (1 - 0.03) = 106.7
-        # Price drops to 106 — below trailing stop
-        result = ts.update(1, 100.0, 106.0)
+        # Trail stop = 110 * (1 - 0.05) = 104.5 (TRAIL_DISTANCE_PCT now 0.05)
+        # Price drops to 104 — below trailing stop
+        result = ts.update(1, 100.0, 104.0)
         assert result == "trailing_stop"
 
     def test_no_trigger_above_trail(self):
         from src.exit_advisor import TrailingStop
         ts = TrailingStop()
-        ts.update(1, 100.0, 108.0)  # peak at 108; trail = 108 * 0.97 = 104.76
+        ts.update(1, 100.0, 110.0)  # peak at 110; trail = 110 * 0.95 = 104.5
         # Price at 105.5 — still above trail
         assert ts.update(1, 100.0, 105.5) is None
 
@@ -459,25 +459,25 @@ class TestTrailingStop:
 class TestThresholdChecks:
     def test_hard_stop(self):
         from src.exit_advisor import check_position_thresholds
-        assert check_position_thresholds(100.0, 94.9) == "hard_stop"  # -5.1%
+        assert check_position_thresholds(100.0, 84.9) == "hard_stop"  # -15.1% (HARD_STOP_PCT -0.15)
 
     def test_no_hard_take_profit(self):
         # hard_take_profit removed — large gains handled by trailing stop
         from src.exit_advisor import check_position_thresholds
-        assert check_position_thresholds(100.0, 115.0) == "soft_take_profit"
+        assert check_position_thresholds(100.0, 120.0) == "soft_take_profit"
 
     def test_soft_stop(self):
         from src.exit_advisor import check_position_thresholds
-        assert check_position_thresholds(100.0, 96.9) == "soft_stop"  # -3.1%
+        assert check_position_thresholds(100.0, 91.9) == "soft_stop"  # -8.1% (SOFT_STOP_PCT -0.08)
 
     def test_soft_take_profit(self):
         from src.exit_advisor import check_position_thresholds
-        assert check_position_thresholds(100.0, 109.0) == "soft_take_profit"  # +9%
+        assert check_position_thresholds(100.0, 115.1) == "soft_take_profit"  # +15.1% (SOFT_TAKE_PROFIT_PCT 0.15)
 
     def test_normal_range(self):
         from src.exit_advisor import check_position_thresholds
         assert check_position_thresholds(100.0, 100.5) is None  # +0.5%
-        assert check_position_thresholds(100.0, 97.5) is None   # -2.5% (within new soft stop -3%)
+        assert check_position_thresholds(100.0, 97.5) is None   # -2.5% (within soft stop -8%)
 
     def test_zero_entry(self):
         from src.exit_advisor import check_position_thresholds
@@ -489,12 +489,19 @@ class TestThresholdChecks:
 # ---------------------------------------------------------------------------
 
 class TestKellyTechnical:
-    def test_confluence_3(self):
+    def test_confluence_at_min(self):
+        # MIN_CONFLUENCE now 4 (SWING profile default) — confluence 4 buys
         from src.alpaca_orchestrator import _kelly_technical
-        result = _kelly_technical(3, 100.0, 10000.0)
+        result = _kelly_technical(4, 100.0, 10000.0)
         assert result["side"] == "buy"
         assert result["dollar_amount"] > 0
         assert result["shares"] > 0
+
+    def test_confluence_3_below_min(self):
+        # confluence 3 is now below MIN_CONFLUENCE (4) -> no trade
+        from src.alpaca_orchestrator import _kelly_technical
+        result = _kelly_technical(3, 100.0, 10000.0)
+        assert result["side"] == "none"
 
     def test_confluence_below_min(self):
         from src.alpaca_orchestrator import _kelly_technical
@@ -621,15 +628,19 @@ class TestPerCycleEntryCap:
 # ---------------------------------------------------------------------------
 
 class TestRSIHardBlock:
-    def test_overbought_rsi_returns_none(self):
-        """Assets with RSI > 72 must return None from analyze()."""
+    def test_overbought_rsi_suppresses_long_point(self):
+        """RSI is now a SOFT ceiling: an overbought RSI suppresses the long RSI
+        score point but analyze() still returns a Signal (no hard block)."""
         from src.technical_signals import _rsi
         bars = _make_uptrend_bars(50, start=100.0, step=1.5)
         closes = [b["close"] for b in bars]
         rsi = _rsi(closes, 14)
         signal = analyze("BTC/USD", bars)
-        if rsi is not None and rsi > 72:
-            assert signal is None, f"Expected None for RSI={rsi:.1f} > 72"
+        if rsi is not None and rsi > 65:  # above RSI_ENTRY_CEILING default 65
+            # No hard block: a Signal is still produced
+            assert signal is not None, f"RSI={rsi:.1f} must not hard-block (soft ceiling)"
+            # The overbought-RSI long point is suppressed (RSI never adds to long score here)
+            assert signal.rsi_value > 65
 
     def test_oversold_rsi_not_blocked(self):
         """RSI < 35 (oversold) must NOT be blocked."""
