@@ -1,11 +1,10 @@
 """EXIT-02 / EXIT-03 behavioral spec — deterministic ATR exit ladder, no LLM.
 
 These tests drive the shared ``PositionMonitor`` through each exit branch and
-assert the deterministic close reason. They are RED until 04-02 adds the
-``profile`` constructor arg and the ATR decision ladder.
+assert the deterministic close reason via the ATR decision ladder.
 
-The exit decision must be LLM-free: ``ExitAdvisor.should_exit`` is never called
-for the exit decision (``test_no_llm_call``).
+The exit decision must be LLM-free: no ExitAdvisor is involved at all
+(``test_no_llm_call``).
 """
 
 from datetime import datetime, timedelta, timezone
@@ -54,7 +53,7 @@ def _run(mock_alpaca, mock_logger, mock_advisor, trade, current_price,
     mock_alpaca.get_latest_price.return_value = current_price
     mock_alpaca.get_bars.return_value = bars if bars is not None else _bars()
 
-    monitor = PositionMonitor(mock_alpaca, mock_logger, mock_advisor, profile)
+    monitor = PositionMonitor(mock_alpaca, mock_logger, profile)
 
     captured = {}
 
@@ -90,7 +89,7 @@ def test_atr_trail_ratchet(mock_alpaca, mock_logger, mock_advisor):
         {"symbol": "BTCUSD", "avg_entry_price": ENTRY}
     ]
     mock_alpaca.get_bars.return_value = _bars()
-    monitor = PositionMonitor(mock_alpaca, mock_logger, mock_advisor, SWING)
+    monitor = PositionMonitor(mock_alpaca, mock_logger, SWING)
 
     with patch("src.alpaca_orchestrator.alert_position_closed") as alert:
         # advance high-water well above entry (no close)
@@ -104,7 +103,7 @@ def test_atr_trail_ratchet(mock_alpaca, mock_logger, mock_advisor):
 
     # Short mirror: low-water down only, trail = lw + mult_trail*ATR
     mock_logger.get_open_alpaca_positions.return_value = [_trade("sell", trade_id=2)]
-    monitor2 = PositionMonitor(mock_alpaca, mock_logger, mock_advisor, SWING)
+    monitor2 = PositionMonitor(mock_alpaca, mock_logger, SWING)
     mock_alpaca.close_position.reset_mock()
     with patch("src.alpaca_orchestrator.alert_position_closed") as alert:
         mock_alpaca.get_latest_price.return_value = 80.0  # profit, low-water
