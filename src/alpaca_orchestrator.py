@@ -49,14 +49,17 @@ except ImportError:
 # ---------------------------------------------------------------------------
 import os as _os
 
-MAX_POSITION_PCT = float(_os.environ.get("MAX_POSITION_PCT", "0.05"))
+from src.strategy_profile import SWING, PROFILES
+PROFILE = SWING  # Phase 2 selects via BOT_PROFILE
+
+MAX_POSITION_PCT = float(_os.environ.get("MAX_POSITION_PCT", str(PROFILE.max_position_pct)))
 MAX_TOTAL_EXPOSURE_PCT = float(_os.environ.get("MAX_TOTAL_EXPOSURE_PCT", "0.80"))
 DRAWDOWN_STOP_PCT = float(_os.environ.get("DRAWDOWN_STOP_PCT", "0.10"))
 MIN_PAPER_TRADES = int(_os.environ.get("MIN_PAPER_TRADES", "50"))
 MIN_WIN_RATE = float(_os.environ.get("MIN_WIN_RATE", "0.40"))
-MIN_CONFLUENCE = int(_os.environ.get("MIN_CONFLUENCE", "4"))
+MIN_CONFLUENCE = int(_os.environ.get("MIN_CONFLUENCE", str(PROFILE.min_confluence)))
 # Shorts require fewer signals (3/4) since bear setups are more fleeting
-MIN_SHORT_CONFLUENCE = int(_os.environ.get("MIN_SHORT_CONFLUENCE", "3"))
+MIN_SHORT_CONFLUENCE = int(_os.environ.get("MIN_SHORT_CONFLUENCE", str(PROFILE.min_short_confluence)))
 
 # Symbols that Alpaca paper accounts reject OR have shown 0% win rate across 5+ trades.
 # LDO/POL/ONDO/RENDER: ghost trades (silently rejected by Alpaca paper).
@@ -70,7 +73,7 @@ _ALPACA_UNTRADEABLE = frozenset(
 
 # Fraction of universe with EMA=bearish that triggers a broad-market pause on new longs.
 BEAR_MARKET_PAUSE_THRESHOLD = float(_os.environ.get("BEAR_MARKET_PAUSE_THRESHOLD", "0.60"))
-CYCLE_SLEEP_SECONDS = int(_os.environ.get("CYCLE_SLEEP_SECONDS", "1800"))
+CYCLE_SLEEP_SECONDS = int(_os.environ.get("CYCLE_SLEEP_SECONDS", str(PROFILE.scan_interval_s)))
 POSITION_CHECK_INTERVAL = int(_os.environ.get("POSITION_CHECK_INTERVAL", "60"))
 SKIP_RISK_GATE = _os.environ.get("SKIP_RISK_GATE", "").lower() in ("1", "true", "yes")
 BOT_LABEL = _os.environ.get("BOT_LABEL", "Agent A")
