@@ -38,7 +38,8 @@ orchestrator" / "PositionMonitor" apply to both the shared helpers and `BotThrea
   2. A `SWING` preset carries the exact current constants (EMA 9/21, RSI/ADX 14, current stops, sizing, confluence thresholds, no max-hold).
   3. Running the existing swing path through the SWING preset produces byte-for-byte identical decisions versus the pre-change code (parity check passes).
   4. Bots A and B continue trading unchanged on their own accounts.
-**Plans**: TBD
+**Plans**: 1 plan
+- [ ] 01-01-PLAN.md — StrategyProfile module + SWING preset + parity tests + minimal orchestrator wiring
 
 ### Phase 2: DAYTRADE Preset + Profile Selection
 **Goal**: A DAYTRADE preset exists and the orchestrator/BotThread selects its profile from `BOT_PROFILE` (default swing).
