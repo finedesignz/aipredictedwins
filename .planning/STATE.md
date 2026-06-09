@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Day-Trading Upgrade
 status: ready_to_plan
-last_updated: 2026-06-09T00:57:49.565Z
+last_updated: 2026-06-09T01:06:06.054Z
 last_activity: 2026-06-09
 progress:
   total_phases: 10
   completed_phases: 0
   total_plans: 0
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
-stopped_at: Phase 1 complete (1/1) — ready to discuss Phase 2
+stopped_at: Phase 2 complete (1/1) — ready to discuss Phase 3
 ---
 
 # Project State
@@ -19,11 +19,11 @@ stopped_at: Phase 1 complete (1/1) — ready to discuss Phase 2
 ## Project Reference
 
 **Core value:** Compounding, self-improving automated trading edge — the bot gets measurably better as it accumulates trade outcomes, without manual retuning.
-**Current focus:** Phase 2 — daytrade preset + profile selection
+**Current focus:** Phase 3 — parameterized signal engine + atr + session vwap
 
 ## Current Position
 
-Phase: 2
+Phase: 3
 Plan: Not started
 Status: Ready to plan
 Progress: [          ] 0/10 phases

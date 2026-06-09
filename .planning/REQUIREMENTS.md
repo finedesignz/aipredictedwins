@@ -7,8 +7,8 @@ Derived from `docs/superpowers/specs/2026-06-08-day-trading-upgrade-design.md`.
 ### Strategy Profile (PROFILE)
 - [x] **PROFILE-01**: A `StrategyProfile` config object bundles timeframe, scan cadence, indicator periods, exit params, max-hold, and sizing.
 - [x] **PROFILE-02**: A `SWING` preset reproduces current bot behavior byte-for-byte (bots A/B unaffected).
-- [ ] **PROFILE-03**: A `DAYTRADE` preset configures 5-min bars, ~2-min scan, 1h HTF filter, ATR exits, 4–8h max-hold.
-- [ ] **PROFILE-04**: The orchestrator selects its profile via `BOT_PROFILE` env (default `swing`).
+- [x] **PROFILE-03**: A `DAYTRADE` preset configures 5-min bars, ~2-min scan, 1h HTF filter, ATR exits, 4–8h max-hold.
+- [x] **PROFILE-04**: The orchestrator selects its profile via `BOT_PROFILE` env (default `swing`).
 
 ### Deterministic Exits (EXIT)
 - [ ] **EXIT-01**: `PositionMonitor` no longer imports or calls the MiroFish `ExitAdvisor`.
@@ -55,8 +55,8 @@ Derived from `docs/superpowers/specs/2026-06-08-day-trading-upgrade-design.md`.
 |-------------|-------|--------|
 | PROFILE-01 | Phase 1 | Complete |
 | PROFILE-02 | Phase 1 | Complete |
-| PROFILE-03 | Phase 2 | Pending |
-| PROFILE-04 | Phase 2 | Pending |
+| PROFILE-03 | Phase 2 | Complete |
+| PROFILE-04 | Phase 2 | Complete |
 | SIGNAL-01 | Phase 3 | Pending |
 | SIGNAL-02 | Phase 3 | Pending |
 | SIGNAL-03 | Phase 3 | Pending |
