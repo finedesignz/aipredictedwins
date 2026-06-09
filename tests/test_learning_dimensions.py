@@ -52,7 +52,12 @@ def test_migration_014_additive_columns():
     assert text.count("ADD COLUMN IF NOT EXISTS") >= 3
     # additive only — never destructive
     assert "DROP COLUMN" not in text.upper()
-    assert "NOT NULL" not in text.upper()
+    # no NOT NULL on the ADD COLUMN statements (nullable, no backfill)
+    add_stmts = [ln for ln in text.splitlines()
+                 if ln.strip().upper().startswith("ALTER TABLE")
+                 and "ADD COLUMN" in ln.upper()]
+    assert add_stmts
+    assert all("NOT NULL" not in ln.upper() for ln in add_stmts)
 
 
 def test_db_schema_mirrors_dimension_columns():

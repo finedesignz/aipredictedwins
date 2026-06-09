@@ -166,6 +166,11 @@ CREATE TABLE IF NOT EXISTS trade_context (
     context   TEXT NOT NULL
 );
 
+-- Phase 8 intraday-learning dimensions (mirror of migration 014; additive, nullable).
+ALTER TABLE trade_context ADD COLUMN IF NOT EXISTS time_of_day_bucket TEXT;
+ALTER TABLE trade_context ADD COLUMN IF NOT EXISTS hold_minutes       DOUBLE PRECISION;
+ALTER TABLE trade_context ADD COLUMN IF NOT EXISTS volatility_regime  TEXT;
+
 CREATE TABLE IF NOT EXISTS strategy_scores (
     bot_id     TEXT NOT NULL CHECK (bot_id IN ('A', 'B')),
     strategy   TEXT NOT NULL,
