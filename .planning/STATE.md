@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Day-Trading Upgrade
 status: ready_to_plan
-last_updated: 2026-06-09T01:43:40.351Z
+last_updated: 2026-06-09T01:54:45.023Z
 last_activity: 2026-06-09
 progress:
   total_phases: 10
   completed_phases: 0
   total_plans: 0
-  completed_plans: 8
+  completed_plans: 9
   percent: 0
-stopped_at: Phase 4 complete (3/2) — ready to discuss Phase 5
+stopped_at: Phase 5 complete (1/1) — ready to discuss Phase 6
 ---
 
 # Project State
@@ -19,11 +19,11 @@ stopped_at: Phase 4 complete (3/2) — ready to discuss Phase 5
 ## Project Reference
 
 **Core value:** Compounding, self-improving automated trading edge — the bot gets measurably better as it accumulates trade outcomes, without manual retuning.
-**Current focus:** Phase 5 — mirofish removal from alpaca path
+**Current focus:** Phase 6 — fee/slippage pre trade gate
 
 ## Current Position
 
-Phase: 5
+Phase: 6
 Plan: Not started
 Status: Ready to plan
 Progress: [          ] 0/10 phases

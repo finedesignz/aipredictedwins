@@ -20,7 +20,7 @@ orchestrator" / "PositionMonitor" apply to both the shared helpers and `BotThrea
 - [x] **Phase 2: DAYTRADE Preset + Profile Selection** - DAYTRADE preset and `BOT_PROFILE` env wiring (default swing) (completed 2026-06-09)
 - [x] **Phase 3: Parameterized Signal Engine + ATR + Session VWAP** - Profile-driven indicator periods, ATR on Signal, session-anchored VWAP (completed 2026-06-09)
 - [x] **Phase 4: Deterministic ATR Exits** - ATR-scaled stop + trailing stop with hard-stop and max-hold overrides (completed 2026-06-09)
-- [ ] **Phase 5: MiroFish Removal from Alpaca Path** - Drop ExitAdvisor + Claude-CLI auth checks from the trading path
+- [x] **Phase 5: MiroFish Removal from Alpaca Path** - Drop ExitAdvisor + Claude-CLI auth checks from the trading path (completed 2026-06-09)
 - [ ] **Phase 6: Fee/Slippage Pre-Trade Gate** - Skip candidates whose move-to-target can't clear round-trip fees
 - [ ] **Phase 7: Close the Self-Learning Loop (Entry + Sizing)** - Wire `get_advice()` veto + `get_dynamic_thresholds()` into entry and Kelly sizing
 - [ ] **Phase 8: Intraday Learning Dimensions + Shadow Mode** - Time-of-day/hold/volatility dimensions and shadowâauto gate
@@ -88,7 +88,7 @@ orchestrator" / "PositionMonitor" apply to both the shared helpers and `BotThrea
   3. `risk_gate.py` / `exit_advisor.py` / `mirofish_client.py` remain in the repo (Kalshi paused) but are unreferenced by the Alpaca path.
   4. A paper/evaluate run completes with no Claude-CLI auth dependency for exits.
 **Plans**: 1 plan
-- [ ] 05-01-PLAN.md — Remove ExitAdvisor + Claude-CLI auth blocks from alpaca_orchestrator.py & bot_thread.py; keep TrailingStop/RulesGate/pct constants; verify suite green + MiroFish files intact
+- [x] 05-01-PLAN.md — Remove ExitAdvisor + Claude-CLI auth blocks from alpaca_orchestrator.py & bot_thread.py; keep TrailingStop/RulesGate/pct constants; verify suite green + MiroFish files intact
 
 ### Phase 6: Fee/Slippage Pre-Trade Gate
 **Goal**: Candidates that can't clear round-trip fees before the soft target are skipped.
@@ -151,7 +151,7 @@ orchestrator" / "PositionMonitor" apply to both the shared helpers and `BotThrea
 | 2. DAYTRADE Preset + Selection | 1/1 | Complete    | 2026-06-09 |
 | 3. Signal Engine + ATR + Session VWAP | 3/2 | Complete    | 2026-06-09 |
 | 4. Deterministic ATR Exits | 3/2 | Complete    | 2026-06-09 |
-| 5. MiroFish Removal | 0/1 | Planned | - |
+| 5. MiroFish Removal | 1/1 | Complete    | 2026-06-09 |
 | 6. Fee/Slippage Gate | 0/0 | Not started | - |
 | 7. Self-Learning Loop (Entry+Sizing) | 0/0 | Not started | - |
 | 8. Intraday Dimensions + Shadow | 0/0 | Not started | - |

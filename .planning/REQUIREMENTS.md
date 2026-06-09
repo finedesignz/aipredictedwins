@@ -11,10 +11,10 @@ Derived from `docs/superpowers/specs/2026-06-08-day-trading-upgrade-design.md`.
 - [x] **PROFILE-04**: The orchestrator selects its profile via `BOT_PROFILE` env (default `swing`).
 
 ### Deterministic Exits (EXIT)
-- [ ] **EXIT-01**: `PositionMonitor` no longer imports or calls the MiroFish `ExitAdvisor`.
+- [x] **EXIT-01**: `PositionMonitor` no longer imports or calls the MiroFish `ExitAdvisor`.
 - [x] **EXIT-02**: Exits use an ATR-scaled stop (entry − atr_mult × ATR) and an ATR-scaled trailing stop.
 - [x] **EXIT-03**: Hard-stop percentage and max-hold-duration auto-close act as absolute overrides.
-- [ ] **EXIT-04**: Claude-CLI auth startup/daily checks (which only served MiroFish) are removed from the Alpaca path.
+- [x] **EXIT-04**: Claude-CLI auth startup/daily checks (which only served MiroFish) are removed from the Alpaca path.
 
 ### Self-Learning Loop (LEARN)
 - [ ] **LEARN-01**: Before sizing, the orchestrator calls `get_advice()`; `should_trade=False` vetoes the candidate.
@@ -62,8 +62,8 @@ Derived from `docs/superpowers/specs/2026-06-08-day-trading-upgrade-design.md`.
 | SIGNAL-03 | Phase 3 | Complete |
 | EXIT-02 | Phase 4 | Complete |
 | EXIT-03 | Phase 4 | Complete |
-| EXIT-01 | Phase 5 | Pending |
-| EXIT-04 | Phase 5 | Pending |
+| EXIT-01 | Phase 5 | Complete |
+| EXIT-04 | Phase 5 | Complete |
 | FEE-01 | Phase 6 | Pending |
 | LEARN-01 | Phase 7 | Pending |
 | LEARN-02 | Phase 7 | Pending |
