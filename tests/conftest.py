@@ -37,6 +37,13 @@ def make_bars_for_atr(atr_target, n=20, period=14):
 
 
 @pytest.fixture
+def atr_bars():
+    """Fixture wrapper so tests get the deterministic generator without a
+    cross-module import (tests/ is not a package)."""
+    return make_bars_for_atr
+
+
+@pytest.fixture
 def mock_alpaca():
     m = MagicMock(name="alpaca")
     m.get_positions.return_value = []
