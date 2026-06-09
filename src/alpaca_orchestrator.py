@@ -1,10 +1,10 @@
 """
-Alpaca trading orchestrator — Technical-First, MiroFish-as-Guardian.
+Alpaca trading orchestrator — Technical-First, deterministic risk + exits.
 
 Three-layer architecture:
   1. Technical Signal Engine — EMA, ADX, RSI, Volume, VWAP confluence scoring
-  2. MiroFish Risk Gate — LLM risk panel vetoes bad trades before entry
-  3. MiroFish Exit Advisor — smart stop-loss/take-profit for open positions
+  2. RulesGate — deterministic risk gate vetoes bad trades before entry (no LLM)
+  3. Deterministic exits — ATR trailing stop + hard/soft pct thresholds
 
 Only trades crypto (top 8 by market cap). Paper-only until user-defined
 equity target is reached (default $100k). Set LIVE_TRADING_THRESHOLD env
@@ -31,7 +31,7 @@ from src.alpaca_evaluator import get_trending_crypto, TOP_CRYPTO_TICKERS, MEME_C
 from src.technical_signals import scan_assets, analyze, _atr
 from src.rules_gate import RulesGate
 from src.risk_gate import RiskGate  # keep for backward compat / type hints
-from src.exit_advisor import ExitAdvisor, TrailingStop, check_position_thresholds, HARD_STOP_PCT, SOFT_STOP_PCT, SOFT_TAKE_PROFIT_PCT
+from src.exit_advisor import TrailingStop, HARD_STOP_PCT, SOFT_STOP_PCT, SOFT_TAKE_PROFIT_PCT
 from src.trade_logger import TradeLogger
 
 from src.notifier import alert_bot_crash, alert_drawdown_stop, alert_monitor_error, alert_position_closed, send_alert
@@ -96,21 +96,20 @@ log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Position Monitor — background thread with MiroFish exit intelligence
+# Position Monitor — background thread with deterministic ATR exits
 # ---------------------------------------------------------------------------
 
 class PositionMonitor(threading.Thread):
     """Background thread that checks open positions every 60 seconds.
 
-    Uses MiroFish Exit Advisor for soft thresholds (-2%, +5%).
-    Immediately exits on hard thresholds (-4%, +10%).
+    Exits are fully deterministic: ATR trailing stop + hard/soft pct thresholds.
+    No LLM calls.
     """
 
-    def __init__(self, alpaca: AlpacaClient, logger: TradeLogger, exit_advisor: ExitAdvisor, profile=SWING):
+    def __init__(self, alpaca: AlpacaClient, logger: TradeLogger, profile=SWING):
         super().__init__(daemon=True, name="position-monitor")
         self.alpaca = alpaca
         self.logger = logger
-        self.exit_advisor = exit_advisor  # retained (Phase 5 removes); NOT used for exit decisions
         self.profile = profile
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
@@ -232,7 +231,7 @@ class PositionMonitor(threading.Thread):
 
             # ----- Deterministic exit ladder (EXIT-02/EXIT-03), first-match wins -----
             # Precedence: hard_stop_pct -> max_hold -> ATR trailing stop -> ATR stop.
-            # No LLM: ExitAdvisor.should_exit() is never called here.
+            # No LLM: exits are fully deterministic.
             threshold = None
 
             # 1. Hard stop — absolute, side-aware pnl_pct already computed above.
@@ -320,9 +319,9 @@ def _setup_logging() -> None:
 
 
 def _print_banner(mode: str, balance: float, config) -> None:
-    risk_mode = "[red]DISABLED[/red]" if SKIP_RISK_GATE else "Rules gate (deterministic) + MiroFish exit advisor"
+    risk_mode = "[red]DISABLED[/red]" if SKIP_RISK_GATE else "Rules gate (deterministic) + deterministic ATR exits"
     banner = (
-        f"[bold cyan]Alpaca Technical + MiroFish Guardian Bot[/bold cyan]\n"
+        f"[bold cyan]Alpaca Technical Bot[/bold cyan]\n"
         f"\n"
         f"  Bot label       : [bold]{BOT_LABEL}[/bold]\n"
         f"  Profile         : [bold]{PROFILE.name}[/bold]\n"
@@ -565,7 +564,6 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
     alpaca = AlpacaClient(config)
     logger = TradeLogger()
     risk_gate = RulesGate()
-    exit_advisor = ExitAdvisor()
 
     # Dynamic asset universe — refreshed at startup
     log.info("Fetching dynamic crypto universe (top %d by volume)...", DYNAMIC_UNIVERSE_SIZE)
@@ -596,24 +594,10 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
 
     _print_banner(mode, balance, config)
 
-    # -- 1a. Verify Claude CLI auth (risk gate depends on it) -----------------
-    from src.claude_llm import ClaudeLLM
-    _claude_check = ClaudeLLM()
-    if _claude_check.is_available():
-        test = _claude_check.call("Reply with OK", max_tokens=10)
-        if test:
-            console.print("  [green]Claude CLI auth verified[/green]")
-        else:
-            console.print("  [bold red]Claude CLI auth FAILED — risk gate will not work[/bold red]")
-            send_alert("Claude CLI Auth Failed", "The Claude CLI returned an error on startup. Risk gate and exit advisor will not function. Re-run 'claude login' in the container.")
-    else:
-        console.print("  [bold red]Claude CLI not installed[/bold red]")
-        send_alert("Claude CLI Missing", "Claude CLI is not installed in the container. Risk gate disabled.")
-
-    # -- 1b. Start position monitor with exit advisor -------------------------
-    monitor = PositionMonitor(alpaca, logger, exit_advisor, PROFILE)
+    # -- 1b. Start position monitor (deterministic ATR exits) -----------------
+    monitor = PositionMonitor(alpaca, logger, PROFILE)
     monitor.start()
-    console.print(f"  [green]Position monitor started[/green] (MiroFish exit advisor active)")
+    console.print(f"  [green]Position monitor started[/green] (deterministic ATR exits)")
 
     # -- 2. Live-mode gates ---------------------------------------------------
     if mode == "live":
@@ -630,7 +614,6 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
     total_trades = 0
     cycle_count = 0
     daily_start = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    _last_auth_check = daily_start  # check Claude auth once per day
 
     # -- 4. Main loop ---------------------------------------------------------
     while True:
@@ -641,16 +624,6 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         if today != daily_start:
             console.print(f"  [cyan]New trading day: {today}[/cyan]")
-
-            # Daily Claude auth health check
-            if today != _last_auth_check:
-                _last_auth_check = today
-                _auth_test = _claude_check.call("Reply with OK", max_tokens=10)
-                if _auth_test:
-                    console.print("  [green]Daily Claude auth check: OK[/green]")
-                else:
-                    console.print("  [bold red]Daily Claude auth check: FAILED[/bold red]")
-                    send_alert("Claude Auth Expired", "Daily auth check failed. The OAuth token may have expired. Run 'claude login' in the Coolify container terminal.")
             daily_pnl = 0.0
             daily_start = today
 
@@ -1100,7 +1073,7 @@ def _print_final_report(logger: TradeLogger, total_trades: int, total_pnl: float
     win_rate = accuracy.get("win_rate", 0)
 
     report = (
-        f"[bold cyan]ALPACA PAPER TRADING REPORT (v2 — Technical + MiroFish Guardian)[/bold cyan]\n"
+        f"[bold cyan]ALPACA PAPER TRADING REPORT (v2 — Technical + deterministic exits)[/bold cyan]\n"
         f"\n"
         f"  Cycles completed     : {cycles}\n"
         f"  Total trades placed  : {total_trades}\n"
@@ -1179,7 +1152,7 @@ def evaluate() -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Alpaca Technical + MiroFish Guardian trading bot",
+        description="Alpaca Technical trading bot (deterministic risk gate + ATR exits)",
     )
     parser.add_argument(
         "--mode", choices=["paper", "live", "evaluate"], default="paper",
