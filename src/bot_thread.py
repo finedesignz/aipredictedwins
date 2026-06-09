@@ -1,7 +1,7 @@
 # src/bot_thread.py
 """BotThread — isolated per-bot scan/monitor loop with atomic config swap.
 
-Each BotThread owns its own AlpacaClient, TradeLogger, ExitAdvisor, RiskGate,
+Each BotThread owns its own AlpacaClient, TradeLogger, RulesGate,
 and PositionMonitor. Config is held as an atomic reference so it can be
 hot-swapped (via update_config) without restarting the thread.
 """
@@ -57,7 +57,7 @@ from src.config import Config
 from src.alpaca_client import AlpacaClient
 from src.trade_logger import TradeLogger
 from src.rules_gate import RulesGate
-from src.exit_advisor import ExitAdvisor, HARD_STOP_PCT, SOFT_STOP_PCT, SOFT_TAKE_PROFIT_PCT
+from src.exit_advisor import HARD_STOP_PCT, SOFT_STOP_PCT, SOFT_TAKE_PROFIT_PCT
 from src.technical_signals import scan_assets
 from src.strategy_profile import PROFILES, SWING
 from src.alpaca_orchestrator import (
@@ -193,7 +193,6 @@ class BotThread(threading.Thread):
         alpaca_cfg = _make_alpaca_config(cfg)
         alpaca = AlpacaClient(alpaca_cfg)
         logger = TradeLogger(bot_id=bot_id)
-        exit_advisor = ExitAdvisor()
         risk_gate = RulesGate()
 
         # -- Build learning components -----------------------------------------
@@ -224,7 +223,7 @@ class BotThread(threading.Thread):
 
         # -- Start position monitor --------------------------------------------
         _monitor_profile = PROFILES.get(os.environ.get("BOT_PROFILE", "swing").lower(), SWING)
-        monitor = PositionMonitor(alpaca, logger, exit_advisor, _monitor_profile)
+        monitor = PositionMonitor(alpaca, logger, _monitor_profile)
         monitor.start()
         log.info("[bot:%s] Position monitor started", bot_id)
 
