@@ -78,7 +78,8 @@ class FakeTradeMemory:
     payload to ``self.recorded`` so tests can assert signal_type alignment.
     """
 
-    def __init__(self, advice=None, thresholds=None):
+    def __init__(self, advice=None, thresholds=None, closed_count=0):
+        self._closed_count = closed_count
         self._advice = advice or {
             "should_trade": True,
             "confidence_adjustment": 1.0,
@@ -113,6 +114,9 @@ class FakeTradeMemory:
     def record_trade_context(self, trade_data):
         self.recorded.append(trade_data)
         return len(self.recorded)
+
+    def count_closed_trades(self) -> int:
+        return self._closed_count
 
 
 @pytest.fixture
