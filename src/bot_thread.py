@@ -619,6 +619,7 @@ class BotThread(threading.Thread):
                             "price_at_entry": price,
                             "price_change_24h": change_pct,
                             "volume_24h": volume_24h,
+                            "atr_value": signal.atr_value,
                             "trajectory": "up" if signal.ema_bullish else "mixed",
                             "bull_arguments": [
                                 f"EMA_bull={signal.ema_bullish}",
@@ -805,6 +806,7 @@ class BotThread(threading.Thread):
                             "price_at_entry": price,
                             "price_change_24h": change_pct,
                             "volume_24h": volume_24h,
+                            "atr_value": signal.atr_value,
                             "trajectory": "down" if not signal.ema_bullish else "mixed",
                             "bull_arguments": [
                                 f"RSI={signal.rsi_value:.1f}",

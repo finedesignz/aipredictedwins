@@ -64,3 +64,24 @@ def test_db_schema_mirrors_dimension_columns():
     text = Path("src/db_schema.sql").read_text()
     for col in ("time_of_day_bucket", "hold_minutes", "volatility_regime"):
         assert col in text
+
+
+# --- entry dimension wiring (record sites carry atr_value) -----------------
+
+def test_record_dimensions_thin_dict_is_unknown():
+    # orchestrator thin path without atr_value -> regime "unknown" (Pitfall 3)
+    assert volatility_regime(0.0, 100.0) == "unknown"
+
+
+def test_all_record_sites_pass_atr_value():
+    src = Path("src/bot_thread.py").read_text()
+    orch = Path("src/alpaca_orchestrator.py").read_text()
+    # 2 record dicts in each runtime, each must carry atr_value
+    assert src.count('"atr_value": signal.atr_value') == 2
+    assert orch.count('"atr_value": signal.atr_value') == 2
+
+
+def test_record_trade_context_persists_entry_dimensions():
+    # INSERT must list both entry dimension columns
+    tm = Path("src/trade_memory.py").read_text()
+    assert "time_of_day_bucket, volatility_regime, outcome" in tm

@@ -974,6 +974,7 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                                 "price_at_entry": price,
                                 "price_change_24h": side_data[symbol]["change_pct"],
                                 "volume_24h": side_data[symbol]["volume_24h"],
+                                "atr_value": signal.atr_value,
                                 "trajectory": "up" if signal.ema_bullish else "mixed",
                             })
                         except Exception:
@@ -1116,6 +1117,7 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                                 "price_at_entry": price,
                                 "price_change_24h": change_pct,
                                 "volume_24h": volume_24h,
+                                "atr_value": signal.atr_value,
                                 "trajectory": "down" if not signal.ema_bullish else "mixed",
                             })
                         except Exception as exc:

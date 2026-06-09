@@ -108,6 +108,11 @@ class TradeMemory:
         similar_ids = [t["id"] for t in similar[:10]]
 
         timestamp = datetime.now(timezone.utc).isoformat()
+        tod_bucket = time_of_day_bucket(timestamp)
+        vol_regime = volatility_regime(
+            trade_data.get("atr_value", 0.0),
+            trade_data.get("price_at_entry", 0.0),
+        )
         with connection() as conn:
             cursor = conn.execute(
                 """
@@ -115,8 +120,8 @@ class TradeMemory:
                     bot_id, trade_id, timestamp, symbol, signal_type, sentiment,
                     confidence, price_at_entry, price_change_24h, volume_24h,
                     trajectory, bull_arguments, bear_arguments,
-                    similar_past_trades, outcome
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'open')
+                    similar_past_trades, time_of_day_bucket, volatility_regime, outcome
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'open')
                 RETURNING id
                 """,
                 (
@@ -134,6 +139,8 @@ class TradeMemory:
                     json.dumps(trade_data.get("bull_arguments", [])),
                     json.dumps(trade_data.get("bear_arguments", [])),
                     json.dumps(similar_ids),
+                    tod_bucket,
+                    vol_regime,
                 ),
             )
             row = cursor.fetchone()
