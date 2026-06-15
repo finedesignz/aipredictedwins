@@ -21,7 +21,19 @@ accumulates trade outcomes, without manual retuning.
 - **Paused:** Kalshi prediction-market path (do not run).
 - **Hard rule:** one Alpaca account per bot — never share.
 
-## Current Milestone: v1.0 Day-Trading Upgrade
+## Current State
+
+**Shipped: v1.0 Day-Trading Upgrade** (2026-06-15) — 10/10 phases verified, 279 tests green.
+The engine is now profile-driven (`SWING` + `DAYTRADE`), the live trading path is LLM-free
+(deterministic ATR exits), the self-learning loop is closed (advice vetoes/scales entries with
+a shadow→auto gate + intraday dimensions), and a fee gate + 5-min backtest harness are in place.
+Bot D is code-complete; its live Alpaca account + Coolify service await provisioning
+(`docs/deployment/bot-d-coolify-recipe.md`). Archive: `.planning/milestones/v1.0-*`.
+
+**Next milestone goals (candidates):** provision Bot D live; retune daytrade thresholds on real
+paper data; full P&L backtest; Options v3. Run `/gsd-new-milestone` to scope.
+
+## Milestone History: v1.0 Day-Trading Upgrade
 
 **Goal:** Add a self-learning intraday day-trading bot (Bot D) by generalizing the swing engine
 into strategy profiles, dropping MiroFish from the trading path, replacing LLM exits with
