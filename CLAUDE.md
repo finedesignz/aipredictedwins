@@ -32,13 +32,19 @@ Automated trading system for crypto swing trading on Alpaca. Uses technical indi
 |-----|-------------------|---------|
 | Bot A | `ALPACA_API_KEY_A` / `ALPACA_SECRET_KEY_A` | Bot A's paper account |
 | Bot B | `ALPACA_API_KEY_B` / `ALPACA_SECRET_KEY_B` | Bot B's paper account |
+| Bot C | `ALPACA_API_KEY_C` / `ALPACA_SECRET_KEY_C` | Bot C's paper account (TradingAgents) |
+| Bot D | `ALPACA_API_KEY_D` / `ALPACA_SECRET_KEY_D` | Bot D's paper account (`BOT_ID=D`, `BOT_PROFILE=daytrade`) |
+
+**Suffixed vs bare keys (IMPORTANT):** The `_A`/`_B`/`_C`/`_D` env vars above live on the **dashboard** service — they let `seed_bots.py` attribute each bot's trades/equity. Each bot's **orchestrator** service instead reads **BARE** `ALPACA_API_KEY` / `ALPACA_SECRET_KEY` (one orchestrator service per bot, one Alpaca account per service). The orchestrator's `config.py` has NO `_D` suffix or A/B fallback — empty bare keys fail-clear (raise), never silently reuse another bot's keys.
 
 Sharing one account between bots will:
 - Make their equity curves identical (overlay on chart — one becomes invisible)
 - Cause position deduplication to block one bot's trades
 - Corrupt P&L attribution (can't tell which bot made money)
 
-If you need to add a new bot, create a new Alpaca paper account first.
+If you need to add a new bot, create a new Alpaca paper account first. See `docs/deployment/bot-d-coolify-recipe.md` for the exact Bot D provisioning recipe.
+
+**`LEARNING_SHADOW_UNTIL_TRADES`** (Phase 8, default `30`): shadow-mode learning gate. Until a bot closes this many trades, learning runs in shadow mode (lessons/scores computed and logged but NOT enforced on entries), avoiding premature adaptation on a thin sample. After the threshold the per-cycle shadow gate enforces learned adjustments. Every bot — including Bot D — inherits this; set it on each orchestrator service.
 
 ## Key Files
 
