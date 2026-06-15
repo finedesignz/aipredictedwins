@@ -138,7 +138,10 @@ orchestrator" / "PositionMonitor" apply to both the shared helpers and `BotThrea
   1. Bot D runs on its own Alpaca paper account (`ALPACA_API_KEY_D`/`ALPACA_SECRET_KEY_D`), `BOT_ID=D`, `BOT_PROFILE=daytrade` (own `bots` row â never shares an account).
   2. Bot D is deployed as a separate Coolify service and its thread is spawned/revived by BotManager.
   3. Dashboard `KNOWN_BOTS` includes "D" and attributes its trades and equity curve correctly.
-**Plans**: TBD
+**Plans**: 3 plans
+- [ ] 09-01-PLAN.md — BOT-01 code: widen trade_logger BOT_ID allow-list to include D + fail-clear test
+- [ ] 09-02-PLAN.md — BOT-03: KNOWN_BOTS+seed_bots D row + generalize 2 hardcoded A/B UI cells + tests
+- [ ] 09-03-PLAN.md — D-05 docs + BOT-02/live-acct BOT-01 infra HALT recipe (handoff)
 **UI hint**: yes
 
 ### Phase 10: Verification + Backtest
@@ -163,5 +166,5 @@ orchestrator" / "PositionMonitor" apply to both the shared helpers and `BotThrea
 | 6. Fee/Slippage Gate | 1/1 | Complete    | 2026-06-09 |
 | 7. Self-Learning Loop (Entry+Sizing) | 1/3 | Complete    | 2026-06-09 |
 | 8. Intraday Dimensions + Shadow | 1/3 | Complete    | 2026-06-15 |
-| 9. Bot D Deployment | 0/0 | Not started | - |
+| 9. Bot D Deployment | 0/3 | Not started | - |
 | 10. Verification + Backtest | 0/0 | Not started | - |
