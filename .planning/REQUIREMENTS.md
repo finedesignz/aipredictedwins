@@ -33,9 +33,9 @@ Derived from `docs/superpowers/specs/2026-06-08-day-trading-upgrade-design.md`.
 - [x] **FEE-01**: A pre-trade check skips a candidate when expected move to soft-target does not clear `2 × taker_fee + slippage_buffer`.
 
 ### Bot D Deployment (BOT)
-- [ ] **BOT-01**: Bot D runs on its own Alpaca paper account (`ALPACA_API_KEY_D` / `ALPACA_SECRET_KEY_D`), `BOT_ID=D`, `BOT_PROFILE=daytrade`.
-- [ ] **BOT-02**: Bot D is deployed as a separate Coolify service.
-- [ ] **BOT-03**: Dashboard `KNOWN_BOTS` includes "D" and attributes its trades/equity correctly.
+- [x] **BOT-01**: Bot D runs on its own Alpaca paper account (`ALPACA_API_KEY_D` / `ALPACA_SECRET_KEY_D`), `BOT_ID=D`, `BOT_PROFILE=daytrade`.
+- [x] **BOT-02**: Bot D is deployed as a separate Coolify service.
+- [x] **BOT-03**: Dashboard `KNOWN_BOTS` includes "D" and attributes its trades/equity correctly.
 
 ### Verification (VERIFY)
 - [ ] **VERIFY-01**: Unit tests cover profile presets (SWING parity), ATR exit math, fee gate, learning veto/scale wiring, and session VWAP.
@@ -71,9 +71,9 @@ Derived from `docs/superpowers/specs/2026-06-08-day-trading-upgrade-design.md`.
 | LEARN-04 | Phase 8 | Complete |
 | LEARN-05 | Phase 8 | Complete |
 | LEARN-06 | Phase 8 | Complete |
-| BOT-01 | Phase 9 | Pending |
-| BOT-02 | Phase 9 | Pending |
-| BOT-03 | Phase 9 | Pending |
+| BOT-01 | Phase 9 | Complete |
+| BOT-02 | Phase 9 | Complete |
+| BOT-03 | Phase 9 | Complete |
 | VERIFY-01 | Phase 10 | Pending |
 | VERIFY-02 | Phase 10 | Pending |
 

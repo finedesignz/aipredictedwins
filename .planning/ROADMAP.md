@@ -25,7 +25,7 @@ orchestrator" / "PositionMonitor" apply to both the shared helpers and `BotThrea
  (completed 2026-06-09)
 - [x] **Phase 7: Close the Self-Learning Loop (Entry + Sizing)** - Wire `get_advice()` veto + `get_dynamic_thresholds()` into entry and Kelly sizing (completed 2026-06-09)
 - [x] **Phase 8: Intraday Learning Dimensions + Shadow Mode** - Time-of-day/hold/volatility dimensions and shadowâauto gate (completed 2026-06-15)
-- [ ] **Phase 9: Bot D Deployment** - New paper account, daytrade profile, Coolify service, dashboard attribution
+- [x] **Phase 9: Bot D Deployment** - New paper account, daytrade profile, Coolify service, dashboard attribution (completed 2026-06-15)
 - [ ] **Phase 10: Verification + Backtest** - Unit tests for new logic + 5-min backtest validating signal frequency
 
 ## Phase Details
@@ -139,7 +139,7 @@ orchestrator" / "PositionMonitor" apply to both the shared helpers and `BotThrea
   2. Bot D is deployed as a separate Coolify service and its thread is spawned/revived by BotManager.
   3. Dashboard `KNOWN_BOTS` includes "D" and attributes its trades and equity curve correctly.
 **Plans**: 3 plans
-- [ ] 09-01-PLAN.md — BOT-01 code: widen trade_logger BOT_ID allow-list to include D + fail-clear test
+- [x] 09-01-PLAN.md — BOT-01 code: widen trade_logger BOT_ID allow-list to include D + fail-clear test
 - [ ] 09-02-PLAN.md — BOT-03: KNOWN_BOTS+seed_bots D row + generalize 2 hardcoded A/B UI cells + tests
 - [ ] 09-03-PLAN.md — D-05 docs + BOT-02/live-acct BOT-01 infra HALT recipe (handoff)
 **UI hint**: yes
@@ -166,5 +166,5 @@ orchestrator" / "PositionMonitor" apply to both the shared helpers and `BotThrea
 | 6. Fee/Slippage Gate | 1/1 | Complete    | 2026-06-09 |
 | 7. Self-Learning Loop (Entry+Sizing) | 1/3 | Complete    | 2026-06-09 |
 | 8. Intraday Dimensions + Shadow | 1/3 | Complete    | 2026-06-15 |
-| 9. Bot D Deployment | 0/3 | Not started | - |
+| 9. Bot D Deployment | 1/3 | Complete    | 2026-06-15 |
 | 10. Verification + Backtest | 0/0 | Not started | - |
