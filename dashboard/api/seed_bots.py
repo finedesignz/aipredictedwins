@@ -15,12 +15,8 @@ log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="[seed] %(message)s")
 
 
-def seed_bots() -> None:
-    db_url = os.environ.get("DATABASE_URL")
-    if not db_url:
-        log.info("DATABASE_URL not set — skipping seed")
-        return
-
+def build_bots() -> list[dict]:
+    """Assemble the per-bot config list from env vars (DB-free, unit-testable)."""
     bots = []
 
     key_a = os.environ.get("ALPACA_API_KEY_A")
@@ -92,8 +88,41 @@ def seed_bots() -> None:
             "strategy": os.environ.get("BOT_C_STRATEGY", "tradingagents"),
         })
 
+    key_d = os.environ.get("ALPACA_API_KEY_D")
+    secret_d = os.environ.get("ALPACA_SECRET_KEY_D")
+    if key_d and secret_d:
+        bots.append({
+            "bot_id": "D",
+            "label": os.environ.get("BOT_D_LABEL", "Agent D — Daytrade"),
+            "alpaca_api_key": key_d,
+            "alpaca_secret_key": secret_d,
+            "kelly_fraction": float(os.environ.get("BOT_D_KELLY", "0.25")),
+            "min_confluence": int(os.environ.get("BOT_D_CONFLUENCE", "3")),
+            "skip_risk_gate": os.environ.get("BOT_D_SKIP_RISK_GATE", "false").lower() == "true",
+            "hard_stop_pct": float(os.environ.get("BOT_D_HARD_STOP_PCT", "-0.05")),
+            "soft_stop_pct": float(os.environ.get("BOT_D_SOFT_STOP_PCT", "-0.03")),
+            "rsi_ceiling": float(os.environ.get("BOT_D_RSI_CEILING", "65.0")),
+            "crypto_universe": os.environ.get("BOT_D_CRYPTO_UNIVERSE", "BTC/USD,ETH/USD,SOL/USD,XRP/USD,ADA/USD,AVAX/USD,DOT/USD,LINK/USD"),
+            "stock_universe": os.environ.get("BOT_D_STOCK_UNIVERSE", "QQQ,SPY,AAPL,NVDA,MSFT,TSLA,AMZN,META"),
+            "asset_class": "crypto",
+            "max_position_pct": float(os.environ.get("BOT_D_MAX_POSITION_PCT", "0.05")),
+            "min_short_confluence": int(os.environ.get("BOT_D_MIN_SHORT_CONFLUENCE", "3")),
+            "tradingagents_enabled": os.environ.get("BOT_D_TRADINGAGENTS", "false").lower() == "true",
+        })
+
+    return bots
+
+
+def seed_bots() -> None:
+    db_url = os.environ.get("DATABASE_URL")
+    if not db_url:
+        log.info("DATABASE_URL not set — skipping seed")
+        return
+
+    bots = build_bots()
+
     if not bots:
-        log.info("No ALPACA_API_KEY_A/B/C env vars found — skipping seed")
+        log.info("No ALPACA_API_KEY_A/B/C/D env vars found — skipping seed")
         return
 
     with psycopg.connect(db_url, autocommit=False) as conn:

@@ -15,7 +15,7 @@ from psycopg_pool import ConnectionPool
 
 _pool: ConnectionPool | None = None
 
-KNOWN_BOTS: tuple[str, ...] = ("A", "B", "C")
+KNOWN_BOTS: tuple[str, ...] = ("A", "B", "C", "D")
 
 
 def is_specific_bot(bot: str) -> bool:
