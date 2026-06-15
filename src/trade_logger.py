@@ -10,6 +10,9 @@ BOT_ID env var must be set to 'A' or 'B' before instantiating.
 import os
 from src import db as _db
 
+# Single source of truth for valid orchestrator bot ids (env-var path).
+KNOWN_BOT_IDS = ("A", "B", "C", "D")
+
 
 class TradeLogger:
     def __init__(self, db_path: str = "data/trades.db", bot_id: str | None = None):
@@ -22,11 +25,11 @@ class TradeLogger:
                 raise ValueError("bot_id must be a non-empty string")
             self.bot_id = bot_id
         else:
-            self.bot_id = os.environ.get("BOT_ID", "")
-            if self.bot_id not in ("A", "B"):
+            self.bot_id = os.environ.get("BOT_ID", "").upper()
+            if self.bot_id not in KNOWN_BOT_IDS:
                 raise ValueError(
-                    f"BOT_ID env var must be 'A' or 'B', got {self.bot_id!r}. "
-                    "Set BOT_ID=A or BOT_ID=B before starting the bot."
+                    f"BOT_ID env var must be one of {'/'.join(KNOWN_BOT_IDS)}, "
+                    f"got {self.bot_id!r}. Set BOT_ID before starting the bot."
                 )
 
     # ── Alpaca trades ──────────────────────────────────────────────────
