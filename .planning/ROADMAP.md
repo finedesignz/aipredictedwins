@@ -25,7 +25,8 @@ orchestrator" / "PositionMonitor" apply to both the shared helpers and `BotThrea
  (completed 2026-06-09)
 - [x] **Phase 7: Close the Self-Learning Loop (Entry + Sizing)** - Wire `get_advice()` veto + `get_dynamic_thresholds()` into entry and Kelly sizing (completed 2026-06-09)
 - [x] **Phase 8: Intraday Learning Dimensions + Shadow Mode** - Time-of-day/hold/volatility dimensions and shadowâauto gate (completed 2026-06-15)
-- [x] **Phase 9: Bot D Deployment** - New paper account, daytrade profile, Coolify service, dashboard attribution (completed 2026-06-15)
+- [x] **Phase 9: Bot D Deployment** - New paper account, daytrade profile, Coolify service, dashboard attribution
+ (completed 2026-06-15)
 - [ ] **Phase 10: Verification + Backtest** - Unit tests for new logic + 5-min backtest validating signal frequency
 
 ## Phase Details
@@ -152,7 +153,9 @@ orchestrator" / "PositionMonitor" apply to both the shared helpers and `BotThrea
   1. Unit tests cover SWING preset parity, ATR exit math, the fee gate, learning veto/scale wiring, and session VWAP, and pass under `pytest tests/`.
   2. A backtest over historical 5-min bars (`scan_assets(fetch_4h=False)` path) reports daytrade signal frequency and a STRONG/MARGINAL/NO-EDGE verdict.
   3. The swing-preset regression path remains green (no behavior drift).
-**Plans**: TBD
+**Plans**: 2 plans
+- [ ] 10-01-PLAN.md — VERIFY-01: coverage-map audit + session-VWAP assertion + real-loop veto/scale integration test (enforce+shadow) driving BotThread._run_cycle
+- [ ] 10-02-PLAN.md — VERIFY-02: committed 5Min fixture + backtest_signal_frequency.py harness (fixture default + --live) + frequency-range regression test
 
 ## Progress
 
