@@ -20,9 +20,9 @@ Derived from `docs/superpowers/specs/2026-06-08-day-trading-upgrade-design.md`.
 - [x] **LEARN-01**: Before sizing, the orchestrator calls `get_advice()`; `should_trade=False` vetoes the candidate.
 - [x] **LEARN-02**: `confidence_adjustment` from advice scales position size.
 - [x] **LEARN-03**: `get_dynamic_thresholds()` feeds min/max position % and confluence thresholds into Kelly sizing.
-- [ ] **LEARN-04**: `trade_context` records intraday dimensions: time-of-day bucket, hold-minutes, volatility regime.
-- [ ] **LEARN-05**: Lessons incorporate the new intraday dimensions.
-- [ ] **LEARN-06**: Shadow mode logs would-be vetoes/scaling until `LEARNING_SHADOW_UNTIL_TRADES` (default 30) closed trades, then auto-applies.
+- [x] **LEARN-04**: `trade_context` records intraday dimensions: time-of-day bucket, hold-minutes, volatility regime.
+- [x] **LEARN-05**: Lessons incorporate the new intraday dimensions.
+- [x] **LEARN-06**: Shadow mode logs would-be vetoes/scaling until `LEARNING_SHADOW_UNTIL_TRADES` (default 30) closed trades, then auto-applies.
 
 ### Signal Engine (SIGNAL)
 - [x] **SIGNAL-01**: `analyze()` takes indicator periods from the profile (no hardcoded 9/21/14).
@@ -68,9 +68,9 @@ Derived from `docs/superpowers/specs/2026-06-08-day-trading-upgrade-design.md`.
 | LEARN-01 | Phase 7 | Complete |
 | LEARN-02 | Phase 7 | Complete |
 | LEARN-03 | Phase 7 | Complete |
-| LEARN-04 | Phase 8 | Pending |
-| LEARN-05 | Phase 8 | Pending |
-| LEARN-06 | Phase 8 | Pending |
+| LEARN-04 | Phase 8 | Complete |
+| LEARN-05 | Phase 8 | Complete |
+| LEARN-06 | Phase 8 | Complete |
 | BOT-01 | Phase 9 | Pending |
 | BOT-02 | Phase 9 | Pending |
 | BOT-03 | Phase 9 | Pending |

@@ -24,7 +24,7 @@ orchestrator" / "PositionMonitor" apply to both the shared helpers and `BotThrea
 - [x] **Phase 6: Fee/Slippage Pre-Trade Gate** - Skip candidates whose move-to-target can't clear round-trip fees
  (completed 2026-06-09)
 - [x] **Phase 7: Close the Self-Learning Loop (Entry + Sizing)** - Wire `get_advice()` veto + `get_dynamic_thresholds()` into entry and Kelly sizing (completed 2026-06-09)
-- [ ] **Phase 8: Intraday Learning Dimensions + Shadow Mode** - Time-of-day/hold/volatility dimensions and shadowâauto gate
+- [x] **Phase 8: Intraday Learning Dimensions + Shadow Mode** - Time-of-day/hold/volatility dimensions and shadowâauto gate (completed 2026-06-15)
 - [ ] **Phase 9: Bot D Deployment** - New paper account, daytrade profile, Coolify service, dashboard attribution
 - [ ] **Phase 10: Verification + Backtest** - Unit tests for new logic + 5-min backtest validating signal frequency
 
@@ -126,7 +126,7 @@ orchestrator" / "PositionMonitor" apply to both the shared helpers and `BotThrea
   3. Until `LEARNING_SHADOW_UNTIL_TRADES` (default 30) closed trades, learning logs "WOULD veto / WOULD scale ÃN" without acting; after the threshold it auto-applies.
   4. The shadowâauto transition is controlled by a single env flag.
 **Plans**: 3 plans
-- [ ] 08-01-PLAN.md — Migration 014 + db_schema mirror + pure dimension helpers + test scaffold (LEARN-04/06)
+- [x] 08-01-PLAN.md — Migration 014 + db_schema mirror + pure dimension helpers + test scaffold (LEARN-04/06)
 - [ ] 08-02-PLAN.md — Persist entry dimensions (4 sites) + hold_minutes at close + dimension lessons (LEARN-04/05)
 - [ ] 08-03-PLAN.md — Count-based shadow gate replacing 8 static seams (LEARN-06)
 
@@ -162,6 +162,6 @@ orchestrator" / "PositionMonitor" apply to both the shared helpers and `BotThrea
 | 5. MiroFish Removal | 1/1 | Complete    | 2026-06-09 |
 | 6. Fee/Slippage Gate | 1/1 | Complete    | 2026-06-09 |
 | 7. Self-Learning Loop (Entry+Sizing) | 1/3 | Complete    | 2026-06-09 |
-| 8. Intraday Dimensions + Shadow | 0/3 | Not started | - |
+| 8. Intraday Dimensions + Shadow | 1/3 | Complete    | 2026-06-15 |
 | 9. Bot D Deployment | 0/0 | Not started | - |
 | 10. Verification + Backtest | 0/0 | Not started | - |
