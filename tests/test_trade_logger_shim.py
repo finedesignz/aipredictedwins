@@ -47,10 +47,25 @@ def test_missing_bot_id_raises(monkeypatch):
 
 
 def test_invalid_bot_id_raises(monkeypatch):
-    monkeypatch.setenv("BOT_ID", "C")
+    # C/D are now valid; use a value outside KNOWN_BOT_IDS.
+    monkeypatch.setenv("BOT_ID", "Z")
     from src.trade_logger import TradeLogger
     with pytest.raises(ValueError, match="BOT_ID"):
         TradeLogger()
+
+
+def test_valid_bot_id_d(monkeypatch):
+    monkeypatch.setenv("BOT_ID", "D")
+    from src.trade_logger import TradeLogger
+    logger = TradeLogger()
+    assert logger.bot_id == "D"
+
+
+def test_lowercase_bot_id_normalized(monkeypatch):
+    monkeypatch.setenv("BOT_ID", "d")
+    from src.trade_logger import TradeLogger
+    logger = TradeLogger()
+    assert logger.bot_id == "D"
 
 
 def test_valid_bot_id_a(monkeypatch):
