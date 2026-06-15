@@ -4,6 +4,7 @@ import { TrendingUp, TrendingDown, Clock } from "lucide-react";
 import type { Position } from "@/types";
 import { formatCurrency, formatPercent, formatRelativeTime } from "@/lib/format";
 import Badge from "@/components/shared/Badge";
+import { botBadge } from "@/lib/botBadge";
 
 interface PositionCardProps {
   position: Position;
@@ -15,17 +16,14 @@ export default function PositionCard({ position }: PositionCardProps) {
 
   return (
     <div className="relative rounded-lg border border-border-primary bg-bg-card p-4 transition-colors hover:bg-bg-card-hover">
-      {position.bot && (
-        <span
-          className="absolute top-2 right-2 text-[10px] font-bold px-1.5 py-0.5 rounded"
-          style={{
-            background: position.bot === "A" || position.bot === "Agent A" ? "rgba(96,165,250,0.15)" : "rgba(251,191,36,0.15)",
-            color: position.bot === "A" || position.bot === "Agent A" ? "#60a5fa" : "#fbbf24",
-          }}
-        >
-          {position.bot === "Agent A" ? "A" : position.bot === "Agent B" ? "B" : position.bot}
-        </span>
-      )}
+      {position.bot && (() => {
+        const { label, className } = botBadge(position.bot);
+        return (
+          <span className={`absolute top-2 right-2 text-[10px] font-bold px-1.5 py-0.5 rounded ${className}`}>
+            {label}
+          </span>
+        );
+      })()}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <span className="font-mono-nums text-sm font-semibold text-text-primary">

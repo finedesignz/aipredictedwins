@@ -18,6 +18,7 @@ import {
   formatPercent,
   formatTimestamp,
 } from "@/lib/format";
+import { botBadge } from "@/lib/botBadge";
 import Badge from "@/components/shared/Badge";
 
 const columnHelper = createColumnHelper<Trade>();
@@ -113,10 +114,10 @@ const columns = [
     cell: (info) => {
       const val = info.getValue();
       if (!val) return <span className="text-xs text-text-muted">--</span>;
-      const isB = val.includes("B");
+      const { label, className } = botBadge(val);
       return (
-        <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${isB ? "bg-warning-amber/15 text-warning-amber" : "bg-accent-blue/15 text-accent-blue"}`}>
-          {isB ? "B" : "A"}
+        <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${className}`}>
+          {label}
         </span>
       );
     },
