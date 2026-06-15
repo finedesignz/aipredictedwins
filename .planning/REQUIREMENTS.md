@@ -38,8 +38,8 @@ Derived from `docs/superpowers/specs/2026-06-08-day-trading-upgrade-design.md`.
 - [x] **BOT-03**: Dashboard `KNOWN_BOTS` includes "D" and attributes its trades/equity correctly.
 
 ### Verification (VERIFY)
-- [ ] **VERIFY-01**: Unit tests cover profile presets (SWING parity), ATR exit math, fee gate, learning veto/scale wiring, and session VWAP.
-- [ ] **VERIFY-02**: A backtest over historical 5-min bars validates daytrade signal frequency before live paper.
+- [x] **VERIFY-01**: Unit tests cover profile presets (SWING parity), ATR exit math, fee gate, learning veto/scale wiring, and session VWAP.
+- [x] **VERIFY-02**: A backtest over historical 5-min bars validates daytrade signal frequency before live paper.
 
 ## Future Requirements (deferred)
 - Options v3 (calls/puts/spreads/multi-leg)
@@ -74,7 +74,7 @@ Derived from `docs/superpowers/specs/2026-06-08-day-trading-upgrade-design.md`.
 | BOT-01 | Phase 9 | Complete |
 | BOT-02 | Phase 9 | Complete |
 | BOT-03 | Phase 9 | Complete |
-| VERIFY-01 | Phase 10 | Pending |
-| VERIFY-02 | Phase 10 | Pending |
+| VERIFY-01 | Phase 10 | Complete |
+| VERIFY-02 | Phase 10 | Complete |
 
 **Coverage:** 21/21 requirements mapped — no orphans, no duplicates.

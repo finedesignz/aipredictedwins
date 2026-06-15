@@ -27,7 +27,7 @@ orchestrator" / "PositionMonitor" apply to both the shared helpers and `BotThrea
 - [x] **Phase 8: Intraday Learning Dimensions + Shadow Mode** - Time-of-day/hold/volatility dimensions and shadowâauto gate (completed 2026-06-15)
 - [x] **Phase 9: Bot D Deployment** - New paper account, daytrade profile, Coolify service, dashboard attribution
  (completed 2026-06-15)
-- [ ] **Phase 10: Verification + Backtest** - Unit tests for new logic + 5-min backtest validating signal frequency
+- [x] **Phase 10: Verification + Backtest** - Unit tests for new logic + 5-min backtest validating signal frequency (completed 2026-06-15)
 
 ## Phase Details
 
@@ -154,7 +154,7 @@ orchestrator" / "PositionMonitor" apply to both the shared helpers and `BotThrea
   2. A backtest over historical 5-min bars (`scan_assets(fetch_4h=False)` path) reports daytrade signal frequency and a STRONG/MARGINAL/NO-EDGE verdict.
   3. The swing-preset regression path remains green (no behavior drift).
 **Plans**: 2 plans
-- [ ] 10-01-PLAN.md — VERIFY-01: coverage-map audit + session-VWAP assertion + real-loop veto/scale integration test (enforce+shadow) driving BotThread._run_cycle
+- [x] 10-01-PLAN.md — VERIFY-01: coverage-map audit + session-VWAP assertion + real-loop veto/scale integration test (enforce+shadow) driving BotThread._run_cycle
 - [ ] 10-02-PLAN.md — VERIFY-02: committed 5Min fixture + backtest_signal_frequency.py harness (fixture default + --live) + frequency-range regression test
 
 ## Progress
@@ -170,4 +170,4 @@ orchestrator" / "PositionMonitor" apply to both the shared helpers and `BotThrea
 | 7. Self-Learning Loop (Entry+Sizing) | 1/3 | Complete    | 2026-06-09 |
 | 8. Intraday Dimensions + Shadow | 1/3 | Complete    | 2026-06-15 |
 | 9. Bot D Deployment | 1/3 | Complete    | 2026-06-15 |
-| 10. Verification + Backtest | 0/0 | Not started | - |
+| 10. Verification + Backtest | 1/2 | Complete    | 2026-06-15 |
