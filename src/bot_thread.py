@@ -59,7 +59,7 @@ from src.trade_logger import TradeLogger
 from src.rules_gate import RulesGate
 from src.exit_advisor import HARD_STOP_PCT, SOFT_STOP_PCT, SOFT_TAKE_PROFIT_PCT
 from src.fee_gate import clears_fee_hurdle, TAKER_FEE, SLIPPAGE_BUFFER
-from src.technical_signals import scan_assets
+from src.technical_signals import scan_assets, bear_fraction
 from src.strategy_profile import PROFILES, SWING
 from src.alpaca_orchestrator import (
     PositionMonitor,
@@ -68,6 +68,7 @@ from src.alpaca_orchestrator import (
     MAX_TOTAL_EXPOSURE_PCT,
     DRAWDOWN_STOP_PCT,
     CYCLE_SLEEP_SECONDS,
+    BEAR_MARKET_PAUSE_THRESHOLD,
     _ALPACA_UNTRADEABLE,
 )
 from src.signal_validator import SignalValidator
@@ -400,8 +401,18 @@ class BotThread(threading.Thread):
 
         min_short = getattr(cfg, "min_short_confluence", 3)
 
+        # Broad-market bear pause: if most of the universe has EMA=bearish, skip
+        # new longs (shorts unaffected). Mirrors the CLI orchestrator path.
+        bear_frac = bear_fraction(signals)
+        market_is_broadly_bearish = bear_frac >= BEAR_MARKET_PAUSE_THRESHOLD
+        if market_is_broadly_bearish:
+            log.info(
+                "[bot:%s] BROAD BEAR PAUSE: %.0f%% of universe EMA=bearish (>= %.0f%%) — skipping new longs",
+                bot_id, bear_frac * 100, BEAR_MARKET_PAUSE_THRESHOLD * 100,
+            )
+
         # Long candidates: bullish confluence, not bearish on 4H, RSI not overextended
-        long_candidates = _select_cycle_candidates([
+        long_candidates = [] if market_is_broadly_bearish else _select_cycle_candidates([
             s for s in signals
             if s.confluence_score >= cfg.min_confluence
             and s.symbol not in open_symbols

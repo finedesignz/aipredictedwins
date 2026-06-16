@@ -28,7 +28,7 @@ from rich.table import Table
 from src.config import load_config
 from src.alpaca_client import AlpacaClient
 from src.alpaca_evaluator import get_trending_crypto, TOP_CRYPTO_TICKERS, MEME_CRYPTO, get_dynamic_crypto_universe
-from src.technical_signals import scan_assets, analyze, _atr
+from src.technical_signals import scan_assets, analyze, _atr, bear_fraction
 from src.rules_gate import RulesGate
 from src.risk_gate import RiskGate  # keep for backward compat / type hints
 from src.exit_advisor import TrailingStop, HARD_STOP_PCT, SOFT_STOP_PCT, SOFT_TAKE_PROFIT_PCT
@@ -721,12 +721,12 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
             # Filter: minimum confluence, dedup, blocklist
             # Broad-market bear pause: if most of the universe has EMA=bearish, skip new longs.
             ema_bear_count = sum(1 for s in signals if not s.ema_bullish)
-            bear_fraction = ema_bear_count / len(signals) if signals else 0.0
-            market_is_broadly_bearish = bear_fraction >= BEAR_MARKET_PAUSE_THRESHOLD
+            bear_frac = bear_fraction(signals)
+            market_is_broadly_bearish = bear_frac >= BEAR_MARKET_PAUSE_THRESHOLD
             if market_is_broadly_bearish:
                 console.print(
                     f"  [yellow]BROAD BEAR PAUSE[/yellow] {ema_bear_count}/{len(signals)} assets "
-                    f"have EMA=bearish ({bear_fraction:.0%}) — skipping new long entries[/yellow]"
+                    f"have EMA=bearish ({bear_frac:.0%}) — skipping new long entries[/yellow]"
                 )
 
             # Long candidates: EMA must be bullish (hard gate), confluence >= threshold,

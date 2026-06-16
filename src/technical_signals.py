@@ -193,6 +193,18 @@ def _volume_spike(volumes: list[float], lookback: int = 20, threshold: float = 1
     return volumes[-1] > avg_vol * threshold
 
 
+def bear_fraction(signals: list) -> float:
+    """Fraction of scanned signals whose EMA is bearish (not bullish).
+
+    Shared by both orchestrator paths (CLI + per-bot thread) to drive the
+    broad-market long pause. Returns 0.0 for an empty list.
+    """
+    if not signals:
+        return 0.0
+    bear_count = sum(1 for s in signals if not s.ema_bullish)
+    return bear_count / len(signals)
+
+
 def _detect_regime(adx_value: float, plus_di: float, minus_di: float) -> str:
     """Classify market regime based on ADX strength and directional spread.
 
