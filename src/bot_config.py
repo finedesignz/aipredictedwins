@@ -16,7 +16,7 @@ class BotConfig:
     alpaca_api_key: str
     alpaca_secret_key: str
     kelly_fraction: float = 0.25
-    min_confluence: int = 3
+    min_confluence: int = 4
     hard_stop_pct: float = -0.08
     soft_stop_pct: float = -0.05
     rsi_ceiling: float = 65.0
@@ -44,7 +44,7 @@ class BotConfig:
             alpaca_api_key=row.get("alpaca_api_key") or "",
             alpaca_secret_key=row.get("alpaca_secret_key") or "",
             kelly_fraction=float(row["kelly_fraction"] if row.get("kelly_fraction") is not None else 0.25),
-            min_confluence=int(row["min_confluence"] if row.get("min_confluence") is not None else 3),
+            min_confluence=int(row["min_confluence"] if row.get("min_confluence") is not None else 4),
             hard_stop_pct=float(row["hard_stop_pct"] if row.get("hard_stop_pct") is not None else -0.08),
             soft_stop_pct=float(row["soft_stop_pct"] if row.get("soft_stop_pct") is not None else -0.05),
             rsi_ceiling=float(row["rsi_ceiling"] if row.get("rsi_ceiling") is not None else 65.0),

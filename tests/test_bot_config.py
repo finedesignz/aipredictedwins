@@ -17,7 +17,7 @@ def test_from_row_defaults():
     assert cfg.label == "Agent A"
     assert cfg.alpaca_api_key == "key"
     assert cfg.kelly_fraction == 0.25
-    assert cfg.min_confluence == 3
+    assert cfg.min_confluence == 4
     assert cfg.hard_stop_pct == -0.08
     assert cfg.soft_stop_pct == -0.05
     assert cfg.rsi_ceiling == 65.0
