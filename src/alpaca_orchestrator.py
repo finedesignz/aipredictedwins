@@ -63,7 +63,7 @@ if _PROFILE_NAME not in PROFILES:
 PROFILE = PROFILES[_PROFILE_NAME]
 
 MAX_POSITION_PCT = float(_os.environ.get("MAX_POSITION_PCT", str(PROFILE.max_position_pct)))
-MAX_TOTAL_EXPOSURE_PCT = float(_os.environ.get("MAX_TOTAL_EXPOSURE_PCT", "0.80"))
+MAX_TOTAL_EXPOSURE_PCT = float(_os.environ.get("MAX_TOTAL_EXPOSURE_PCT", "0.40"))
 DRAWDOWN_STOP_PCT = float(_os.environ.get("DRAWDOWN_STOP_PCT", "0.10"))
 MIN_PAPER_TRADES = int(_os.environ.get("MIN_PAPER_TRADES", "50"))
 MIN_WIN_RATE = float(_os.environ.get("MIN_WIN_RATE", "0.40"))
