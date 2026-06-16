@@ -131,14 +131,24 @@ def test_max_hold_fires(mock_alpaca, mock_logger, mock_advisor):
     assert reason == "max_hold"
 
 
-def test_swing_no_time_close(mock_alpaca, mock_logger, mock_advisor):
-    old_ts = (datetime.now(timezone.utc) - timedelta(hours=240)).isoformat()
-    trade = _trade("buy", ts=old_ts)
-    # at entry, no atr breach -> swing (max_hold_hours None) never time-closes
+def test_swing_no_time_close_within_backstop(mock_alpaca, mock_logger, mock_advisor):
+    # Swing now has a 168h (7-day) max-hold backstop; a younger trade with no
+    # atr breach does NOT time-close.
+    young_ts = (datetime.now(timezone.utc) - timedelta(hours=120)).isoformat()
+    trade = _trade("buy", ts=young_ts)
     reason, _ = _run(mock_alpaca, mock_logger, mock_advisor, trade, ENTRY,
                      profile=SWING)
     assert reason != "max_hold"
     assert reason is None
+
+
+def test_swing_time_closes_past_backstop(mock_alpaca, mock_logger, mock_advisor):
+    # Past the 168h backstop, swing time-closes (GRT was held 7 days).
+    old_ts = (datetime.now(timezone.utc) - timedelta(hours=240)).isoformat()
+    trade = _trade("buy", ts=old_ts)
+    reason, _ = _run(mock_alpaca, mock_logger, mock_advisor, trade, ENTRY,
+                     profile=SWING)
+    assert reason == "max_hold"
 
 
 def test_override_precedence(mock_alpaca, mock_logger, mock_advisor):

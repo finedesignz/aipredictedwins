@@ -41,8 +41,8 @@ def test_swing_values_match_current_constants():
     assert SWING.htf_filter_timeframe == "4Hour"
     assert (SWING.ema_fast, SWING.ema_slow) == (9, 21)
     assert SWING.rsi_period == 14 and SWING.adx_period == 14
-    assert SWING.hard_stop_pct == -0.15
-    assert SWING.max_hold_hours is None
+    assert SWING.hard_stop_pct == -0.08
+    assert SWING.max_hold_hours == 168.0
     assert SWING.kelly_fraction == 0.25
     assert SWING.max_position_pct == 0.05
     assert SWING.min_confluence == 4 and SWING.min_short_confluence == 3
