@@ -441,7 +441,7 @@ def _kelly_technical(
     }
 
 
-MAX_ENTRIES_PER_CYCLE = int(_os.environ.get("MAX_ENTRIES_PER_CYCLE", "3"))
+MAX_ENTRIES_PER_CYCLE = int(_os.environ.get("MAX_ENTRIES_PER_CYCLE", "2"))
 
 
 def _select_cycle_candidates(candidates: list, max_entries: int = MAX_ENTRIES_PER_CYCLE) -> list:
