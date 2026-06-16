@@ -88,7 +88,7 @@ POSITION_CHECK_INTERVAL = int(_os.environ.get("POSITION_CHECK_INTERVAL", "60"))
 SKIP_RISK_GATE = _os.environ.get("SKIP_RISK_GATE", "").lower() in ("1", "true", "yes")
 BOT_LABEL = _os.environ.get("BOT_LABEL", "Agent A")
 SHORT_ENABLED = _os.environ.get("SHORT_ENABLED", "true").lower() in ("1", "true", "yes")
-DYNAMIC_UNIVERSE_SIZE = int(_os.environ.get("DYNAMIC_UNIVERSE_SIZE", "20"))
+DYNAMIC_UNIVERSE_SIZE = int(_os.environ.get("DYNAMIC_UNIVERSE_SIZE", "8"))
 
 # User-configurable live trading threshold (set via env var)
 LIVE_TRADING_THRESHOLD = float(_os.environ.get("LIVE_TRADING_THRESHOLD", "100000"))
