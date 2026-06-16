@@ -102,6 +102,44 @@ def _make_alpaca_config(bot_cfg: BotConfig) -> Config:
     )
 
 
+def select_long_candidates(signals, cfg, open_symbols, recent_loss_symbols):
+    """Filter signals to bullish long candidates for one cycle.
+
+    Bullish confluence, not already open / recently stopped out, tradeable,
+    RSI not overextended (``< cfg.rsi_ceiling``), not bearish on 4H.
+
+    Broad-bear pause is applied by the caller (it suppresses ALL longs); this
+    predicate is the per-signal long filter shared by the live loop and tests.
+    """
+    return _select_cycle_candidates([
+        s for s in signals
+        if s.confluence_score >= cfg.min_confluence
+        and s.symbol not in open_symbols
+        and s.symbol not in recent_loss_symbols
+        and s.symbol not in MEME_CRYPTO
+        and s.symbol not in _ALPACA_UNTRADEABLE
+        and s.rsi_value < cfg.rsi_ceiling
+        and getattr(s, "trend_4h", "unknown") != "bearish"
+    ])
+
+
+def select_short_candidates(signals, cfg, open_symbols, recent_loss_symbols):
+    """Filter signals to bearish short candidates for one cycle."""
+    short_enabled = getattr(cfg, "short_enabled", True)
+    if not short_enabled:
+        return []
+    min_short = getattr(cfg, "min_short_confluence", 3)
+    return _select_cycle_candidates([
+        s for s in signals
+        if getattr(s, "short_score", 0) >= min_short
+        and s.symbol not in open_symbols
+        and s.symbol not in recent_loss_symbols
+        and s.symbol not in MEME_CRYPTO
+        and s.symbol not in _ALPACA_UNTRADEABLE
+        and getattr(s, "trend_4h", "unknown") != "bullish"
+    ])
+
+
 # ---------------------------------------------------------------------------
 # BotThread
 # ---------------------------------------------------------------------------
@@ -397,10 +435,6 @@ class BotThread(threading.Thread):
         except Exception as exc:
             log.warning("[bot:%s] Failed to persist scan signals: %s", bot_id, exc)
 
-        short_enabled = getattr(cfg, "short_enabled", True)
-
-        min_short = getattr(cfg, "min_short_confluence", 3)
-
         # Broad-market bear pause: if most of the universe has EMA=bearish, skip
         # new longs (shorts unaffected). Mirrors the CLI orchestrator path.
         bear_frac = bear_fraction(signals)
@@ -411,29 +445,17 @@ class BotThread(threading.Thread):
                 bot_id, bear_frac * 100, BEAR_MARKET_PAUSE_THRESHOLD * 100,
             )
 
-        # Long candidates: bullish confluence, not bearish on 4H, RSI not overextended
-        long_candidates = [] if market_is_broadly_bearish else _select_cycle_candidates([
-            s for s in signals
-            if s.confluence_score >= cfg.min_confluence
-            and s.symbol not in open_symbols
-            and s.symbol not in recent_loss_symbols
-            and s.symbol not in MEME_CRYPTO
-            and s.symbol not in _ALPACA_UNTRADEABLE
-            and s.rsi_value < cfg.rsi_ceiling
-            and getattr(s, "trend_4h", "unknown") != "bearish"
-        ])
+        # Long candidates: bullish confluence, not bearish on 4H, RSI not overextended.
+        # Broad-bear pause suppresses the whole long set; the per-signal predicate
+        # lives in select_long_candidates (shared with tests).
+        long_candidates = [] if market_is_broadly_bearish else select_long_candidates(
+            signals, cfg, open_symbols, recent_loss_symbols
+        )
 
         # Short candidates: bearish confluence, not bullish on 4H
-        short_candidates = _select_cycle_candidates([
-            s for s in signals
-            if short_enabled
-            and getattr(s, "short_score", 0) >= min_short
-            and s.symbol not in open_symbols
-            and s.symbol not in recent_loss_symbols
-            and s.symbol not in MEME_CRYPTO
-            and s.symbol not in _ALPACA_UNTRADEABLE
-            and getattr(s, "trend_4h", "unknown") != "bullish"
-        ]) if short_enabled else []
+        short_candidates = select_short_candidates(
+            signals, cfg, open_symbols, recent_loss_symbols
+        )
 
         candidates = long_candidates
         log.info(

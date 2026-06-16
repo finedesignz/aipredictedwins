@@ -5,12 +5,14 @@ Covers: bear_fraction shared helper, RSI-ceiling long filter, broad-bear long
 pause, and the realistic Kelly reward/risk ratio.
 """
 from src.technical_signals import Signal, bear_fraction
-from src.alpaca_orchestrator import _kelly_technical
+from src.alpaca_orchestrator import _kelly_technical, BEAR_MARKET_PAUSE_THRESHOLD
 from src.bot_config import BotConfig
+from src.bot_thread import select_long_candidates, select_short_candidates
 
 
 def _sig(symbol: str, *, ema_bullish: bool = True, rsi: float = 50.0,
-         confluence: int = 4, trend_4h: str = "neutral") -> Signal:
+         confluence: int = 4, trend_4h: str = "neutral",
+         short_score: int = 0) -> Signal:
     """Minimal Signal for filter/helper tests."""
     return Signal(
         symbol=symbol,
@@ -26,7 +28,12 @@ def _sig(symbol: str, *, ema_bullish: bool = True, rsi: float = 50.0,
         confluence_score=confluence,
         details={},
         trend_4h=trend_4h,
+        short_score=short_score,
     )
+
+
+def _cfg() -> BotConfig:
+    return BotConfig(bot_id="A", label="A", alpaca_api_key="k", alpaca_secret_key="s")
 
 
 # -- bear_fraction shared helper -------------------------------------------
@@ -51,26 +58,65 @@ def test_bear_fraction_triggers_pause_threshold():
     assert bear_fraction(sigs) >= 0.60
 
 
-# -- RSI ceiling long filter (mirrors bot_thread long predicate) -----------
-
-def _long_filter(signals, cfg):
-    return [
-        s for s in signals
-        if s.confluence_score >= cfg.min_confluence
-        and s.rsi_value < cfg.rsi_ceiling
-        and s.trend_4h != "bearish"
-    ]
-
+# -- RSI ceiling long filter (REAL bot_thread predicate) -------------------
 
 def test_overbought_long_is_filtered_out():
-    cfg = BotConfig(bot_id="A", label="A", alpaca_api_key="k", alpaca_secret_key="s")
+    """Drives the real bot_thread.select_long_candidates predicate
+    (bot_thread.py: ``s.rsi_value < cfg.rsi_ceiling``)."""
+    cfg = _cfg()
     assert cfg.rsi_ceiling == 65.0
     healthy = _sig("BTC/USD", rsi=55.0)
     overbought = _sig("ETH/USD", rsi=72.0)  # above 65 ceiling
-    kept = _long_filter([healthy, overbought], cfg)
+    kept = select_long_candidates(
+        [healthy, overbought], cfg, open_symbols=set(), recent_loss_symbols=set()
+    )
     symbols = {s.symbol for s in kept}
     assert "BTC/USD" in symbols
     assert "ETH/USD" not in symbols
+
+
+# -- Broad-bear pause: real bot_thread long/short wiring -------------------
+
+def _long_set_for(signals, cfg):
+    """Mirror bot_thread._run_one_cycle long gating: broad-bear pause
+    suppresses ALL longs, otherwise the real per-signal predicate runs."""
+    market_is_broadly_bearish = bear_fraction(signals) >= BEAR_MARKET_PAUSE_THRESHOLD
+    return [] if market_is_broadly_bearish else select_long_candidates(
+        signals, cfg, open_symbols=set(), recent_loss_symbols=set()
+    )
+
+
+def test_broad_bear_pause_suppresses_longs_not_shorts():
+    cfg = _cfg()
+    # 3/4 bearish EMA = 0.75 >= 0.60 threshold. Each carries a tradeable
+    # long (bullish confluence) AND a short (short_score) signal.
+    # Use Alpaca-tradeable symbols (ETH/LINK/DOT etc. are untradeable & excluded).
+    sigs = [
+        _sig(s, ema_bullish=False, trend_4h="neutral", short_score=4)
+        for s in ("BTC/USD", "SOL/USD", "XRP/USD")
+    ] + [_sig("ADA/USD", ema_bullish=True, short_score=4)]
+    assert bear_fraction(sigs) >= BEAR_MARKET_PAUSE_THRESHOLD
+
+    longs = _long_set_for(sigs, cfg)
+    shorts = select_short_candidates(
+        sigs, cfg, open_symbols=set(), recent_loss_symbols=set()
+    )
+    assert longs == []                 # longs paused
+    assert len(shorts) > 0             # shorts unaffected
+
+
+def test_non_bearish_market_lets_longs_through():
+    cfg = _cfg()
+    # 1/3 bearish = 0.33 < 0.60 — no pause, healthy longs pass.
+    # (cycle caps entries via MAX_ENTRIES_PER_CYCLE, so keep candidates <= cap)
+    sigs = [
+        _sig("BTC/USD", ema_bullish=True, rsi=55.0),
+        _sig("SOL/USD", ema_bullish=True, rsi=50.0),
+        _sig("XRP/USD", ema_bullish=False, rsi=52.0, confluence=1),
+    ]
+    assert bear_fraction(sigs) < BEAR_MARKET_PAUSE_THRESHOLD
+    longs = _long_set_for(sigs, cfg)
+    assert {s.symbol for s in longs} == {"BTC/USD", "SOL/USD"}
 
 
 # -- Kelly realistic reward/risk -------------------------------------------
