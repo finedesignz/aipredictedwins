@@ -407,9 +407,9 @@ def _kelly_technical(
     win_prob_map = {3: 0.55, 4: 0.60, 5: 0.65}
     win_prob = win_prob_map.get(confluence, 0.55)
 
-    # Risk/reward: soft take-profit at 8%, hard stop at 5%
-    # b = 0.08 / 0.05 = 1.6
-    b = 0.08 / 0.05
+    # Risk/reward: reward ~= realized risk (losers run to the hard stop, not 5%).
+    # b = 0.08 / 0.08 = 1.0 — conservative vs the old optimistic 0.08/0.05 = 1.6.
+    b = 0.08 / 0.08
     p = win_prob
     q = 1.0 - p
 
