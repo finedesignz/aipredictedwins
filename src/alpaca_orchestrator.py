@@ -89,6 +89,9 @@ SKIP_RISK_GATE = _os.environ.get("SKIP_RISK_GATE", "").lower() in ("1", "true", 
 BOT_LABEL = _os.environ.get("BOT_LABEL", "Agent A")
 SHORT_ENABLED = _os.environ.get("SHORT_ENABLED", "true").lower() in ("1", "true", "yes")
 DYNAMIC_UNIVERSE_SIZE = int(_os.environ.get("DYNAMIC_UNIVERSE_SIZE", "8"))
+# Optional curated/static crypto universe (comma-separated, e.g. "BTC/USD,ETH/USD").
+# When set, it is preferred over the dynamic volume-ranked universe.
+CRYPTO_UNIVERSE = [s.strip() for s in _os.environ.get("CRYPTO_UNIVERSE", "").split(",") if s.strip()]
 
 # User-configurable live trading threshold (set via env var)
 LIVE_TRADING_THRESHOLD = float(_os.environ.get("LIVE_TRADING_THRESHOLD", "100000"))
@@ -577,13 +580,18 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
     logger = TradeLogger()
     risk_gate = RulesGate()
 
-    # Dynamic asset universe — refreshed at startup
-    log.info("Fetching dynamic crypto universe (top %d by volume)...", DYNAMIC_UNIVERSE_SIZE)
-    try:
-        universe = get_dynamic_crypto_universe(alpaca, top_n=DYNAMIC_UNIVERSE_SIZE)
-    except Exception as _e:
-        log.warning("Dynamic universe fetch failed, using default: %s", _e)
-        universe = list(TOP_CRYPTO_TICKERS)
+    # Asset universe — prefer curated static list when CRYPTO_UNIVERSE is set,
+    # else fall back to the dynamic volume-ranked universe (refreshed at startup).
+    if CRYPTO_UNIVERSE:
+        log.info("Using curated crypto universe (%d assets from CRYPTO_UNIVERSE)...", len(CRYPTO_UNIVERSE))
+        universe = list(CRYPTO_UNIVERSE)
+    else:
+        log.info("Fetching dynamic crypto universe (top %d by volume)...", DYNAMIC_UNIVERSE_SIZE)
+        try:
+            universe = get_dynamic_crypto_universe(alpaca, top_n=DYNAMIC_UNIVERSE_SIZE)
+        except Exception as _e:
+            log.warning("Dynamic universe fetch failed, using default: %s", _e)
+            universe = list(TOP_CRYPTO_TICKERS)
     # Strip out known-untradeable symbols so they never reach the signal scanner
     universe = [s for s in universe if s not in _ALPACA_UNTRADEABLE]
     console.print(f"  [cyan]Universe: {len(universe)} assets[/cyan] ({', '.join(s.replace('/USD','') for s in universe[:10])}...)")
@@ -639,9 +647,10 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
             daily_pnl = 0.0
             daily_start = today
 
-        # Refresh universe once per day
+        # Refresh universe once per day (only when using the dynamic universe;
+        # a curated CRYPTO_UNIVERSE is static and never refreshed)
         _hours_since_refresh = (datetime.now(timezone.utc) - _universe_last_refresh).total_seconds() / 3600
-        if _hours_since_refresh >= 24:
+        if not CRYPTO_UNIVERSE and _hours_since_refresh >= 24:
             try:
                 universe = get_dynamic_crypto_universe(alpaca, top_n=DYNAMIC_UNIVERSE_SIZE)
                 universe = [s for s in universe if s not in _ALPACA_UNTRADEABLE]

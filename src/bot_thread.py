@@ -91,6 +91,28 @@ log = logging.getLogger(__name__)
 # Helper
 # ---------------------------------------------------------------------------
 
+def _resolve_crypto_universe(cfg: BotConfig, alpaca, bot_id: str) -> list[str]:
+    """Resolve the crypto asset universe for a bot.
+
+    Prefer the curated per-bot list (``cfg.crypto_universe`` via ``cfg.symbols``)
+    when it is non-empty; only fall back to the dynamic volume-ranked universe
+    when no curated list is configured. Downstream meme/untradeable filtering is
+    applied later by the scanner and is unaffected here.
+    """
+    curated = list(cfg.symbols)
+    if curated:
+        log.info("[bot:%s] Curated crypto universe: %d symbols", bot_id, len(curated))
+        return curated
+    top_n = getattr(cfg, "dynamic_universe_size", 20)
+    try:
+        universe = get_dynamic_crypto_universe(alpaca, top_n=top_n)
+        log.info("[bot:%s] Dynamic universe: %d symbols", bot_id, len(universe))
+        return universe
+    except Exception as exc:
+        log.warning("[bot:%s] Dynamic universe fetch failed (%s), using static list", bot_id, exc)
+        return list(cfg.symbols)
+
+
 def _make_alpaca_config(bot_cfg: BotConfig) -> Config:
     """Build a Config from BotConfig — no env var reads."""
     return Config(
@@ -254,13 +276,7 @@ class BotThread(threading.Thread):
             universe = list(cfg.symbols)
             log.info("[bot:%s] Stock universe: %d symbols", bot_id, len(universe))
         else:
-            top_n = getattr(cfg, "dynamic_universe_size", 20)
-            try:
-                universe = get_dynamic_crypto_universe(alpaca, top_n=top_n)
-                log.info("[bot:%s] Dynamic universe: %d symbols", bot_id, len(universe))
-            except Exception as exc:
-                log.warning("[bot:%s] Dynamic universe fetch failed (%s), using static list", bot_id, exc)
-                universe = list(cfg.symbols)
+            universe = _resolve_crypto_universe(cfg, alpaca, bot_id)
 
         # -- Start position monitor --------------------------------------------
         _monitor_profile = PROFILES.get(os.environ.get("BOT_PROFILE", "swing").lower(), SWING)
