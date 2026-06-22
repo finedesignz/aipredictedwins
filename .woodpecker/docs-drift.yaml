@@ -1,0 +1,19 @@
+when:
+  - event: [pull_request]
+
+steps:
+  - name: docs-drift
+    image: python:3.11
+    commands:
+      - command -v make >/dev/null || (apt-get update && apt-get install -y --no-install-recommends make)
+      - cd gateway
+      - pip install --upgrade pip
+      - pip install -r requirements.txt
+      - make docs-sync
+      - |
+        if ! git diff --quiet -- docs/openapi.json; then
+          echo "Docs drift detected. Run 'make docs-sync' in gateway/ and commit docs/openapi.json."
+          git --no-pager diff -- docs/openapi.json | head -200
+          exit 1
+        fi
+        echo "no drift"
