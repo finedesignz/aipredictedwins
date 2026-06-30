@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, viewport-fit=cover" />
+<title>Warsaw Ghetto Wall — Interactive Map</title>
+<meta name="description" content="Interactive map of the Warsaw Ghetto wall line overlaid on modern Warsaw, with live location and pins for surviving wall fragments and memorials." />
+<meta name="theme-color" content="#1a1a1a" />
+
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
+<style>
+  :root {
+    --bg: #16110d;
+    --panel: rgba(28, 22, 16, 0.94);
+    --line: #c0392b;
+    --accent: #e8c87a;
+    --text: #f3ece1;
+    --muted: #b6a98f;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg); color: var(--text);
+  }
+  #map { position: absolute; inset: 0; z-index: 0; background: #1f1813; }
+
+  /* Header */
+  #bar {
+    position: absolute; top: 0; left: 0; right: 0; z-index: 1000;
+    display: flex; align-items: center; gap: 10px;
+    padding: calc(env(safe-area-inset-top, 0px) + 8px) 12px 8px;
+    background: linear-gradient(180deg, rgba(10,7,5,0.92) 0%, rgba(10,7,5,0.0) 100%);
+    pointer-events: none;
+  }
+  #bar h1 {
+    margin: 0; font-size: 15px; font-weight: 700; letter-spacing: .2px;
+    text-shadow: 0 1px 3px rgba(0,0,0,.8); pointer-events: none;
+  }
+  #bar h1 small { display:block; font-weight: 500; font-size: 11px; color: var(--accent); opacity:.9; }
+
+  /* Status pill */
+  #status {
+    position: absolute; left: 12px; right: 12px;
+    top: calc(env(safe-area-inset-top, 0px) + 52px);
+    z-index: 1000;
+    background: var(--panel); color: var(--text);
+    border: 1px solid rgba(232,200,122,.25);
+    border-radius: 12px; padding: 9px 12px; font-size: 13px; line-height: 1.35;
+    box-shadow: 0 6px 22px rgba(0,0,0,.45); backdrop-filter: blur(6px);
+    display: flex; align-items: center; gap: 10px;
+  }
+  #status .dot { width: 9px; height: 9px; border-radius: 50%; background: #888; flex: none; }
+  #status.live .dot { background: #38d66b; box-shadow: 0 0 0 4px rgba(56,214,107,.18); }
+  #status.err .dot { background: var(--line); }
+  #status b { color: var(--accent); }
+
+  /* Locate button */
+  #locate {
+    position: absolute; right: 14px; bottom: calc(env(safe-area-inset-bottom,0px) + 92px);
+    z-index: 1000; width: 56px; height: 56px; border-radius: 50%;
+    border: none; background: var(--accent); color: #2a1d08;
+    font-size: 26px; cursor: pointer; box-shadow: 0 6px 18px rgba(0,0,0,.5);
+    display: flex; align-items: center; justify-content: center;
+  }
+  #locate:active { transform: scale(.94); }
+  #locate.tracking { background: #38d66b; }
+
+  /* Legend / sheet */
+  #sheet {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 1000;
+    background: var(--panel); backdrop-filter: blur(8px);
+    border-top: 1px solid rgba(232,200,122,.25);
+    border-radius: 16px 16px 0 0; padding: 6px 14px calc(env(safe-area-inset-bottom,0px) + 12px);
+    box-shadow: 0 -6px 22px rgba(0,0,0,.4);
+    transition: transform .25s ease; max-height: 60vh; overflow-y: auto;
+  }
+  #sheet.collapsed { transform: translateY(calc(100% - 46px)); }
+  #grip { width: 40px; height: 4px; border-radius: 4px; background: #6b5f49; margin: 8px auto 10px; }
+  #sheet h2 { margin: 0 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: 1px; color: var(--accent); }
+  .legend-row { display: flex; align-items: center; gap: 10px; font-size: 13px; padding: 4px 0; color: var(--text); }
+  .swatch { width: 20px; height: 20px; border-radius: 5px; flex: none; display:flex; align-items:center; justify-content:center; font-size:12px; }
+  .swatch.line { height: 0; border-top: 4px solid var(--line); border-radius: 0; }
+  .swatch.line.dash { border-top: 4px dashed var(--accent); }
+  #sheet p.note { font-size: 11.5px; color: var(--muted); line-height: 1.45; margin: 10px 0 4px; }
+  #sheet a { color: var(--accent); }
+  .count { color: var(--muted); font-weight: 400; }
+
+  /* Popups */
+  .leaflet-popup-content-wrapper { background: #211913; color: var(--text); border-radius: 10px; }
+  .leaflet-popup-tip { background: #211913; }
+  .leaflet-popup-content { margin: 12px 14px; font-size: 13.5px; line-height: 1.5; }
+  .leaflet-popup-content h3 { margin: 0 0 4px; font-size: 15px; color: var(--accent); }
+  .leaflet-popup-content .kind { font-size: 11px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); }
+  .leaflet-popup-content .addr { color: var(--muted); font-style: italic; }
+  .leaflet-popup-content .nav { display:inline-block; margin-top:8px; padding:6px 10px; background:var(--accent); color:#2a1d08; border-radius:7px; text-decoration:none; font-weight:600; }
+  .leaflet-container { background: #1f1813; font: inherit; }
+  .leaflet-bar a { background: #2a2018; color: var(--text); border-color: #000; }
+  .leaflet-bar a:hover { background: #3a2d20; }
+
+  /* You-are-here marker */
+  .me-dot { width: 18px; height: 18px; border-radius: 50%; background: #2f7bff;
+            border: 3px solid #fff; box-shadow: 0 0 0 3px rgba(47,123,255,.35), 0 1px 4px rgba(0,0,0,.6); }
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div id="bar">
+  <h1>Warsaw Ghetto Wall<small>1940–1943 · live location map</small></h1>
+</div>
+
+<div id="status" aria-live="polite">
+  <span class="dot"></span>
+  <span id="status-text">Tap the ◎ button to find your location…</span>
+</div>
+
+<button id="locate" title="Find my location" aria-label="Find my location">◎</button>
+
+<div id="sheet" class="collapsed">
+  <div id="grip"></div>
+  <h2>Legend <span class="count" id="legend-count"></span></h2>
+  <div class="legend-row"><span class="swatch line"></span> Approx. ghetto wall (max extent)</div>
+  <div class="legend-row"><span class="swatch line dash"></span> Chłodna St. "Aryan" corridor / footbridge</div>
+  <div class="legend-row"><span class="swatch" style="background:#8d5524">🧱</span> Surviving wall fragment</div>
+  <div class="legend-row"><span class="swatch" style="background:#2f6f7b">✡</span> Memorial / historic site</div>
+  <div class="legend-row"><span class="swatch" style="background:#6b6f76">▮</span> "Mur getta" boundary marker</div>
+  <p class="note">
+    The red outline is an <b>approximate</b> reconstruction of the ghetto's maximum perimeter
+    overlaid on today's streets — use it for orientation, not survey accuracy. Pin locations for
+    surviving fragments and memorials are placed at their documented addresses.
+    Built for navigation on foot. Sources: Wikipedia (Warsaw Ghetto boundary markers; Fragments of the
+    ghetto walls), POLIN Museum, getto.pl.
+  </p>
+</div>
+
+<script src="vendor/leaflet/leaflet.js"></script>
+<script>
+// ---------------------------------------------------------------------------
+// DATA
+// ---------------------------------------------------------------------------
+
+// Approximate maximum extent of the combined Warsaw Ghetto (late 1940 / early 1941),
+// traced over modern streets. Clockwise. APPROXIMATE — for orientation only.
+const GHETTO_OUTLINE = [
+  [52.25840, 21.00350], // NE corner — Bonifraterska / Międzyparkowa
+  [52.25250, 21.00640], // Świętojerska / Nowiniarska (Krasiński Garden edge)
+  [52.24850, 21.00560], // toward Tłomackie
+  [52.24150, 21.00520], // Bagno / Bielańska area
+  [52.23650, 21.00250], // Grzybowski Square (SE finger, small ghetto)
+  [52.23360, 21.00150], // Próżna / Grzybowska
+  [52.23020, 20.99900], // Sienna / Sosnowa (south edge, small ghetto)
+  [52.23000, 20.99300], // Sienna → Twarda / Wielka
+  [52.23310, 20.99060], // up to Chłodna / Żelazna (corridor waist)
+  [52.23600, 20.99040], // Footbridge of Memory (Chłodna over Żelazna)
+  [52.23950, 20.98900], // Chłodna / Wronia (large ghetto SW)
+  [52.24350, 20.98600], // Leszno (al. Solidarności) / Wronia
+  [52.24950, 20.98300], // Okopowa — Jewish Cemetery wall (W edge)
+  [52.25450, 20.98450], // Okopowa / Stawki (NW corner)
+  [52.25780, 20.98900], // Stawki (N edge)
+  [52.25820, 20.99900], // Stawki / Dzika — Umschlagplatz
+  [52.25840, 21.00350]  // back to NE corner
+];
+
+// Chłodna Street "Aryan" corridor that split the small (south) and large (north)
+// ghettos; crossed by the wooden footbridge. Dashed overlay.
+const CHLODNA_CORRIDOR = [
+  [52.23560, 20.98700],
+  [52.23600, 20.99040], // footbridge point
+  [52.23640, 20.99450]
+];
+
+// Pins. kind: fragment | site | marker
+const PLACES = [
+  // ---- Surviving physical wall fragments ----
+  { kind:"fragment", name:"Wall fragment — Sienna 55 / Złota 62",
+    addr:"Courtyard, ul. Sienna 55 / ul. Złota 62",
+    lat:52.22980, lon:20.99820,
+    desc:"The best-known surviving stretch of the ghetto wall — about 6 m of pre-war building wall that marked the southern boundary of the 'small ghetto'. Plaque unveiled 1992 by Israeli President Chaim Herzog. Original bricks were given to Yad Vashem, Houston and Melbourne." },
+  { kind:"fragment", name:"Wall fragment — Waliców 11",
+    addr:"ul. Waliców 11 (former Jung brewery)",
+    lat:52.23360, lon:20.99270,
+    desc:"Surviving wall of the former Herman Jung brewery, a ghetto boundary from Nov 1940 to Aug 1942. Bullet-scarred; integrated into the Aurum office building in 1999–2000." },
+  { kind:"fragment", name:"Wall fragment — Żelazna 65 / Krochmalna",
+    addr:"ul. Żelazna 65, near Krochmalna",
+    lat:52.23330, lon:20.99030,
+    desc:"A short preserved section of boundary wall near the western edge of the small ghetto, close to the Chłodna corridor." },
+
+  // ---- Memorials & historic sites ----
+  { kind:"site", name:"Ghetto Heroes Monument",
+    addr:"ul. Zamenhofa / Anielewicza (Pomnik Bohaterów Getta)",
+    lat:52.24970, lon:21.00030,
+    desc:"Nathan Rapaport's 1948 monument to the Warsaw Ghetto Uprising. Site of Willy Brandt's 1970 Kniefall. Faces the POLIN Museum." },
+  { kind:"site", name:"POLIN Museum of the History of Polish Jews",
+    addr:"ul. Anielewicza 6",
+    lat:52.24965, lon:20.99308,
+    desc:"Built on the heart of the former ghetto; tells 1,000 years of Polish-Jewish history." },
+  { kind:"site", name:"Umschlagplatz Memorial",
+    addr:"ul. Stawki 10",
+    lat:52.25620, lon:21.00090,
+    desc:"The rail siding from which ~265,000 Jews were deported to Treblinka in summer 1942. Marble memorial wall inscribed with first names." },
+  { kind:"site", name:"Mila 18 — ŻOB Command Bunker",
+    addr:"ul. Miła (Anielewicz mound)",
+    lat:52.25300, lon:20.99360,
+    desc:"Site of the main bunker of the Jewish Combat Organization; where uprising leader Mordechai Anielewicz and many fighters died on 8 May 1943." },
+  { kind:"site", name:"Footbridge of Memory (Kładka Pamięci)",
+    addr:"ul. Chłodna / ul. Żelazna",
+    lat:52.23600, lon:20.99040,
+    desc:"Light/steel installation marking the wooden footbridge that carried Jews over 'Aryan' Chłodna Street, linking the small and large ghettos." },
+  { kind:"site", name:"Pawiak Prison Museum",
+    addr:"ul. Dzielna 24/26",
+    lat:52.24770, lon:20.99350,
+    desc:"Gestapo prison inside the ghetto; tens of thousands were imprisoned, tortured or executed here." },
+  { kind:"site", name:"Nożyk Synagogue",
+    addr:"ul. Twarda 6",
+    lat:52.23597, lon:20.99876,
+    desc:"The only Warsaw synagogue to survive WWII; used by the Germans as a stable/feed store. Restored and active today." },
+  { kind:"site", name:"Grzybowski Square & All Saints Church",
+    addr:"pl. Grzybowski",
+    lat:52.23560, lon:21.00130,
+    desc:"Church that stood inside the ghetto, serving Catholic converts; a refuge and vantage point during the war." },
+
+  // ---- 'Mur getta' boundary-line markers (2008/2010 cast-iron line, selection) ----
+  { kind:"marker", name:"Boundary marker — Chłodna / Żelazna",
+    addr:"ul. Chłodna at ul. Żelazna",
+    lat:52.23640, lon:20.99080,
+    desc:"'MUR GETTA 1940 / GHETTO WALL 1943' line in the pavement, marking the footbridge crossing and the Dec 1941 exclusion of the area west of Żelazna." },
+  { kind:"marker", name:"Boundary marker — Sienna 53",
+    addr:"ul. Sienna 53 (Sienkiewicz High School courtyard)",
+    lat:52.23010, lon:20.99880,
+    desc:"Marker on the former southern wall line of the small ghetto." },
+  { kind:"marker", name:"Boundary marker — Okopowa (Jewish Cemetery)",
+    addr:"ul. Okopowa 49/51",
+    lat:52.24980, lon:20.98280,
+    desc:"Marker on the Jewish Cemetery wall — the western edge of the ghetto." },
+  { kind:"marker", name:"Boundary marker — Bonifraterska / Międzyparkowa",
+    addr:"ul. Bonifraterska near Międzyparkowa",
+    lat:52.25840, lon:21.00350,
+    desc:"Marks the north-eastern corner of the ghetto at the former Bonifraterska/Żoliborska intersection." },
+  { kind:"marker", name:"Boundary marker — Świętojerska / Nowiniarska",
+    addr:"ul. Świętojerska at Nowiniarska",
+    lat:52.25250, lon:21.00620,
+    desc:"Eastern boundary line beside the Krasiński Garden." },
+  { kind:"marker", name:"Boundary marker — Stawki / Dzika",
+    addr:"ul. Stawki near the Umschlagplatz",
+    lat:52.25780, lon:20.99950,
+    desc:"Northern boundary line by the deportation siding." }
+];
+
+// ---------------------------------------------------------------------------
+// MAP
+// ---------------------------------------------------------------------------
+const map = L.map('map', { zoomControl: true, attributionControl: true })
+  .setView([52.2452, 20.9955], 14);
+
+map.zoomControl.setPosition('topright');
+
+L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+  maxZoom: 20,
+  attribution: '&copy; <a href="https://openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
+}).addTo(map);
+
+// Wall outline (filled, faint) + bright line
+const outline = L.polygon(GHETTO_OUTLINE, {
+  color: '#c0392b', weight: 4, opacity: 0.95,
+  fillColor: '#c0392b', fillOpacity: 0.07, lineJoin: 'round'
+}).addTo(map);
+outline.bindPopup('<h3>Ghetto wall — approximate</h3><div>Reconstructed maximum perimeter (1940–41) over modern streets. For orientation, not survey accuracy.</div>');
+
+L.polyline(CHLODNA_CORRIDOR, {
+  color: '#e8c87a', weight: 3, opacity: 0.9, dashArray: '7 7'
+}).addTo(map).bindPopup('<h3>Chłodna corridor</h3><div>"Aryan" Chłodna Street split the small (south) and large (north) ghettos, crossed by the wooden footbridge.</div>');
+
+// Pin styling
+const KIND = {
+  fragment: { color:'#8d5524', glyph:'🧱', label:'Wall fragment' },
+  site:     { color:'#2f6f7b', glyph:'✡',  label:'Memorial / site' },
+  marker:   { color:'#6b6f76', glyph:'▮',  label:'Boundary marker' }
+};
+
+function pinIcon(kind) {
+  const k = KIND[kind];
+  return L.divIcon({
+    className: 'pin-' + kind,
+    html: `<div style="width:30px;height:30px;border-radius:50% 50% 50% 0;
+            background:${k.color};transform:rotate(-45deg);
+            border:2px solid #fff;box-shadow:0 2px 5px rgba(0,0,0,.5);
+            display:flex;align-items:center;justify-content:center;">
+            <span style="transform:rotate(45deg);font-size:14px;line-height:1;">${k.glyph}</span></div>`,
+    iconSize: [30,30], iconAnchor: [15,28], popupAnchor: [0,-26]
+  });
+}
+
+const markers = [];
+PLACES.forEach(p => {
+  const k = KIND[p.kind];
+  const gmaps = `https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lon}`;
+  const m = L.marker([p.lat, p.lon], { icon: pinIcon(p.kind), title: p.name })
+    .bindPopup(
+      `<div class="kind">${k.label}</div>
+       <h3>${p.name}</h3>
+       <div class="addr">${p.addr}</div>
+       <div style="margin-top:6px">${p.desc}</div>
+       <a class="nav" href="${gmaps}" target="_blank" rel="noopener">Walking directions ↗</a>`
+    );
+  m.placeData = p;
+  m.addTo(map);
+  markers.push(m);
+});
+
+document.getElementById('legend-count').textContent =
+  `· ${PLACES.filter(p=>p.kind==='fragment').length} fragments, ` +
+  `${PLACES.filter(p=>p.kind==='site').length} sites, ` +
+  `${PLACES.filter(p=>p.kind==='marker').length} markers`;
+
+// ---------------------------------------------------------------------------
+// GEOLOCATION — "where am I relative to the wall"
+// ---------------------------------------------------------------------------
+const statusEl = document.getElementById('status');
+const statusText = document.getElementById('status-text');
+const locateBtn = document.getElementById('locate');
+
+let meMarker = null, accCircle = null, watchId = null, firstFix = true;
+
+const meIcon = L.divIcon({ className:'', html:'<div class="me-dot"></div>', iconSize:[18,18], iconAnchor:[9,9] });
+
+function haversine(lat1, lon1, lat2, lon2) {
+  const R = 6371000, toR = x => x * Math.PI/180;
+  const dLat = toR(lat2-lat1), dLon = toR(lon2-lon1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toR(lat1))*Math.cos(toR(lat2))*Math.sin(dLon/2)**2;
+  return 2*R*Math.asin(Math.sqrt(a));
+}
+
+// Distance from a point to the wall polygon's edges (metres), via segment projection.
+function distToWall(lat, lon) {
+  let best = Infinity;
+  const pts = GHETTO_OUTLINE;
+  // local equirectangular projection (metres) around the user
+  const latR = lat*Math.PI/180, mPerLat = 111320, mPerLon = 111320*Math.cos(latR);
+  const P = { x: lon*mPerLon, y: lat*mPerLat };
+  for (let i=0; i<pts.length-1; i++) {
+    const A = { x: pts[i][1]*mPerLon, y: pts[i][0]*mPerLat };
+    const B = { x: pts[i+1][1]*mPerLon, y: pts[i+1][0]*mPerLat };
+    const dx=B.x-A.x, dy=B.y-A.y, len2=dx*dx+dy*dy;
+    let t = len2 ? ((P.x-A.x)*dx+(P.y-A.y)*dy)/len2 : 0;
+    t = Math.max(0, Math.min(1, t));
+    const cx=A.x+t*dx, cy=A.y+t*dy;
+    best = Math.min(best, Math.hypot(P.x-cx, P.y-cy));
+  }
+  return best;
+}
+
+// Ray-casting: is the point inside the (approximate) ghetto polygon?
+function insideGhetto(lat, lon) {
+  let inside = false;
+  const pts = GHETTO_OUTLINE;
+  for (let i=0, j=pts.length-1; i<pts.length; j=i++) {
+    const yi=pts[i][0], xi=pts[i][1], yj=pts[j][0], xj=pts[j][1];
+    if (((yi>lat)!==(yj>lat)) && (lon < (xj-xi)*(lat-yi)/(yj-yi)+xi)) inside = !inside;
+  }
+  return inside;
+}
+
+function fmt(m) { return m < 1000 ? Math.round(m) + ' m' : (m/1000).toFixed(2) + ' km'; }
+
+function nearestPlace(lat, lon) {
+  let best=null, bd=Infinity;
+  for (const p of PLACES) {
+    const d = haversine(lat, lon, p.lat, p.lon);
+    if (d < bd) { bd = d; best = p; }
+  }
+  return { place: best, dist: bd };
+}
+
+function onPosition(pos) {
+  const { latitude:lat, longitude:lon, accuracy:acc } = pos.coords;
+  statusEl.className = 'live';
+
+  if (!meMarker) {
+    meMarker = L.marker([lat, lon], { icon: meIcon, zIndexOffset: 1000, interactive:false }).addTo(map);
+    accCircle = L.circle([lat, lon], { radius: acc, color:'#2f7bff', weight:1, fillColor:'#2f7bff', fillOpacity:.12 }).addTo(map);
+  } else {
+    meMarker.setLatLng([lat, lon]);
+    accCircle.setLatLng([lat, lon]).setRadius(acc);
+  }
+
+  if (firstFix) {
+    map.setView([lat, lon], 16, { animate: true });
+    firstFix = false;
+  }
+
+  const inside = insideGhetto(lat, lon);
+  const wall = distToWall(lat, lon);
+  const near = nearestPlace(lat, lon);
+  const rel = inside
+    ? `Inside the former ghetto · <b>${fmt(wall)}</b> to the wall line`
+    : `Outside the former ghetto · <b>${fmt(wall)}</b> to the wall line`;
+  statusText.innerHTML =
+    `${rel}<br>Nearest: <b>${near.place.name.replace(/^[^—]*— /,'')}</b> · ${fmt(near.dist)} (±${Math.round(acc)} m)`;
+}
+
+function onError(err) {
+  statusEl.className = 'err';
+  const msgs = {
+    1: 'Location permission denied. Enable it in your browser settings, then tap ◎ again.',
+    2: 'Position unavailable — no GPS signal yet. Move to an open area and retry.',
+    3: 'Location timed out. Tap ◎ to retry.'
+  };
+  statusText.textContent = msgs[err.code] || ('Location error: ' + err.message);
+  locateBtn.classList.remove('tracking');
+}
+
+function startTracking() {
+  if (!('geolocation' in navigator)) {
+    statusEl.className='err'; statusText.textContent='Geolocation is not supported by this browser.'; return;
+  }
+  statusText.textContent = 'Locating…';
+  locateBtn.classList.add('tracking');
+  if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+  // immediate one-shot for a fast first fix, then continuous watch
+  navigator.geolocation.getCurrentPosition(onPosition, onError, { enableHighAccuracy:true, timeout:12000, maximumAge:0 });
+  watchId = navigator.geolocation.watchPosition(onPosition, onError, { enableHighAccuracy:true, timeout:20000, maximumAge:2000 });
+}
+
+locateBtn.addEventListener('click', () => {
+  if (meMarker && !firstFix) { map.setView(meMarker.getLatLng(), 16, { animate:true }); }
+  startTracking();
+});
+
+// Bottom sheet toggle
+const sheet = document.getElementById('sheet');
+document.getElementById('grip').addEventListener('click', () => sheet.classList.toggle('collapsed'));
+document.querySelector('#sheet h2').addEventListener('click', () => sheet.classList.toggle('collapsed'));
+
+// Auto-locate on load (browsers will prompt for permission)
+window.addEventListener('load', () => { startTracking(); });
+</script>
+</body>
+</html>
