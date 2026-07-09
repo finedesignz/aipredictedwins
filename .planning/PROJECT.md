@@ -21,6 +21,31 @@ accumulates trade outcomes, without manual retuning.
 - **Paused:** Kalshi prediction-market path (do not run).
 - **Hard rule:** one Alpaca account per bot — never share.
 
+## Current Milestone: v1.1 Trustworthy P&L + Profitable Retune
+
+**Goal:** Make the bots' performance measurable, then profitable — fix trade-resolution / P&L
+logging so the dashboard matches real Alpaca equity, enforce the asset universe, and retune
+entry & sizing on real paper data to stop the drawdown and clear the 40% win-rate gate.
+
+**Evidence (2026-07-06 live audit of app.aipredictedwins.com):**
+- **Measurement is broken:** only ~30 of ~300 submitted trades per bot resolve into the P&L
+  log. Logged closed-trade P&L reads +$1,296 (A) / +$112 (B), but real Alpaca equity is
+  **$85,655 (−14.34%) / $96,178 (−3.82%)**. The trade log badly overstates performance.
+- **Sub-gate win rate:** 33% (20W/36L) across 60 resolved trades — below the 40% live gate.
+- **Universe leak + dead symbols:** BTC is **0-for-12** (−$479); off-universe TRUMP (−$295)
+  and FIL (−$66) are being traded despite the documented 8-asset universe.
+- Both A/B bots are currently **stopped**.
+
+**Target features:**
+- **Trade resolution fix** — every submitted order resolves to a closed trade with accurate
+  realized P&L (fees/slippage included); dashboard total P&L reconciles to Alpaca account equity.
+- **Universe enforcement** — hard allowlist at entry; block off-universe symbols; drop or
+  quarantine chronic losers (BTC).
+- **Profitable retune** — confluence + quarter-Kelly sizing retuned on real paper data to lift
+  win rate ≥40% and halt drawdown; validated against the existing backtest harness.
+- **Reliable runtime + honest monitoring** — bots stay running, alert on unexpected stop, and
+  the dashboard surfaces true (reconciled) P&L.
+
 ## Current State
 
 **Shipped: v1.0 Day-Trading Upgrade** (2026-06-15) — 10/10 phases verified, 279 tests green.
@@ -92,4 +117,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-08 — Milestone v1.0 Day-Trading Upgrade started*
+*Last updated: 2026-07-09 — Milestone v1.1 Trustworthy P&L + Profitable Retune started*

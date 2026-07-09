@@ -1,17 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: Day-Trading Upgrade
-status: milestone_complete
-last_updated: 2026-06-15T16:48:46.396Z
-last_activity: 2026-06-09
+milestone: v1.1
+milestone_name: Trustworthy P&L + Profitable Retune
+status: planning
+last_updated: "2026-07-09T07:19:52.788Z"
+last_activity: 2026-07-09
 progress:
-  total_phases: 10
+  total_phases: 0
   completed_phases: 0
   total_plans: 0
-  completed_plans: 14
+  completed_plans: 0
   percent: 0
-stopped_at: Milestone complete (Phase 10 was final phase)
 ---
 
 # Project State
@@ -23,15 +22,15 @@ stopped_at: Milestone complete (Phase 10 was final phase)
 
 ## Current Position
 
-Phase: 10
-Plan: Not started
-Status: Milestone complete
-Progress: [          ] 0/10 phases
-Last activity: 2026-06-15
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-07-09 — Milestone v1.1 started
 
 ## Accumulated Context
 
 **Decisions:**
+
 - Phase 1 locks SWING-preset byte-for-byte parity before any behavior change (bots A/B must not regress).
 - ATR exits (Phase 4) land before MiroFish removal (Phase 5) so exits never have a gap.
 - Self-learning loop split: entry+sizing wiring (Phase 7) then intraday dimensions + shadow mode (Phase 8).
