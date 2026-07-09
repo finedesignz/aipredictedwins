@@ -38,12 +38,16 @@ class TradeLogger:
         return _db.log_alpaca_trade(self.bot_id, trade_data)
 
     def update_alpaca_trade(
-        self, trade_id: int, status: str, exit_price: float = None, pnl: float = None
+        self, trade_id: int, status: str, exit_price: float = None, pnl: float = None,
+        fees: float = None,
     ):
-        _db.update_alpaca_trade(self.bot_id, trade_id, status, exit_price, pnl)
+        _db.update_alpaca_trade(self.bot_id, trade_id, status, exit_price, pnl, fees)
 
     def get_open_alpaca_positions(self) -> list[dict]:
         return _db.get_open_alpaca_positions(self.bot_id)
+
+    def get_pending_alpaca_orders(self) -> list[dict]:
+        return _db.get_pending_alpaca_orders(self.bot_id)
 
     def get_alpaca_accuracy(self, last_n: int = None) -> dict:
         return _db.get_alpaca_accuracy(self.bot_id, last_n)

@@ -70,8 +70,9 @@ def log_alpaca_trade(bot_id: str, trade_data: dict) -> int:
             INSERT INTO alpaca_trades (
                 bot_id, timestamp, symbol, asset_class, side, qty,
                 entry_price, mirofish_prob, market_sentiment,
-                target_price, stop_loss, simulation_id, notes
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                target_price, stop_loss, simulation_id, notes,
+                status, order_id, order_type, filled_qty, filled_avg_price
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
             (
@@ -87,6 +88,11 @@ def log_alpaca_trade(bot_id: str, trade_data: dict) -> int:
                 trade_data.get("stop_loss"),
                 trade_data.get("simulation_id"),
                 trade_data.get("notes"),
+                trade_data.get("status", "submitted"),
+                trade_data.get("order_id"),
+                trade_data.get("order_type"),
+                trade_data.get("filled_qty"),
+                trade_data.get("filled_avg_price"),
             ),
         ).fetchone()
         return row["id"]
@@ -98,20 +104,21 @@ def update_alpaca_trade(
     status: str,
     exit_price: float | None = None,
     pnl: float | None = None,
+    fees: float | None = None,
 ) -> None:
     closed_at = (
         datetime.now(timezone.utc).isoformat()
-        if status in ("closed", "stopped", "target_hit")
+        if status in ("closed", "stopped", "target_hit", "canceled", "expired", "rejected")
         else None
     )
     with connection() as conn:
         conn.execute(
             """
             UPDATE alpaca_trades
-            SET status = %s, exit_price = %s, pnl = %s, closed_at = %s
+            SET status = %s, exit_price = %s, pnl = %s, fees = %s, closed_at = %s
             WHERE id = %s AND bot_id = %s
             """,
-            (status, exit_price, pnl, closed_at, trade_id, bot_id),
+            (status, exit_price, pnl, fees, closed_at, trade_id, bot_id),
         )
 
 
@@ -119,6 +126,24 @@ def get_open_alpaca_positions(bot_id: str) -> list[dict]:
     with connection() as conn:
         return conn.execute(
             "SELECT * FROM alpaca_trades WHERE bot_id = %s AND status = 'open' ORDER BY timestamp DESC",
+            (bot_id,),
+        ).fetchall()
+
+
+def get_pending_alpaca_orders(bot_id: str) -> list[dict]:
+    """Submitted (pre-terminal) orders awaiting lifecycle resolution.
+
+    Drives the Wave 2 resolver: a restarted bot re-polls in-flight orders from
+    the DB. Columns match 11-02's interface note exactly.
+    """
+    with connection() as conn:
+        return conn.execute(
+            """
+            SELECT id, order_id, symbol, qty, side, order_type, timestamp, status
+            FROM alpaca_trades
+            WHERE bot_id = %s AND status = 'submitted'
+            ORDER BY timestamp DESC
+            """,
             (bot_id,),
         ).fetchall()
 

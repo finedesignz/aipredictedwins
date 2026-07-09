@@ -89,7 +89,15 @@ def _get_graph():
     config = DEFAULT_CONFIG.copy()
     # Force the shim — overrides anything in default_config so we never accidentally
     # hit the real OpenAI/Anthropic endpoint.
-    config["llm_provider"] = "openai"
+    #
+    # Provider MUST be "ollama" (not "openai"): the vendored factory routes BOTH
+    # to the same OpenAIClient, but provider=="openai" forces langchain's Responses
+    # API (use_responses_api=True → POST /v1/responses), which the local shim does
+    # NOT implement — every propagate() then 404s and Bot C never trades. "ollama"
+    # uses Chat Completions (/v1/chat/completions, which the shim serves), needs no
+    # API key (api_key defaults to "ollama"), and accepts any model id. The
+    # explicit backend_url below is still honoured (client base_url wins).
+    config["llm_provider"] = os.environ.get("TRADINGAGENTS_LLM_PROVIDER", "ollama")
     config["backend_url"] = os.environ.get(
         "TRADINGAGENTS_LLM_BACKEND_URL", "http://localhost:8765/v1"
     )
