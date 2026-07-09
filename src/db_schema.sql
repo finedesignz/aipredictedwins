@@ -41,7 +41,9 @@ CREATE TABLE IF NOT EXISTS alpaca_trades (
     order_id         TEXT,
     order_type       TEXT,
     filled_qty       DOUBLE PRECISION,
-    filled_avg_price DOUBLE PRECISION
+    filled_avg_price DOUBLE PRECISION,
+    -- Phase 12 realized-P&L fees (mirror of migration 016; additive, nullable).
+    fees             DOUBLE PRECISION
 );
 
 -- ─────────────────────────────────────────────
