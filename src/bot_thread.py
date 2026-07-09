@@ -565,6 +565,13 @@ class BotThread(threading.Thread):
         open_positions = logger.get_open_alpaca_positions()
         open_symbols = {p.get("symbol") for p in open_positions}
 
+        # Count in-flight 'submitted' orders too so a symbol with an unfilled
+        # order this cycle is not double-submitted before the resolver fills it.
+        try:
+            open_symbols |= {p.get("symbol") for p in logger.get_pending_alpaca_orders()}
+        except Exception as exc:
+            log.warning("[bot:%s] pending-order dedup lookup failed: %s", bot_id, exc)
+
         # 24h re-entry cooldown — don't re-buy what we just got stopped out of.
         try:
             recent_loss_symbols = _db.get_recent_loss_symbols(bot_id, hours=24)
@@ -789,14 +796,11 @@ class BotThread(threading.Thread):
                 " CAPPED" if sizing["capped"] else "",
             )
 
-            try:
-                order = alpaca.place_market_order(
-                    symbol=symbol,
-                    qty=sizing["shares"],
-                    side="buy",
-                )
-
-                trade_id = logger.log_alpaca_trade({
+            trade_id, order = self._submit_order(
+                alpaca, logger,
+                symbol=symbol, qty=sizing["shares"], side="buy",
+                order_type="market",
+                trade_data={
                     "symbol": symbol,
                     "asset_class": cfg.asset_class if cfg.asset_class == "stock" else "crypto",
                     "side": "buy",
@@ -814,47 +818,48 @@ class BotThread(threading.Thread):
                         f"VolSpike={signal.volume_spike} VWAP={'bull' if signal.vwap_bullish else 'bear'} "
                         f"bot={bot_id}"
                     ),
-                })
+                },
+            )
+            if trade_id is None:
+                # Submit raised — a terminal 'rejected' row was recorded; skip.
+                continue
 
-                # -- Record trade context for learning loop ------------------
-                if memory is not None and trade_id:
-                    try:
-                        memory.record_trade_context({
-                            "trade_id": trade_id,
-                            "symbol": symbol,
-                            "signal_type": signal_type,
-                            "sentiment": signal.confluence_score / 4.0,
-                            "confidence": signal.confluence_score / 4.0,
-                            "price_at_entry": price,
-                            "price_change_24h": change_pct,
-                            "volume_24h": volume_24h,
-                            "atr_value": signal.atr_value,
-                            "trajectory": "up" if signal.ema_bullish else "mixed",
-                            "bull_arguments": [
-                                f"EMA_bull={signal.ema_bullish}",
-                                f"ADX={signal.adx_value:.1f}",
-                                f"regime={signal.market_regime}",
-                            ],
-                            "bear_arguments": [
-                                f"RSI={signal.rsi_value:.1f}",
-                                f"VWAP_bull={signal.vwap_bullish}",
-                            ],
-                        })
-                    except Exception as exc:
-                        log.warning("[bot:%s] Failed to record trade context: %s", bot_id, exc)
+            # -- Record trade context for learning loop ------------------
+            if memory is not None and trade_id:
+                try:
+                    memory.record_trade_context({
+                        "trade_id": trade_id,
+                        "symbol": symbol,
+                        "signal_type": signal_type,
+                        "sentiment": signal.confluence_score / 4.0,
+                        "confidence": signal.confluence_score / 4.0,
+                        "price_at_entry": price,
+                        "price_change_24h": change_pct,
+                        "volume_24h": volume_24h,
+                        "atr_value": signal.atr_value,
+                        "trajectory": "up" if signal.ema_bullish else "mixed",
+                        "bull_arguments": [
+                            f"EMA_bull={signal.ema_bullish}",
+                            f"ADX={signal.adx_value:.1f}",
+                            f"regime={signal.market_regime}",
+                        ],
+                        "bear_arguments": [
+                            f"RSI={signal.rsi_value:.1f}",
+                            f"VWAP_bull={signal.vwap_bullish}",
+                        ],
+                    })
+                except Exception as exc:
+                    log.warning("[bot:%s] Failed to record trade context: %s", bot_id, exc)
 
-                cycle_exposure += sizing["dollar_amount"]
-                bankroll -= sizing["dollar_amount"]
+            cycle_exposure += sizing["dollar_amount"]
+            bankroll -= sizing["dollar_amount"]
 
-                log.info(
-                    "[bot:%s] Order placed: %s — status: %s",
-                    bot_id,
-                    order.get("order_id", "N/A"),
-                    order.get("status", "submitted"),
-                )
-
-            except Exception as exc:
-                log.exception("[bot:%s] Order placement failed for %s: %s", bot_id, symbol, exc)
+            log.info(
+                "[bot:%s] Order placed: %s — status: %s",
+                bot_id,
+                order.get("order_id", "N/A"),
+                order.get("status", "submitted"),
+            )
 
         # -- Layer 2+3: Risk gate → size → order (SHORT) ----------------------
         short_approved: list[PipelineState] = []
@@ -987,10 +992,11 @@ class BotThread(threading.Thread):
                 short_score, getattr(signal, "trend_4h", "?"),
             )
 
-            try:
-                order = alpaca.place_market_order(symbol=symbol, qty=sizing["shares"], side="sell")
-
-                trade_id = logger.log_alpaca_trade({
+            trade_id, order = self._submit_order(
+                alpaca, logger,
+                symbol=symbol, qty=sizing["shares"], side="sell",
+                order_type="market",
+                trade_data={
                     "symbol": symbol,
                     "asset_class": cfg.asset_class if cfg.asset_class == "stock" else "crypto",
                     "side": "sell",
@@ -1007,41 +1013,42 @@ class BotThread(threading.Thread):
                         f"trend_4h={getattr(signal, 'trend_4h', '?')} "
                         f"bot={bot_id}"
                     ),
-                })
+                },
+            )
+            if trade_id is None:
+                # Submit raised — a terminal 'rejected' row was recorded; skip.
+                continue
 
-                # -- Record trade context for learning loop (SHORT) ----------
-                if memory is not None and trade_id:
-                    try:
-                        memory.record_trade_context({
-                            "trade_id": trade_id,
-                            "symbol": symbol,
-                            "signal_type": signal_type,
-                            "sentiment": short_score / 4.0,
-                            "confidence": short_score / 4.0,
-                            "price_at_entry": price,
-                            "price_change_24h": change_pct,
-                            "volume_24h": volume_24h,
-                            "atr_value": signal.atr_value,
-                            "trajectory": "down" if not signal.ema_bullish else "mixed",
-                            "bull_arguments": [
-                                f"RSI={signal.rsi_value:.1f}",
-                            ],
-                            "bear_arguments": [
-                                f"EMA_bull={signal.ema_bullish}",
-                                f"ADX={signal.adx_value:.1f}",
-                                f"trend_4h={getattr(signal, 'trend_4h', '?')}",
-                            ],
-                        })
-                    except Exception as exc:
-                        log.warning("[bot:%s] Failed to record short trade context: %s", bot_id, exc)
+            # -- Record trade context for learning loop (SHORT) ----------
+            if memory is not None and trade_id:
+                try:
+                    memory.record_trade_context({
+                        "trade_id": trade_id,
+                        "symbol": symbol,
+                        "signal_type": signal_type,
+                        "sentiment": short_score / 4.0,
+                        "confidence": short_score / 4.0,
+                        "price_at_entry": price,
+                        "price_change_24h": change_pct,
+                        "volume_24h": volume_24h,
+                        "atr_value": signal.atr_value,
+                        "trajectory": "down" if not signal.ema_bullish else "mixed",
+                        "bull_arguments": [
+                            f"RSI={signal.rsi_value:.1f}",
+                        ],
+                        "bear_arguments": [
+                            f"EMA_bull={signal.ema_bullish}",
+                            f"ADX={signal.adx_value:.1f}",
+                            f"trend_4h={getattr(signal, 'trend_4h', '?')}",
+                        ],
+                    })
+                except Exception as exc:
+                    log.warning("[bot:%s] Failed to record short trade context: %s", bot_id, exc)
 
-                cycle_exposure += sizing["dollar_amount"]
-                bankroll -= sizing["dollar_amount"]
+            cycle_exposure += sizing["dollar_amount"]
+            bankroll -= sizing["dollar_amount"]
 
-                log.info(
-                    "[bot:%s] Short order placed: %s — status: %s",
-                    bot_id, order.get("order_id", "N/A"), order.get("status", "submitted"),
-                )
-
-            except Exception as exc:
-                log.exception("[bot:%s] Short order placement failed for %s: %s", bot_id, symbol, exc)
+            log.info(
+                "[bot:%s] Short order placed: %s — status: %s",
+                bot_id, order.get("order_id", "N/A"), order.get("status", "submitted"),
+            )
