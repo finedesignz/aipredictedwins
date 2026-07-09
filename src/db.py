@@ -104,6 +104,7 @@ def update_alpaca_trade(
     status: str,
     exit_price: float | None = None,
     pnl: float | None = None,
+    fees: float | None = None,
 ) -> None:
     closed_at = (
         datetime.now(timezone.utc).isoformat()
@@ -114,10 +115,10 @@ def update_alpaca_trade(
         conn.execute(
             """
             UPDATE alpaca_trades
-            SET status = %s, exit_price = %s, pnl = %s, closed_at = %s
+            SET status = %s, exit_price = %s, pnl = %s, fees = %s, closed_at = %s
             WHERE id = %s AND bot_id = %s
             """,
-            (status, exit_price, pnl, closed_at, trade_id, bot_id),
+            (status, exit_price, pnl, fees, closed_at, trade_id, bot_id),
         )
 
 
