@@ -36,7 +36,12 @@ CREATE TABLE IF NOT EXISTS alpaca_trades (
     pnl             DOUBLE PRECISION,
     closed_at       TEXT,
     simulation_id   TEXT,
-    notes           TEXT
+    notes           TEXT,
+    -- Phase 11 order-state resolution (mirror of migration 015; additive, nullable).
+    order_id         TEXT,
+    order_type       TEXT,
+    filled_qty       DOUBLE PRECISION,
+    filled_avg_price DOUBLE PRECISION
 );
 
 -- ─────────────────────────────────────────────
@@ -220,6 +225,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_trades_bot_src        ON trades        (bot
 
 -- Additional targeted indexes
 CREATE INDEX IF NOT EXISTS idx_alpaca_trades_bot_status  ON alpaca_trades (bot_id, status);
+-- Phase 11 order-state resolution (mirror of migration 015).
+CREATE INDEX IF NOT EXISTS idx_alpaca_trades_bot_order    ON alpaca_trades (bot_id, order_id);
+CREATE INDEX IF NOT EXISTS idx_alpaca_trades_pending      ON alpaca_trades (bot_id, status) WHERE status = 'submitted';
 CREATE INDEX IF NOT EXISTS idx_validations_bot_decision  ON validations   (bot_id, decision);
 
 -- ═════════════════════════════════════════════
