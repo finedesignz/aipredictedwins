@@ -70,8 +70,11 @@ is Postgres via `src/db.py`. One Alpaca account per bot — never share.
 **Success Criteria** (what must be TRUE):
   1. Closed-trade P&L in `alpaca_trades` is computed from Alpaca fill prices × filled qty minus fees, not the intended/limit price.
   2. A unit test feeds a known fill (entry, exit, fee) and asserts the stored `pnl` matches the hand-computed net figure to the cent.
-  3. Migration `dashboard/api/migrations/015_*.sql` (if a schema/column change is needed for fills/fees) applies cleanly via `run_migrations.py`.
-**Plans**: TBD
+  3. Migration `dashboard/api/migrations/016_realized_pnl_fees.sql` adds the `fees` column and applies cleanly via `run_migrations.py`.
+**Plans**: 3 plans
+- [ ] 12-01-PLAN.md — Wave 0 RED tests: test_pnl.py + test_close_pnl.py (all 10 PNL-02 cases)
+- [ ] 12-02-PLAN.md — Foundation: src/pnl.py helper, migration 016 + schema mirror, fees kwarg thread
+- [ ] 12-03-PLAN.md — Monitor close wiring to fills + realized_pnl + fees (GREEN cases 6-10)
 
 ### Phase 13: Alpaca Reconciliation Check
 **Goal**: Summed trade-log P&L is compared per bot against Alpaca account realized P&L, and any discrepancy beyond tolerance is surfaced.
@@ -160,7 +163,7 @@ is Postgres via `src/db.py`. One Alpaca account per bot — never share.
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 11. Order-State Resolution Engine | 0/2 | Not started | - |
-| 12. Realized P&L From Fills | 0/? | Not started | - |
+| 12. Realized P&L From Fills | 0/3 | Not started | - |
 | 13. Alpaca Reconciliation Check | 0/? | Not started | - |
 | 14. Stale-Trade Backfill & Repair | 0/? | Not started | - |
 | 15. Universe Hard-Gate Enforcement | 0/? | Not started | - |
