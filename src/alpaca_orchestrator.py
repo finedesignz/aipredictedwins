@@ -33,6 +33,7 @@ from src.rules_gate import RulesGate
 from src.risk_gate import RiskGate  # keep for backward compat / type hints
 from src.exit_advisor import TrailingStop, HARD_STOP_PCT, SOFT_STOP_PCT, SOFT_TAKE_PROFIT_PCT
 from src.fee_gate import clears_fee_hurdle, TAKER_FEE, SLIPPAGE_BUFFER
+from src.pnl import realized_pnl
 from src.trade_logger import TradeLogger
 
 from src.notifier import alert_bot_crash, alert_drawdown_stop, alert_monitor_error, alert_position_closed, send_alert
@@ -286,18 +287,36 @@ class PositionMonitor(threading.Thread):
 
             with self._lock:
                 try:
-                    self.alpaca.close_position(symbol)
+                    result = self.alpaca.close_position(symbol)
+
+                    # Realized P&L from actual fills, net of TAKER_FEE on both legs.
+                    # Exit fill from the close order (fallback to the live quote),
+                    # entry fill from the row (fallback to entry_price for legacy rows);
+                    # both fallbacks are logged so a zero fill never books a fake -100%.
+                    exit_fill = (result.get("filled_avg_price") if result else 0) or 0
+                    if exit_fill <= 0:
+                        log.warning("[MONITOR] %s close returned no exit fill — using quote $%.2f", symbol, current_price)
+                        exit_fill = current_price
+                    entry_fill = trade.get("filled_avg_price") or 0
+                    if entry_fill <= 0:
+                        log.warning("[MONITOR] %s missing entry fill — using entry_price $%.2f", symbol, entry_price)
+                        entry_fill = entry_price
+
+                    fees = (entry_fill * qty + exit_fill * qty) * TAKER_FEE
+                    realized = realized_pnl(side, entry_fill, exit_fill, qty, TAKER_FEE)
+
                     self.logger.update_alpaca_trade(
                         trade_id=trade_id,
                         status="closed",
-                        exit_price=current_price,
-                        pnl=trade_pnl,
+                        exit_price=exit_fill,
+                        pnl=realized,
+                        fees=fees,
                     )
                     self.closes += 1
-                    self.total_pnl += trade_pnl
+                    self.total_pnl += realized
                     self._tightened.discard(trade_id)
                     self._trailing.remove(trade_id)
-                    alert_position_closed(symbol, side, entry_price, current_price, trade_pnl, close_reason)
+                    alert_position_closed(symbol, side, entry_price, exit_fill, realized, close_reason)
                 except Exception as exc:
                     log.error("[MONITOR] Failed to close %s: %s", symbol, exc)
                     alert_monitor_error(symbol, exc)
