@@ -51,13 +51,15 @@ class FakeLogger:
         self.rows[tid] = row
         return tid
 
-    def update_alpaca_trade(self, trade_id, status, exit_price=None, pnl=None):
+    def update_alpaca_trade(self, trade_id, status, exit_price=None, pnl=None, fees=None):
         row = self.rows[trade_id]
         row["status"] = status
         if exit_price is not None:
             row["exit_price"] = exit_price
         if pnl is not None:
             row["pnl"] = pnl
+        if fees is not None:
+            row["fees"] = fees
         if status in _TERMINAL:
             row["closed_at"] = "2026-07-09T00:00:00+00:00"
 
