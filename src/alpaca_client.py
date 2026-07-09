@@ -398,6 +398,11 @@ class AlpacaClient:
             log.error("Failed to cancel order %s: %s", order_id, exc)
             return False
 
+    def get_order(self, order_id: str) -> dict:
+        """Fetch a single order by Alpaca order id (for lifecycle resolution)."""
+        order = _retry(self._trading_client.get_order_by_id, order_id=order_id)
+        return self._parse_order(order)
+
     def get_open_orders(self) -> list[dict]:
         """Return all open/pending orders."""
         from alpaca.trading.requests import GetOrdersRequest
