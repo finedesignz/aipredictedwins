@@ -230,6 +230,144 @@ class BotThread(threading.Thread):
             log.warning("[bot:%s] on_status_change raised: %s", self.bot_id, exc)
 
     # ------------------------------------------------------------------
+    # Order-state resolution (Phase 11 — PNL-01, PNL-04)
+    # ------------------------------------------------------------------
+
+    _TERMINAL_NONPOSITION = frozenset({"canceled", "cancelled", "expired", "rejected"})
+
+    def _limit_order_timeout_s(self) -> float:
+        """Seconds a resting limit order may sit before cancel-and-terminalize.
+
+        Env-driven (``LIMIT_ORDER_TIMEOUT_S``), default = the scan cadence so an
+        order not filled within a cycle is reclaimed. Reversible via env.
+        """
+        raw = os.environ.get("LIMIT_ORDER_TIMEOUT_S")
+        if raw:
+            try:
+                return float(raw)
+            except ValueError:
+                pass
+        return float(CYCLE_SLEEP_SECONDS)
+
+    @staticmethod
+    def _order_age_s(timestamp, now: datetime.datetime) -> float:
+        try:
+            dt = datetime.datetime.fromisoformat(str(timestamp))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=datetime.timezone.utc)
+            return (now - dt).total_seconds()
+        except Exception:
+            return 0.0
+
+    def _classify(self, order: dict):
+        """Map a parsed Alpaca order to (db_status, pnl).
+
+        - filled OR any filled_qty>0 → ('open', None): genuine/partial position.
+        - canceled/expired/rejected with 0 fill → (that status, 0): terminal
+          non-position, excluded from win/loss + open queries.
+        - still in-flight (new/accepted/pending_*) → (None, None): leave
+          'submitted', re-poll next cycle.
+        """
+        filled_qty = float(order.get("filled_qty", 0) or 0)
+        status = str(order.get("status", "")).split(".")[-1].lower()
+        if status == "filled" or filled_qty > 0:
+            return "open", None
+        if status in self._TERMINAL_NONPOSITION:
+            return ("canceled" if status == "cancelled" else status), 0
+        return None, None
+
+    def _resolve_pending_orders(self, alpaca, logger, cfg=None) -> None:
+        """DB-driven, idempotent order-state resolver.
+
+        Reads every 'submitted' row from the DB (crash-safe: a restarted bot
+        re-polls in-flight orders), fetches fresh status from Alpaca, and moves
+        each to a terminal state. A resting limit order past the timeout is
+        cancel_order'd then re-fetched — the fresh status is authoritative so a
+        fill that lands during cancellation still wins. PositionMonitor still
+        owns position *exits*; this only resolves *orders* up to the fill.
+        """
+        try:
+            pending = logger.get_pending_alpaca_orders()
+        except Exception as exc:
+            log.warning("[bot:%s] pending-order lookup failed: %s", self.bot_id, exc)
+            return
+
+        if not pending:
+            return
+
+        timeout_s = self._limit_order_timeout_s()
+        now = datetime.datetime.now(datetime.timezone.utc)
+
+        for row in pending:
+            trade_id = row["id"]
+            order_id = row.get("order_id")
+            if not order_id:
+                # No identity → cannot resolve; record terminal, never drop.
+                logger.update_alpaca_trade(trade_id, "rejected", pnl=0)
+                continue
+
+            try:
+                order = alpaca.get_order(order_id)
+            except Exception as exc:
+                log.warning("[bot:%s] get_order(%s) failed: %s — marking rejected",
+                            self.bot_id, order_id, exc)
+                logger.update_alpaca_trade(trade_id, "rejected", pnl=0)
+                continue
+
+            limit_timeout_reached = (
+                row.get("order_type") == "limit"
+                and self._order_age_s(row.get("timestamp"), now) > timeout_s
+            )
+            if limit_timeout_reached and self._classify(order)[0] != "open":
+                # Cancel then re-check on FRESH status (never assume cancel won).
+                try:
+                    alpaca.cancel_order(order_id)
+                    order = alpaca.get_order(order_id)
+                except Exception as exc:
+                    log.warning("[bot:%s] cancel/recheck(%s) failed: %s — marking rejected",
+                                self.bot_id, order_id, exc)
+                    logger.update_alpaca_trade(trade_id, "rejected", pnl=0)
+                    continue
+
+            db_status, pnl = self._classify(order)
+            if db_status is None:
+                continue  # still in-flight — leave 'submitted', re-poll next cycle
+            logger.update_alpaca_trade(trade_id, db_status, pnl=pnl)
+
+    def _submit_order(self, alpaca, logger, *, symbol, qty, side, order_type,
+                      trade_data, limit_price=None):
+        """Place an order and persist its lifecycle row.
+
+        Returns ``(trade_id, order)`` on success. On a submit exception a
+        terminal 'rejected' row is written (pnl=0) so nothing is silently
+        dropped (Decision 5) and ``(None, None)`` is returned.
+        """
+        try:
+            if order_type == "limit":
+                order = alpaca.place_limit_order(
+                    symbol=symbol, qty=qty, side=side, limit_price=limit_price)
+            else:
+                order = alpaca.place_market_order(symbol=symbol, qty=qty, side=side)
+        except Exception as exc:
+            log.exception("[bot:%s] Order placement failed for %s: %s",
+                          self.bot_id, symbol, exc)
+            rejected = dict(trade_data)
+            rejected.update({"status": "rejected", "order_type": order_type, "pnl": 0})
+            logger.log_alpaca_trade(rejected)
+            return None, None
+
+        row = dict(trade_data)
+        row.update({
+            "status": "submitted",
+            "order_type": order_type,
+            "order_id": order.get("order_id"),
+            "filled_qty": order.get("filled_qty"),
+            "filled_avg_price": order.get("filled_avg_price"),
+        })
+        trade_id = logger.log_alpaca_trade(row)
+        return trade_id, order
+
+    # ------------------------------------------------------------------
     # Thread entry point
     # ------------------------------------------------------------------
 
@@ -284,6 +422,13 @@ class BotThread(threading.Thread):
         monitor.start()
         log.info("[bot:%s] Position monitor started", bot_id)
 
+        # Crash-safe: resolve any orders left 'submitted' by a prior run before
+        # new work, so a bot that died mid-cycle terminalizes in-flight orders.
+        try:
+            self._resolve_pending_orders(alpaca, logger, cfg)
+        except Exception as exc:
+            log.warning("[bot:%s] startup order resolution failed: %s", bot_id, exc)
+
         try:
             self._scan_loop(cfg, alpaca, logger, risk_gate, alpaca_cfg, memory, learning_loop, universe)
         finally:
@@ -322,6 +467,13 @@ class BotThread(threading.Thread):
             # Re-read config atomically at the top of each cycle
             cfg = self.config
             cycle_count += 1
+
+            # Resolve in-flight orders first each cycle (DB-driven, idempotent)
+            # so fills/cancels are terminalized before dedup/exposure runs.
+            try:
+                self._resolve_pending_orders(alpaca, logger, cfg)
+            except Exception as exc:
+                log.warning("[bot:%s] order resolution failed: %s", bot_id, exc)
 
             # TradingAgents bots run once daily 30 min after close — never during the day.
             if getattr(cfg, "strategy", "confluence") == "tradingagents":
