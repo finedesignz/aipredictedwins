@@ -64,7 +64,9 @@ RUN pip install --no-cache-dir \
 ENV PYTHONPATH="/app:/app/vendor/TradingAgents"
 
 # Bot C LLM shim points TradingAgents at localhost:8765 (started by supervisord).
-ENV TRADINGAGENTS_LLM_PROVIDER=openai \
+# NOTE: provider must be "ollama" here — "openai" makes TradingAgents' ChatOpenAI
+# client validate/require a real OpenAI-shaped backend and breaks the Claude shim.
+ENV TRADINGAGENTS_LLM_PROVIDER=ollama \
     TRADINGAGENTS_LLM_BACKEND_URL=http://localhost:8765/v1 \
     TRADINGAGENTS_DEEP_THINK_LLM=claude-sonnet-4-6 \
     TRADINGAGENTS_QUICK_THINK_LLM=claude-sonnet-4-6 \
