@@ -56,10 +56,12 @@ is Postgres via `src/db.py`. One Alpaca account per bot — never share.
 **Depends on**: Nothing (first phase of milestone)
 **Requirements**: PNL-01, PNL-04
 **Success Criteria** (what must be TRUE):
-  1. Every submitted order transitions to a recorded terminal state — `filled`→`closed`, or `canceled`/`rejected`/`expired` — with no order silently dropped from the trade log.
-  2. The root cause of unresolved trades (orders never re-checked / partial fills / monitor-thread gaps in `PositionMonitor.reconcile`) is documented and fixed in code.
-  3. A run over a representative order set shows resolution rate ≈100%: `python -m pytest dashboard/api/tests -k resolution` green, and a scripted replay leaves 0 orders in a non-terminal state after their monitor cycle.
-**Plans**: TBD
+  1. Every submitted order transitions to a recorded terminal state — `filled`→`open` position, or `canceled`/`rejected`/`expired` — with no order silently dropped from the trade log.
+  2. The root cause of unresolved trades (`order_id` discarded at submit; `PositionMonitor` only resolves against live positions) is documented and fixed in code.
+  3. A run over a representative order set shows resolution rate ≈100%: `python -m pytest tests/test_order_resolution.py -q` green, and no submitted order is left non-terminal after its resolver cycle.
+**Plans**: 2 plans
+  - [ ] 11-01-PLAN.md — Schema migration 015 + db.py persistence (order_id/fills/pending) + AlpacaClient.get_order (foundation)
+  - [ ] 11-02-PLAN.md — Wave-0 test suite + _resolve_pending_orders resolver + submission wiring (order_id/submitted, exception→rejected, dedup)
 
 ### Phase 12: Realized P&L From Fills
 **Goal**: Each closed trade records realized P&L from actual fill prices and quantities, net of fees/slippage — never target/estimated prices.
@@ -157,7 +159,7 @@ is Postgres via `src/db.py`. One Alpaca account per bot — never share.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 11. Order-State Resolution Engine | 0/? | Not started | - |
+| 11. Order-State Resolution Engine | 0/2 | Not started | - |
 | 12. Realized P&L From Fills | 0/? | Not started | - |
 | 13. Alpaca Reconciliation Check | 0/? | Not started | - |
 | 14. Stale-Trade Backfill & Repair | 0/? | Not started | - |
