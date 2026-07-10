@@ -97,7 +97,10 @@ is Postgres via `src/db.py`. One Alpaca account per bot — never share.
   1. A one-shot backfill script walks open/stale `alpaca_trades` rows and resolves each against Alpaca order/position history, writing realized P&L via the Phase 12 path.
   2. The script is idempotent (re-running changes nothing) and reports counts: resolved / unresolvable / unchanged.
   3. After the backfill, the count of non-terminal legacy trades drops to the irreducible set (no Alpaca history) and that residue is reported.
-**Plans**: TBD
+**Plans**: 3 plans
+- [ ] 14-01-PLAN.md — Wave 0 RED tests (tests/test_backfill.py, 14 PNL-05 cases) + A1-A3 alpaca-py smoke
+- [ ] 14-02-PLAN.md — foundation: pure classify_order extraction + db stale-candidate/residue queries + AlpacaClient.get_closed_orders
+- [ ] 14-03-PLAN.md — resolver: resolve_stale_row + backfill(apply) driver + scripts/backfill_trades.py entrypoint
 
 ### Phase 15: Universe Hard-Gate Enforcement
 **Goal**: Entry is hard-gated to each bot's configured allowlist; off-universe symbols are rejected before submission and chronic losers are quarantinable without code change.
@@ -168,7 +171,7 @@ is Postgres via `src/db.py`. One Alpaca account per bot — never share.
 | 11. Order-State Resolution Engine | 0/2 | Not started | - |
 | 12. Realized P&L From Fills | 0/3 | Not started | - |
 | 13. Alpaca Reconciliation Check | 0/3 | Not started | - |
-| 14. Stale-Trade Backfill & Repair | 0/? | Not started | - |
+| 14. Stale-Trade Backfill & Repair | 0/3 | Not started | - |
 | 15. Universe Hard-Gate Enforcement | 0/? | Not started | - |
 | 16. Effective-Universe Dashboard Visibility | 0/? | Not started | - |
 | 17. Per-Symbol Performance Analysis | 0/? | Not started | - |
