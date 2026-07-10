@@ -1,0 +1,15 @@
+2026-07-09 15:48:04,663 INFO src.bot_thread: [bot:C] Thread starting
+2026-07-09 15:48:04,999 INFO src.bot_thread: [bot:C] Learning loop initialised
+2026-07-09 15:48:04,999 INFO src.bot_thread: [bot:C] Stock universe: 12 symbols
+2026-07-09 15:48:05,000 INFO src.bot_thread: [bot:C] Position monitor started
+2026-07-09 15:48:05,930 INFO src.bot_thread: [bot:C] TradingAgents — sleeping 16914s (4.7h) until next daily run
+2026-07-09 20:30:00,563 INFO src.bot_c.strategy: [bot:C][ta] cycle start: equity=$92542.57 cash=$92542.57 tickers=SPY,QQQ,NVDA,AAPL
+2026-07-09 20:30:03,745 INFO src.bot_c.strategy: [bot:C][ta] propagating SPY for 2026-07-09
+2026-07-09 20:30:03,947 ERROR src.bot_c.strategy: [bot:C][ta] propagate failed for SPY: Error code: 404 - {'detail': 'Not Found'}
+2026-07-09 20:30:03,958 INFO src.bot_c.strategy: [bot:C][ta] propagating QQQ for 2026-07-09
+2026-07-09 20:30:03,964 ERROR src.bot_c.strategy: [bot:C][ta] propagate failed for QQQ: Error code: 404 - {'detail': 'Not Found'}
+2026-07-09 20:30:03,968 INFO src.bot_c.strategy: [bot:C][ta] propagating NVDA for 2026-07-09
+2026-07-09 20:30:03,973 ERROR src.bot_c.strategy: [bot:C][ta] propagate failed for NVDA: Error code: 404 - {'detail': 'Not Found'}
+2026-07-09 20:30:03,976 INFO src.bot_c.strategy: [bot:C][ta] propagating AAPL for 2026-07-09
+2026-07-09 20:30:03,981 ERROR src.bot_c.strategy: [bot:C][ta] propagate failed for AAPL: Error code: 404 - {'detail': 'Not Found'}
+2026-07-09 20:30:03,985 INFO src.bot_thread: [bot:C] TradingAgents — sleeping 86396s (24.0h) until next daily run
