@@ -416,6 +416,31 @@ class AlpacaClient:
             orders.append(self._parse_order(order))
         return orders
 
+    def get_closed_orders(self, symbol: str, after=None) -> list[dict]:
+        """Return CLOSED (terminal) orders for a symbol — Phase-14 closing-order lookup.
+
+        Mirrors get_open_orders: CLOSED-status GetOrdersRequest filtered to the
+        crypto symbol (slash PRESERVED — only close_position strips it). When
+        ``after`` is given, bound the window to orders created after the entry's
+        filled_at (shrinks the set, excludes pre-entry orders). Fetch+parse only;
+        the opposite-side / earliest-after-entry matching is the caller's job.
+        """
+        from alpaca.trading.requests import GetOrdersRequest
+        from alpaca.trading.enums import QueryOrderStatus
+
+        kwargs = dict(
+            status=QueryOrderStatus.CLOSED,
+            symbols=[symbol],
+            limit=500,
+            direction="desc",
+        )
+        if after is not None:
+            kwargs["after"] = after
+        request = GetOrdersRequest(**kwargs)
+
+        raw_orders = _retry(self._trading_client.get_orders, filter=request)
+        return [self._parse_order(order) for order in raw_orders]
+
     # ── Helpers ───────────────────────────────────────────────────────────
 
     @staticmethod
