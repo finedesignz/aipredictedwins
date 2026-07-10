@@ -68,7 +68,7 @@ Derived from the 2026-07-06 live audit (see `.planning/PROJECT.md` → Current M
 |-------------|-------|--------|
 | PNL-01 | Phase 11 — Order-State Resolution Engine | Validated |
 | PNL-04 | Phase 11 — Order-State Resolution Engine | Validated |
-| PNL-02 | Phase 12 — Realized P&L From Fills | Pending |
+| PNL-02 | Phase 12 — Realized P&L From Fills | Validated |
 | PNL-03 | Phase 13 — Alpaca Reconciliation Check | Pending |
 | PNL-05 | Phase 14 — Stale-Trade Backfill & Repair | Pending |
 | UNIV-01 | Phase 15 — Universe Hard-Gate Enforcement | Pending |
