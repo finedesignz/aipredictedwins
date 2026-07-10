@@ -14,6 +14,8 @@ import time
 from typing import Callable
 from zoneinfo import ZoneInfo
 
+from src.order_resolution import classify_order, _TERMINAL_NONPOSITION
+
 _ET = ZoneInfo("America/New_York")
 
 
@@ -233,7 +235,9 @@ class BotThread(threading.Thread):
     # Order-state resolution (Phase 11 — PNL-01, PNL-04)
     # ------------------------------------------------------------------
 
-    _TERMINAL_NONPOSITION = frozenset({"canceled", "cancelled", "expired", "rejected"})
+    # Canonical terminal-non-position set lives in src.order_resolution; alias
+    # kept here for any BotThread call sites that reference it.
+    _TERMINAL_NONPOSITION = _TERMINAL_NONPOSITION
 
     def _limit_order_timeout_s(self) -> float:
         """Seconds a resting limit order may sit before cancel-and-terminalize.
@@ -260,21 +264,8 @@ class BotThread(threading.Thread):
             return 0.0
 
     def _classify(self, order: dict):
-        """Map a parsed Alpaca order to (db_status, pnl).
-
-        - filled OR any filled_qty>0 → ('open', None): genuine/partial position.
-        - canceled/expired/rejected with 0 fill → (that status, 0): terminal
-          non-position, excluded from win/loss + open queries.
-        - still in-flight (new/accepted/pending_*) → (None, None): leave
-          'submitted', re-poll next cycle.
-        """
-        filled_qty = float(order.get("filled_qty", 0) or 0)
-        status = str(order.get("status", "")).split(".")[-1].lower()
-        if status == "filled" or filled_qty > 0:
-            return "open", None
-        if status in self._TERMINAL_NONPOSITION:
-            return ("canceled" if status == "cancelled" else status), 0
-        return None, None
+        """Delegate to the pure src.order_resolution.classify_order (Phase-14)."""
+        return classify_order(order)
 
     def _resolve_pending_orders(self, alpaca, logger, cfg=None) -> None:
         """DB-driven, idempotent order-state resolver.
