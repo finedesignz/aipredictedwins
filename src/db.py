@@ -148,6 +148,49 @@ def get_pending_alpaca_orders(bot_id: str) -> list[dict]:
         ).fetchall()
 
 
+def get_stale_alpaca_candidates(bot_id: str, older_than_minutes: int = 30) -> list[dict]:
+    """Non-terminal rows WITH an order_id, older than a guard window — Phase-14 backfill set.
+
+    ``status IN ('open','submitted')`` AND ``order_id IS NOT NULL`` AND older than
+    the guard window (avoid racing live in-flight orders). Read-only. Idempotent:
+    a row that reaches a terminal status drops out of this set on the next run.
+    Returns every column the resolution ladder needs (no second query).
+    """
+    with connection() as conn:
+        return conn.execute(
+            """
+            SELECT id, order_id, symbol, side, qty, entry_price,
+                   filled_qty, filled_avg_price, order_type, status, timestamp
+            FROM alpaca_trades
+            WHERE bot_id = %s
+              AND status IN ('open', 'submitted')
+              AND order_id IS NOT NULL
+              AND timestamp::timestamptz < NOW() - (%s || ' minutes')::interval
+            ORDER BY timestamp ASC
+            """,
+            (bot_id, str(older_than_minutes)),
+        ).fetchall()
+
+
+def count_unresolvable_alpaca_rows(bot_id: str) -> int:
+    """Count non-terminal rows with NO order_id (pre-Phase-11 legacy residue).
+
+    These cannot be resolved from Alpaca history — reported, never guessed.
+    Read-only.
+    """
+    with connection() as conn:
+        return conn.execute(
+            """
+            SELECT COUNT(*) AS n
+            FROM alpaca_trades
+            WHERE bot_id = %s
+              AND status IN ('open', 'submitted')
+              AND order_id IS NULL
+            """,
+            (bot_id,),
+        ).fetchone()["n"]
+
+
 def get_recent_loss_symbols(bot_id: str, hours: int = 24) -> set[str]:
     """Symbols this bot closed at a loss within `hours` — used as re-entry cooldown."""
     with connection() as conn:
