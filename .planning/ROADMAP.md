@@ -84,7 +84,10 @@ is Postgres via `src/db.py`. One Alpaca account per bot — never share.
   1. A reconciliation routine computes `sum(trade-log realized P&L)` vs Alpaca account realized P&L per bot and returns the delta.
   2. When the delta exceeds a configured tolerance it is logged and a reconciliation flag is written (consumed by the dashboard in Phase 19).
   3. Running the check against the two live paper accounts prints a per-bot delta and pass/fail against tolerance.
-**Plans**: TBD
+**Plans**: 3 plans
+- [ ] 13-01-PLAN.md — RED tests: tests/test_reconciliation.py, all 10 VALIDATION cases
+- [ ] 13-02-PLAN.md — foundation: reconcile_bot helper + db accessors + migration 017 + schema mirror
+- [ ] 13-03-PLAN.md — driver + notifier breach wrapper + scripts/reconcile.py entrypoint
 
 ### Phase 14: Stale-Trade Backfill & Repair
 **Goal**: Existing open-but-stale trades are resolved to their true terminal state wherever Alpaca history allows, so the historical log becomes trustworthy.
@@ -164,7 +167,7 @@ is Postgres via `src/db.py`. One Alpaca account per bot — never share.
 |-------|----------------|--------|-----------|
 | 11. Order-State Resolution Engine | 0/2 | Not started | - |
 | 12. Realized P&L From Fills | 0/3 | Not started | - |
-| 13. Alpaca Reconciliation Check | 0/? | Not started | - |
+| 13. Alpaca Reconciliation Check | 0/3 | Not started | - |
 | 14. Stale-Trade Backfill & Repair | 0/? | Not started | - |
 | 15. Universe Hard-Gate Enforcement | 0/? | Not started | - |
 | 16. Effective-Universe Dashboard Visibility | 0/? | Not started | - |
