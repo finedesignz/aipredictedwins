@@ -112,6 +112,21 @@ def alert_position_closed(symbol: str, side: str, entry: float, exit_price: floa
     return send_alert(f"Position closed: {symbol} ${pnl:+,.2f}", body)
 
 
+def alert_reconciliation_breach(bot_id: str, delta: float, tolerance: float,
+                                trade_log_pnl: float, alpaca_realized_pnl: float) -> bool:
+    """Alert that a bot's trade-log vs Alpaca realized P&L reconciliation breached tolerance."""
+    body = (
+        f"Reconciliation breach for Bot {bot_id}.\n\n"
+        f"Trade-log realized P&L: ${trade_log_pnl:+,.2f}\n"
+        f"Alpaca realized P&L:    ${alpaca_realized_pnl:+,.2f}\n"
+        f"Delta: ${delta:+,.2f}\n"
+        f"Tolerance: ${tolerance:,.2f}\n\n"
+        f"The summed trade-log P&L diverges from Alpaca's booked realized P&L "
+        f"beyond tolerance. Investigate trade-log accuracy for this bot."
+    )
+    return send_alert(f"Reconciliation breach: Bot {bot_id}", body)
+
+
 def alert_cycle_summary(cycle: int, trades_placed: int, positions_closed: int,
                         cycle_pnl: float, total_pnl: float, bankroll: float,
                         open_positions: int) -> bool:
