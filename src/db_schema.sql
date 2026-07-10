@@ -204,6 +204,20 @@ CREATE TABLE IF NOT EXISTS signals (
 
 CREATE INDEX IF NOT EXISTS idx_signals_bot_scanned ON signals (bot_id, scanned_at DESC);
 
+-- ─────────────────────────────────────────────
+-- 10. reconciliation — latest per-bot P&L reconciliation result (PNL-03)
+--     Mirrors migration 017_reconciliation.sql. NO bot_id CHECK (C/D allowed).
+-- ─────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS reconciliation (
+    bot_id              TEXT PRIMARY KEY,
+    checked_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    trade_log_pnl       DOUBLE PRECISION NOT NULL,
+    alpaca_realized_pnl DOUBLE PRECISION NOT NULL,
+    delta               DOUBLE PRECISION NOT NULL,
+    within_tolerance    BOOLEAN NOT NULL,
+    tolerance           DOUBLE PRECISION NOT NULL
+);
+
 -- ═════════════════════════════════════════════
 -- INDEXES
 -- ═════════════════════════════════════════════
