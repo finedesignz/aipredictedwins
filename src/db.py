@@ -198,6 +198,61 @@ def get_alpaca_accuracy(bot_id: str, last_n: int | None = None) -> dict:
     }
 
 
+# ── Reconciliation (PNL-03) ────────────────────────────────────────────────────
+
+def get_realized_pnl(bot_id: str) -> float:
+    """Sum trade-log realized P&L for a bot over the three position-closed terminals.
+
+    Mirrors get_alpaca_accuracy's status set — 'closed','stopped','target_hit' all
+    carry real pnl; summing 'closed' alone drops every stop/target exit. NULL pnl
+    (unfilled canceled/rejected/expired) is guarded to 0.0.
+    """
+    with connection() as conn:
+        rows = conn.execute(
+            "SELECT pnl FROM alpaca_trades WHERE bot_id = %s "
+            "AND status IN ('closed', 'stopped', 'target_hit')",
+            (bot_id,),
+        ).fetchall()
+    return sum((r["pnl"] or 0.0) for r in rows)
+
+
+def get_starting_equity(bot_id: str) -> float:
+    """Read the reconciliation baseline from the bot's row (never hardcode 100000)."""
+    with connection() as conn:
+        row = conn.execute(
+            "SELECT starting_equity FROM bots WHERE bot_id = %s",
+            (bot_id,),
+        ).fetchone()
+    if row is None:
+        return 100000.0  # missing-row fallback only
+    return row["starting_equity"]
+
+
+def record_reconciliation(bot_id: str, result: dict) -> None:
+    """Upsert the latest reconciliation result for a bot (single row per bot)."""
+    with connection() as conn:
+        conn.execute(
+            "INSERT INTO reconciliation (bot_id, checked_at, trade_log_pnl, "
+            "alpaca_realized_pnl, delta, within_tolerance, tolerance) "
+            "VALUES (%s, NOW(), %s, %s, %s, %s, %s) "
+            "ON CONFLICT (bot_id) DO UPDATE SET "
+            "checked_at = EXCLUDED.checked_at, "
+            "trade_log_pnl = EXCLUDED.trade_log_pnl, "
+            "alpaca_realized_pnl = EXCLUDED.alpaca_realized_pnl, "
+            "delta = EXCLUDED.delta, "
+            "within_tolerance = EXCLUDED.within_tolerance, "
+            "tolerance = EXCLUDED.tolerance",
+            (
+                bot_id,
+                result["trade_log_pnl"],
+                result["alpaca_realized_pnl"],
+                result["delta"],
+                result["within_tolerance"],
+                result["tolerance"],
+            ),
+        )
+
+
 # ── Legacy Kalshi trades ───────────────────────────────────────────────────────
 
 def log_trade(bot_id: str, trade_data: dict) -> int:
