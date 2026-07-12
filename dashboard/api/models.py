@@ -225,6 +225,7 @@ class BotFull(BaseModel):
     trend_ma_window: Optional[int] = 50
     trend_symbol: Optional[str] = "BITX"
     trend_benchmark: Optional[str] = "BTC/USD"
+    quarantined_symbols: str = ""  # Phase 15 (UNIV-02)
     enabled: bool = True
     status: str = "stopped"
     status_detail: Optional[str] = None
@@ -247,6 +248,7 @@ class BotCreate(BaseModel):
     max_position_pct: float = 0.05
     min_short_confluence: int = 3
     tradingagents_enabled: bool = False
+    quarantined_symbols: str = ""  # Phase 15 (UNIV-02)
 
 
 class BotUpdate(BaseModel):
@@ -270,6 +272,8 @@ class BotUpdate(BaseModel):
     trend_symbol: Optional[str] = None
     trend_benchmark: Optional[str] = None
     asset_class: Optional[str] = None
+    # Phase 15 (UNIV-02): "" clears the list; None means "leave alone".
+    quarantined_symbols: Optional[str] = None
 
 
 # -- Multi-bot portfolio (bot=both response shape) ----------------------------

@@ -21,6 +21,7 @@ _BOT_COLS = """bot_id, label, kelly_fraction, min_confluence, hard_stop_pct,
     soft_stop_pct, rsi_ceiling, crypto_universe, stock_universe, asset_class, skip_risk_gate,
     max_position_pct, min_short_confluence, tradingagents_enabled,
     strategy, trend_ma_window, trend_symbol, trend_benchmark,
+    quarantined_symbols,
     enabled, status, status_detail"""
 
 
@@ -81,12 +82,14 @@ def create_bot(body: BotCreate, request: Request):
                 bot_id, label, alpaca_api_key, alpaca_secret_key,
                 kelly_fraction, min_confluence, hard_stop_pct, soft_stop_pct,
                 rsi_ceiling, crypto_universe, stock_universe, skip_risk_gate,
-                max_position_pct, min_short_confluence, tradingagents_enabled, enabled, status
+                max_position_pct, min_short_confluence, tradingagents_enabled,
+                quarantined_symbols, enabled, status
             ) VALUES (
                 %(bot_id)s, %(label)s, %(alpaca_api_key)s, %(alpaca_secret_key)s,
                 %(kelly_fraction)s, %(min_confluence)s, %(hard_stop_pct)s, %(soft_stop_pct)s,
                 %(rsi_ceiling)s, %(crypto_universe)s, %(stock_universe)s, %(skip_risk_gate)s,
-                %(max_position_pct)s, %(min_short_confluence)s, %(tradingagents_enabled)s, TRUE, 'stopped'
+                %(max_position_pct)s, %(min_short_confluence)s, %(tradingagents_enabled)s,
+                %(quarantined_symbols)s, TRUE, 'stopped'
             )
             """,
             body.model_dump(),

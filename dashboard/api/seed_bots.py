@@ -39,6 +39,7 @@ def build_bots() -> list[dict]:
             "max_position_pct": float(os.environ.get("BOT_A_MAX_POSITION_PCT", "0.05")),
             "min_short_confluence": int(os.environ.get("BOT_A_MIN_SHORT_CONFLUENCE", "3")),
             "tradingagents_enabled": os.environ.get("BOT_A_TRADINGAGENTS", "false").lower() == "true",
+            "quarantined_symbols": os.environ.get("BOT_A_QUARANTINED", ""),
         })
 
     key_b = os.environ.get("ALPACA_API_KEY_B")
@@ -61,6 +62,7 @@ def build_bots() -> list[dict]:
             "max_position_pct": float(os.environ.get("BOT_B_MAX_POSITION_PCT", "0.05")),
             "min_short_confluence": int(os.environ.get("BOT_B_MIN_SHORT_CONFLUENCE", "3")),
             "tradingagents_enabled": os.environ.get("BOT_B_TRADINGAGENTS", "false").lower() == "true",
+            "quarantined_symbols": os.environ.get("BOT_B_QUARANTINED", ""),
         })
 
     key_c = os.environ.get("ALPACA_API_KEY_C")
@@ -85,6 +87,7 @@ def build_bots() -> list[dict]:
             "max_position_pct": float(os.environ.get("BOT_C_MAX_POSITION_PCT", "0.05")),
             "min_short_confluence": int(os.environ.get("BOT_C_MIN_SHORT_CONFLUENCE", "3")),
             "tradingagents_enabled": os.environ.get("BOT_C_TRADINGAGENTS", "false").lower() == "true",
+            "quarantined_symbols": os.environ.get("BOT_C_QUARANTINED", ""),
             "strategy": os.environ.get("BOT_C_STRATEGY", "tradingagents"),
         })
 
@@ -108,6 +111,7 @@ def build_bots() -> list[dict]:
             "max_position_pct": float(os.environ.get("BOT_D_MAX_POSITION_PCT", "0.05")),
             "min_short_confluence": int(os.environ.get("BOT_D_MIN_SHORT_CONFLUENCE", "3")),
             "tradingagents_enabled": os.environ.get("BOT_D_TRADINGAGENTS", "false").lower() == "true",
+            "quarantined_symbols": os.environ.get("BOT_D_QUARANTINED", ""),
         })
 
     return bots
@@ -141,14 +145,14 @@ def seed_bots() -> None:
                         hard_stop_pct, soft_stop_pct, rsi_ceiling,
                         crypto_universe, stock_universe, asset_class, max_position_pct,
                         min_short_confluence, tradingagents_enabled, strategy,
-                        enabled, status
+                        quarantined_symbols, enabled, status
                     ) VALUES (
                         %(id)s, %(bot_id)s, %(label)s, %(alpaca_api_key)s, %(alpaca_secret_key)s,
                         %(kelly_fraction)s, %(min_confluence)s, %(skip_risk_gate)s,
                         %(hard_stop_pct)s, %(soft_stop_pct)s, %(rsi_ceiling)s,
                         %(crypto_universe)s, %(stock_universe)s, %(asset_class)s, %(max_position_pct)s,
                         %(min_short_confluence)s, %(tradingagents_enabled)s, %(strategy)s,
-                        TRUE, 'stopped'
+                        %(quarantined_symbols)s, TRUE, 'stopped'
                     )
                     """,
                     row,
