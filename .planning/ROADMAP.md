@@ -123,7 +123,11 @@ is Postgres via `src/db.py`. One Alpaca account per bot — never share.
   1. A FastAPI route returns the effective per-bot universe (allowlist minus quarantined symbols).
   2. The dashboard renders each bot's effective universe on a bot/settings view.
   3. `curl` of the route with a Bearer token returns the correct symbol set for a bot with a quarantined symbol excluded.
-**Plans**: TBD
+**Plans**: 4 plans
+- [ ] 16-01-PLAN.md — RED suite: tests/test_effective_universe.py (all 17 VALIDATION cases)
+- [ ] 16-02-PLAN.md — src/effective_universe.py: pure resolver delegating to src.universe.entry_allowed
+- [ ] 16-03-PLAN.md — GET /api/bots/{bot_id}/universe on bots.router + exposure/leak query
+- [ ] 16-04-PLAN.md — UniversePanel.tsx in BotCard + types realignment (npm run build gate)
 **UI hint**: yes
 
 ### Phase 17: Per-Symbol Performance Analysis
