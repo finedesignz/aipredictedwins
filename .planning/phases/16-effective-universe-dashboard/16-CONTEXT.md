@@ -44,18 +44,32 @@ visible at a glance.
    - a symbol in `blocked` with reason `off_universe` that has **open positions or recent trades**
      → a LEAK warning (this is the TRUMP/FIL case);
    - `effective` empty → a "bot has no tradeable symbols" warning (over-quarantine starvation).
-3b. **The shadow deny-lists MUST be shown (CORRECTED after research).** `BotThread`'s selectors
+3b. **The shadow deny-lists MUST be shown — but ONLY for the strategy that actually enforces them
+   (CORRECTED after research, then again after plan-check).** `BotThread`'s confluence selectors
    subtract `MEME_CRYPTO` **and `_ALPACA_UNTRADEABLE`** on top of the Phase-15 gate
    (`src/bot_thread.py:144-145`, `163-164`), and `_ALPACA_UNTRADEABLE`'s default
-   (`src/alpaca_orchestrator.py:79-84`) **already contains `DOT/USD`, `LINK/USD`, `ETH/USD`** — three
-   of the eight symbols in every bot's default `crypto_universe`. A panel that reported only the
-   gate's answer would say "8 of 8 tradeable" for a bot that actually scans 5 — a new lie, in a
-   phase whose entire purpose is to stop the dashboard lying. So `effective` subtracts the shadow
-   sets too, and `blocked` carries the distinct reasons: `quarantined` | `off_universe` | `meme` |
-   `untradeable`. Caveat to record in VERIFICATION.md: `_ALPACA_UNTRADEABLE` is env-derived in the
-   orchestrator process, so if the dashboard container's env differs the panel can drift — report
-   the constant's source, and hand consolidation of these hardcoded sets into `quarantined_symbols`
-   to Phase 17/18. Do NOT refactor the constants in this phase.
+   (`src/alpaca_orchestrator.py:79-84`) **already contains `DOT/USD`, `LINK/USD`, `ETH/USD`** — three of
+   the eight symbols in every bot's default `crypto_universe`. A panel reporting only the gate's answer
+   would say "8 of 8 tradeable" for a confluence bot that actually scans 5 — a new lie, in a phase whose
+   entire purpose is to stop the dashboard lying. So `effective` subtracts the shadow sets too, and
+   `blocked` carries the distinct reasons: `quarantined` | `off_universe` | `meme` | `untradeable`.
+
+   **The subtraction is STRATEGY-CONDITIONAL.** Those two sets are enforced at exactly two places — the
+   confluence selectors above, and the CLI orchestrator. They appear **nowhere** in
+   `src/copytrade_thread.py`, `src/trend_strategy.py` or `src/bot_c/strategy.py`; `bot_thread` dispatches
+   `trend_btc` → `run_trend_cycle` (`:551`) and `tradingagents` → `run_tradingagents_cycle` (`:560`),
+   both of which bypass the selectors entirely. Applying the shadow sets to every strategy would invent a
+   **different** new lie: Bot E (copytrade) really does trade `ETH/USD` when its leader does, and the
+   panel would strike it through as `untradeable`. Therefore:
+   - `shadow_applies_to(strategy)` is True ONLY for the confluence path;
+   - for `copytrade` / `trend_btc` / `tradingagents` the payload reports `shadow_applied: false` and NO
+     symbol may carry reason `meme` or `untradeable` (VALIDATION case 18).
+
+   Caveat to record in VERIFICATION.md: `_ALPACA_UNTRADEABLE` is env-derived, so the panel reports the
+   constant as the API process sees it (in the deployed topology the API and BotManager share one
+   process, so it is the same value the threads use). Report the constant's source, and hand
+   consolidation of these hardcoded sets into `quarantined_symbols` to Phase 17/18. Do NOT refactor the
+   constants in this phase.
 
 4. **No schema change.** Everything needed exists (`crypto_universe`, `stock_universe`,
    `quarantined_symbols`, `asset_class`, `strategy`, `trend_symbol`). If any migration were needed
