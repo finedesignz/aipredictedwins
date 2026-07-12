@@ -34,6 +34,9 @@ class BotConfig:
     trend_ma_window: int = 50
     trend_symbol: str = "BITX"   # 2x BTC ETF; can swap to IBIT (1x) or ETHU (2x ETH)
     trend_benchmark: str = "BTC/USD"  # asset whose MA we follow
+    # Phase 15 (UNIV-02): comma-separated deny-list. Same format as crypto_universe
+    # ("BTC/USD" — a bare "BTC" will NOT match). Empty = nothing quarantined.
+    quarantined_symbols: str = ""
 
     @classmethod
     def from_row(cls, row: dict) -> "BotConfig":
@@ -61,6 +64,8 @@ class BotConfig:
             trend_ma_window=int(row["trend_ma_window"] if row.get("trend_ma_window") is not None else 50),
             trend_symbol=row.get("trend_symbol") or "BITX",
             trend_benchmark=row.get("trend_benchmark") or "BTC/USD",
+            # A pre-migration row (key absent) yields "" -> [] -> nothing quarantined.
+            quarantined_symbols=row.get("quarantined_symbols") or "",
         )
 
     @property
@@ -69,3 +74,26 @@ class BotConfig:
         if self.asset_class == "stock":
             return [s.strip() for s in self.stock_universe.split(",") if s.strip()]
         return [s.strip() for s in self.crypto_universe.split(",") if s.strip()]
+
+    @property
+    def quarantined(self) -> list[str]:
+        """Flat, asset-class-AGNOSTIC deny-list (Phase 15, UNIV-02)."""
+        return [s.strip() for s in self.quarantined_symbols.split(",") if s.strip()]
+
+    @property
+    def all_symbols(self) -> list[str]:
+        """UNION of crypto_universe and stock_universe (deduped, order-stable).
+
+        The COPYTRADE allowlist: Bot E mirrors a leader across asset classes, so
+        `symbols` (a single asset class) would wrongly block half its legitimate
+        trades. TRUMP/FIL are in neither universe, so the leak still closes.
+        """
+        merged: list[str] = []
+        seen: set[str] = set()
+        for raw in (self.crypto_universe, self.stock_universe):
+            for s in raw.split(","):
+                s = s.strip()
+                if s and s not in seen:
+                    seen.add(s)
+                    merged.append(s)
+        return merged

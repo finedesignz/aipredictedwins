@@ -5,12 +5,16 @@
 -- ─────────────────────────────────────────────
 -- 1. bots — registry table
 -- ─────────────────────────────────────────────
+-- NOTE: this block is NOT a full mirror of the live table — the remaining per-bot
+-- config columns (bot_id, crypto_universe, kelly_fraction, ...) are added by
+-- dashboard/api/migrations/002+ and are not restated here.
 CREATE TABLE IF NOT EXISTS bots (
     id              TEXT PRIMARY KEY CHECK (id IN ('A', 'B')),
     label           TEXT NOT NULL,
     starting_equity DOUBLE PRECISION NOT NULL DEFAULT 100000.0,
     alpaca_key_prefix TEXT,
     config_flags    JSONB,
+    quarantined_symbols TEXT DEFAULT '',  -- Phase 15 (mirror of migration 018)
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
