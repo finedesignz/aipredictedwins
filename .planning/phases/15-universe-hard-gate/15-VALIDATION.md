@@ -21,7 +21,9 @@ updated: 2026-07-12
 ## Validation Architecture (UNIV-01, UNIV-02)
 
 Pure gate + wiring, zero-network fakes (reuse the `FakeAlpacaClient`/`FakeLogger` convention from
-`tests/test_order_resolution.py` / `tests/test_backfill.py`).
+`tests/test_order_resolution.py` / `tests/test_backfill.py`). The fake's `get_positions()` returns
+the real row shape (`src/alpaca_client.py:140-157`): slashless `symbol`, **SIGNED** float `qty`
+(negative for a short), plus `side`.
 
 | # | Case | Test | Proves |
 |---|------|------|--------|
@@ -42,14 +44,20 @@ Pure gate + wiring, zero-network fakes (reuse the `FakeAlpacaClient`/`FakeLogger
 | 15 | BotConfig.quarantined parses the column (missing/None → []); BotConfig.all_symbols is the crypto ∪ stock union | test_bot_config_quarantined / test_bot_config_all_symbols | UNIV-02 config plumbing |
 | 16 | DATABASE_URL-gated: migration 018 applied — `bots.quarantined_symbols` EXISTS and its `column_default` STARTS WITH `''` (Postgres renders it `''::text` — do NOT assert equality with `''`) | test_quarantine_column_sql | real-SQL guard |
 | 17 | STATIC guard: `"entry_allowed" not in Path("src/alpaca_client.py").read_text()` — automated proof the gate never lands in the exit layer | test_gate_absent_from_alpaca_client | exits never gated (replaces a manual git-diff check) |
-| 18 | copytrade leader SELL on an ALREADY-HELD off-universe symbol still submits (the gate is SKIPPED entirely when `normalize(mapped)` is in the live position set) | test_copytrade_sell_held_symbol_not_gated | an open position is never stranded |
+| 18 | copytrade leader SELL on an off-universe symbol held LONG (qty=+5.0) STILL submits — the order REDUCES the position, so the gate is skipped | test_copytrade_sell_held_symbol_not_gated | an open position is never stranded |
+| 19 | copytrade leader BUY on that SAME held off-universe LONG is **BLOCKED** (it ADDS — the audited TRUMP case); mirror-image: a BUY on a symbol held SHORT (qty=−5.0) is a reduce and DOES submit | test_copytrade_buy_held_symbol_blocked | the reduce-skip is REDUCE-ONLY, not presence-based — no entry loophole |
+
+The copytrade skip rule (LOCKED): skip the gate **iff** `(held_qty > 0 and side == "sell")` or
+`(held_qty < 0 and side == "buy")`. Everything else — including a BUY on a held long and a SELL on a
+not-held symbol (short-to-open) — goes through `entry_allowed`. Fail CLOSED (evaluate the gate) if
+`get_positions()` raises or `qty` is unparseable.
 
 Wave 0 gap: `tests/test_universe.py` does not exist — created RED before implementation.
 (Case 17 passes trivially from the start and acts as a regression tripwire for Wave 3.)
 
 ## Nyquist Compliance
 
-- UNIV-01 → cases 1,2,4,6,7,8,9,10,11,12,13,14,17,18.
+- UNIV-01 → cases 1,2,4,6,7,8,9,10,11,12,13,14,17,18,19.
 - UNIV-02 → cases 3,5,15,16.
 - `nyquist_compliant` flips true when the suite exists and passes with zero regressions.
 </content>
