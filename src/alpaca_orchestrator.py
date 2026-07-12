@@ -28,6 +28,7 @@ from rich.table import Table
 from src.config import load_config
 from src.alpaca_client import AlpacaClient
 from src.alpaca_evaluator import get_trending_crypto, TOP_CRYPTO_TICKERS, MEME_CRYPTO, get_dynamic_crypto_universe
+from src.universe import entry_allowed
 from src.technical_signals import scan_assets, analyze, _atr, bear_fraction
 from src.rules_gate import RulesGate
 from src.risk_gate import RiskGate  # keep for backward compat / type hints
@@ -93,6 +94,10 @@ DYNAMIC_UNIVERSE_SIZE = int(_os.environ.get("DYNAMIC_UNIVERSE_SIZE", "8"))
 # Optional curated/static crypto universe (comma-separated, e.g. "BTC/USD,ETH/USD").
 # When set, it is preferred over the dynamic volume-ranked universe.
 CRYPTO_UNIVERSE = [s.strip() for s in _os.environ.get("CRYPTO_UNIVERSE", "").split(",") if s.strip()]
+
+# Phase 15 (UNIV-02): operator deny-list for the CLI path. Same format as
+# CRYPTO_UNIVERSE ("BTC/USD"). Empty = nothing quarantined = current behavior.
+QUARANTINED_SYMBOLS = [s.strip() for s in _os.environ.get("QUARANTINED_SYMBOLS", "").split(",") if s.strip()]
 
 # User-configurable live trading threshold (set via env var)
 LIVE_TRADING_THRESHOLD = float(_os.environ.get("LIVE_TRADING_THRESHOLD", "100000"))
@@ -928,6 +933,16 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                     except Exception as exc:
                         log.warning("Memory advisory failed for %s: %s", symbol, exc)
 
+                # Phase 15 (UNIV-01): hard-gate the long ENTRY against the resolved
+                # universe + the operator quarantine list. Exits (PositionMonitor's
+                # close_position) are NEVER gated.
+                _allowed, _reason = entry_allowed(symbol, universe, QUARANTINED_SYMBOLS)
+                if not _allowed:
+                    log.warning("ENTRY BLOCKED %s — reason=%s (universe hard-gate)",
+                                symbol, _reason)
+                    console.print(f"  Skipping {symbol} -- {_reason}")
+                    continue
+
                 expected_move_pct = 0.08  # long soft target: price * (1 + 0.08)
                 if not clears_fee_hurdle(expected_move_pct, TAKER_FEE, SLIPPAGE_BUFFER):
                     console.print(
@@ -1081,6 +1096,14 @@ def main(mode: str = "paper", max_trades: int = 0) -> None:
                                 )
                         except Exception as exc:
                             log.warning("Memory advisory failed for %s: %s", symbol, exc)
+
+                    # Phase 15 (UNIV-01): a sell-to-OPEN is an ENTRY — gate it too.
+                    _allowed, _reason = entry_allowed(symbol, universe, QUARANTINED_SYMBOLS)
+                    if not _allowed:
+                        log.warning("SHORT ENTRY BLOCKED %s — reason=%s (universe hard-gate)",
+                                    symbol, _reason)
+                        console.print(f"  Skipping {symbol} -- {_reason}")
+                        continue
 
                     expected_move_pct = 0.08  # short soft target: price * (1 - 0.08)
                     if not clears_fee_hurdle(expected_move_pct, TAKER_FEE, SLIPPAGE_BUFFER):

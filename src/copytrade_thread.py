@@ -31,6 +31,7 @@ from src.alpaca_client import AlpacaClient
 from src.bot_config import BotConfig
 from src.bot_thread import _make_alpaca_config
 from src.claude_copytrade import pick_leaders
+from src.universe import entry_allowed, normalize
 
 log = logging.getLogger(__name__)
 
@@ -375,6 +376,34 @@ class CopyTraderThread(threading.Thread):
             qty = max(1.0, round(qty))
         else:
             qty = round(qty, 6)
+
+        # Phase 15 (UNIV-01): hard-gate the ENTRY. A copytrade order has no
+        # open/close concept, so the discriminator is whether it REDUCES an already
+        # held position — get_positions() returns a SIGNED qty (negative for a short).
+        # Skip the gate IFF (held>0 and sell) or (held<0 and buy): a reduce/close must
+        # never be stranded. Everything else is gated, including a BUY that ADDS to a
+        # held off-universe long (the audited TRUMP case) and a SELL on a not-held
+        # symbol (a short-to-open). FAIL CLOSED if positions can't be read.
+        try:
+            held = {normalize(p.get("symbol")): float(p.get("qty"))
+                    for p in (alpaca.get_positions() or [])}
+        except Exception as exc:
+            log.warning("[bot:%s] positions fetch failed (%s) — gating %s", bot_id, exc, mapped)
+            held = {}
+        held_qty = held.get(normalize(mapped), 0.0)
+        reduces = (held_qty > 0 and side == "sell") or (held_qty < 0 and side == "buy")
+
+        if not reduces:
+            allowed, reason = entry_allowed(
+                mapped, self.config.all_symbols, self.config.quarantined)
+            if not allowed:
+                base["action"] = "blocked"
+                base["error_detail"] = reason
+                log.warning(
+                    "[bot:%s] ENTRY BLOCKED %s side=%s — reason=%s (universe hard-gate)",
+                    bot_id, mapped, side, reason,
+                )
+                return base
 
         try:
             order = alpaca.place_market_order(symbol=mapped, qty=qty, side=side)
