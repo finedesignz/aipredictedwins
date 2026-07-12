@@ -15,6 +15,7 @@ from typing import Callable
 from zoneinfo import ZoneInfo
 
 from src.order_resolution import classify_order, _TERMINAL_NONPOSITION
+from src.universe import entry_allowed, normalize
 
 _ET = ZoneInfo("America/New_York")
 
@@ -142,6 +143,7 @@ def select_long_candidates(signals, cfg, open_symbols, recent_loss_symbols):
         and s.symbol not in recent_loss_symbols
         and s.symbol not in MEME_CRYPTO
         and s.symbol not in _ALPACA_UNTRADEABLE
+        and entry_allowed(s.symbol, cfg.symbols, cfg.quarantined)[0]
         and s.rsi_value < cfg.rsi_ceiling
         and getattr(s, "trend_4h", "unknown") != "bearish"
     ])
@@ -160,6 +162,7 @@ def select_short_candidates(signals, cfg, open_symbols, recent_loss_symbols):
         and s.symbol not in recent_loss_symbols
         and s.symbol not in MEME_CRYPTO
         and s.symbol not in _ALPACA_UNTRADEABLE
+        and entry_allowed(s.symbol, cfg.symbols, cfg.quarantined)[0]
         and getattr(s, "trend_4h", "unknown") != "bullish"
     ])
 
@@ -216,6 +219,15 @@ class BotThread(threading.Thread):
         with self._config_lock:
             self._config = new_config
         log.info("[bot:%s] Config updated — takes effect next cycle", new_config.bot_id)
+        # Phase 15: surface the EFFECTIVE (normalized) gate sets so a fat-fingered
+        # quarantine entry (e.g. bare "BTC", which will NOT match "BTC/USD") is
+        # visible in the logs instead of silently no-op'ing.
+        log.info(
+            "[bot:%s] Universe gate — allowlist=%s quarantined=%s",
+            new_config.bot_id,
+            sorted(normalize(s) for s in new_config.symbols),
+            sorted(normalize(s) for s in new_config.quarantined),
+        )
 
     def stop(self) -> None:
         """Signal the thread to stop gracefully after the current cycle."""
@@ -332,7 +344,25 @@ class BotThread(threading.Thread):
         Returns ``(trade_id, order)`` on success. On a submit exception a
         terminal 'rejected' row is written (pnl=0) so nothing is silently
         dropped (Decision 5) and ``(None, None)`` is returned.
+
+        Phase 15 (UNIV-01): every call to this method OPENS a position — long or
+        short, market or limit — so the universe hard-gate applies unconditionally.
+        A blocked symbol never reaches Alpaca; it writes the same terminal
+        'rejected' row (pnl=0) and returns ``(None, None)``. Exits do not traverse
+        this method and are therefore never gated.
         """
+        cfg = self.config
+        allowed, reason = entry_allowed(symbol, cfg.symbols, cfg.quarantined)
+        if not allowed:
+            log.warning(
+                "[bot:%s] ENTRY BLOCKED %s side=%s — reason=%s (universe hard-gate)",
+                self.bot_id, symbol, side, reason,
+            )
+            rejected = dict(trade_data)
+            rejected.update({"status": "rejected", "order_type": order_type, "pnl": 0})
+            logger.log_alpaca_trade(rejected)
+            return None, None
+
         try:
             if order_type == "limit":
                 order = alpaca.place_limit_order(
