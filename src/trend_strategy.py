@@ -20,6 +20,7 @@ from typing import Optional
 from src.alpaca_client import AlpacaClient
 from src.bot_config import BotConfig
 from src.trade_logger import TradeLogger
+from src.universe import entry_allowed
 
 log = logging.getLogger(__name__)
 
@@ -96,6 +97,18 @@ def run_trend_cycle(
     has_position = target_pos is not None and float(target_pos.get("qty", 0)) > 0
 
     if above_ma and not has_position:
+        # Phase 15 (UNIV-01): hard-gate the ENTRY. The trend target (BITX) is not in
+        # stock_universe by design, so it rides an explicit carve-out; a quarantined
+        # target is still blocked. The SELL/exit path below is NEVER gated.
+        allow = list(cfg.symbols) + [cfg.trend_symbol]
+        allowed, reason = entry_allowed(target, allow, cfg.quarantined)
+        if not allowed:
+            log.warning(
+                "[bot:%s][trend] ENTRY BLOCKED %s — reason=%s (universe hard-gate)",
+                bot_id, target, reason,
+            )
+            return
+
         # Enter: buy target with all available cash
         if cash < 100:
             log.info("[bot:%s][trend] BULLISH but cash too low ($%.2f) — skipping", bot_id, cash)

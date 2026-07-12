@@ -36,6 +36,7 @@ from typing import Optional
 from src.alpaca_client import AlpacaClient
 from src.bot_config import BotConfig
 from src.trade_logger import TradeLogger
+from src.universe import entry_allowed
 from src import db as _db
 
 log = logging.getLogger(__name__)
@@ -283,6 +284,16 @@ def _process_ticker(
         return
 
     # ─── Entry path ────────────────────────────────────────────────────────
+    # Phase 15 (UNIV-01): last chokepoint before the order. The exit path above is
+    # NEVER gated — an open position in a quarantined symbol must always close.
+    allowed, reason = entry_allowed(symbol, cfg.symbols, cfg.quarantined)
+    if not allowed:
+        log.warning(
+            "[bot:%s][ta] ENTRY BLOCKED %s — reason=%s (universe hard-gate)",
+            bot_id, symbol, reason,
+        )
+        return
+
     if is_held:
         log.info("[bot:%s][ta] %s %s — already holding, no pyramid", bot_id, symbol, rating)
         return
