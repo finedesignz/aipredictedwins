@@ -110,7 +110,10 @@ is Postgres via `src/db.py`. One Alpaca account per bot — never share.
   1. Any symbol outside the per-bot allowlist (e.g. TRUMP, FIL) is rejected before order submission in `BotThread`, and the rejection is logged.
   2. A configurable quarantine/drop list (e.g. BTC) removes a symbol from entry consideration via `bots`-row / env config with no code change.
   3. A unit test asserts an off-universe and a quarantined symbol both fail the entry gate while an allowlisted symbol passes.
-**Plans**: TBD
+**Plans**: 3 plans (3 waves)
+- [ ] 15-01-PLAN.md — RED suite: tests/test_universe.py, all 16 VALIDATION cases (UNIV-01, UNIV-02)
+- [ ] 15-02-PLAN.md — src/universe.py pure gate + migration 018 quarantine column + BotConfig/API/seed plumbing (UNIV-02)
+- [ ] 15-03-PLAN.md — wire the gate into all 5 entry sites; exits never gated (UNIV-01)
 
 ### Phase 16: Effective-Universe Dashboard Visibility
 **Goal**: The dashboard exposes each bot's effective live universe (allowlist minus quarantine) so a leak is immediately visible.
