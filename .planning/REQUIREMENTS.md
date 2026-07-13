@@ -39,7 +39,7 @@ Derived from the 2026-07-06 live audit (see `.planning/PROJECT.md` → Current M
 ### Profitable Retune (TUNE)
 - [ ] **TUNE-01**: Confluence entry threshold and quarter-Kelly sizing are retuned using the real
       resolved-trade dataset + backtest harness, targeting win rate ≥40% and halted drawdown.
-- [ ] **TUNE-02**: Per-symbol / per-bot performance analysis drives the retune (winners: UNI, ADA,
+- [x] **TUNE-02**: Per-symbol / per-bot performance analysis drives the retune (winners: UNI, ADA,
       SOL, XRP, CRV; losers: BTC, AVAX, TRUMP, FIL) rather than uniform thresholds.
 - [ ] **TUNE-03**: Retuned parameters are validated against the existing backtest before going live
       on paper; the change is reversible via config/env.
@@ -74,7 +74,7 @@ Derived from the 2026-07-06 live audit (see `.planning/PROJECT.md` → Current M
 | UNIV-01 | Phase 15 — Universe Hard-Gate Enforcement | Validated |
 | UNIV-02 | Phase 15 — Universe Hard-Gate Enforcement | Validated |
 | UNIV-03 | Phase 16 — Effective-Universe Dashboard Visibility | Validated |
-| TUNE-02 | Phase 17 — Per-Symbol Performance Analysis | Pending |
+| TUNE-02 | Phase 17 — Per-Symbol Performance Analysis | Validated |
 | TUNE-01 | Phase 18 — Profitable Retune (Confluence + Kelly) | Pending |
 | TUNE-03 | Phase 18 — Profitable Retune (Confluence + Kelly) | Pending |
 | RUN-01 | Phase 19 — Reliable Runtime & Honest Monitoring | Pending |

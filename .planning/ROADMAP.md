@@ -44,7 +44,7 @@ is Postgres via `src/db.py`. One Alpaca account per bot — never share.
 - [ ] **Phase 14: Stale-Trade Backfill & Repair** - Existing open-but-stale trades are resolved to their true terminal state from Alpaca history.
 - [ ] **Phase 15: Universe Hard-Gate Enforcement** - Off-universe symbols are rejected before submission; chronic losers are quarantinable via config.
 - [x] **Phase 16: Effective-Universe Dashboard Visibility** - The dashboard shows each bot's effective live universe so a leak is visible.
-- [ ] **Phase 17: Per-Symbol Performance Analysis** - Resolved-trade dataset yields per-symbol/per-bot win-rate & P&L to drive the retune.
+- [x] **Phase 17: Per-Symbol Performance Analysis** - Resolved-trade dataset yields per-symbol/per-bot win-rate & P&L to drive the retune.
 - [ ] **Phase 18: Profitable Retune (Confluence + Kelly)** - Entry threshold and quarter-Kelly sizing retuned on real data, backtest-validated, reversible via config.
 - [ ] **Phase 19: Reliable Runtime & Honest Monitoring** - Thread-death detection alerts; dashboard headline reflects reconciled numbers.
 - [ ] **Phase 20: Verification & E2E Reconciliation** - Test suite covers resolution/P&L/universe/reconciliation; live-data check confirms resolution rate + reconciliation within tolerance.
@@ -202,7 +202,7 @@ is Postgres via `src/db.py`. One Alpaca account per bot — never share.
 | UNIV-01 | Phase 15 | Pending |
 | UNIV-02 | Phase 15 | Pending |
 | UNIV-03 | Phase 16 | Validated |
-| TUNE-02 | Phase 17 | Pending |
+| TUNE-02 | Phase 17 | Validated |
 | TUNE-01 | Phase 18 | Pending |
 | TUNE-03 | Phase 18 | Pending |
 | RUN-01 | Phase 19 | Pending |
