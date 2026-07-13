@@ -68,6 +68,7 @@ def resolve_stale_row(row: dict, entry_order: dict, live_symbols, close_order):
 
     # Became a position (filled / partial).
     if status == "open":
+        # NOTE (Phase 18 W1): live_symbols here is slash-STRIPPED by backfill.py:147 while row["symbol"] is slashed; the monitor normalizes both sides (alpaca_orchestrator._resolve_external_exit). Aligning this is a Phase-20 item.
         if row["symbol"] in live_symbols:
             return "unchanged", None
         if close_order is None:

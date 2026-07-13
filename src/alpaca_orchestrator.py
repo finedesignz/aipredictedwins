@@ -28,7 +28,8 @@ from rich.table import Table
 from src.config import load_config
 from src.alpaca_client import AlpacaClient
 from src.alpaca_evaluator import get_trending_crypto, TOP_CRYPTO_TICKERS, MEME_CRYPTO, get_dynamic_crypto_universe
-from src.universe import entry_allowed
+from src.universe import entry_allowed, normalize
+from src.backfill import resolve_stale_row, _match_close
 from src.technical_signals import scan_assets, analyze, _atr, bear_fraction
 from src.rules_gate import RulesGate
 from src.risk_gate import RiskGate  # keep for backward compat / type hints
@@ -107,6 +108,73 @@ log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
+# External-exit resolution (Phase 18) — resolve a vanished position to its REAL
+# exit, or to NULL. It NEVER fabricates a flat-zero / entry-price-as-exit row.
+# ---------------------------------------------------------------------------
+
+# status='closed' with no recoverable exit. NULL is the honest value: Phases 11-14
+# established `pnl IS NULL` == "unresolved", and Phase 18 excludes it from the
+# win-rate denominator (src/db.py:get_alpaca_accuracy).
+_UNRESOLVABLE = {"status": "closed", "exit_price": None, "pnl": None, "fees": None}
+
+
+def _resolve_external_exit(alpaca, row: dict, live_symbols) -> dict:
+    """Resolve a vanished position to a REAL exit, or to NULL. NEVER fabricates.
+
+    Returns ``update_alpaca_trade`` kwargs, or ``{}`` meaning DO NOT WRITE.
+    Pure orchestration over the Phase-11/14 resolver — no new P&L formula, no new
+    close-matcher, no new symbol gate.
+    """
+    # THE THIRD DOOR. `None` means Alpaca's get_positions() FAILED — it does NOT mean
+    # "nothing is held". Coercing it to an empty set would resolve EVERY open position
+    # as unresolvable, terminate it closed/NULL, and drop it out of
+    # get_open_alpaca_positions (src/db.py:128) — abandoning a live book with its stops,
+    # targets and exit advisor gone. Return before any Alpaca call is made.
+    if live_symbols is None:
+        return {}
+
+    if not row.get("order_id"):
+        return dict(_UNRESOLVABLE)
+
+    try:
+        entry_order = alpaca.get_order(row["order_id"])
+    except Exception as exc:
+        log.warning("[MONITOR] get_order failed for %s: %s — leaving the row open",
+                    row.get("symbol"), exc)
+        return {}
+    if not entry_order:
+        return dict(_UNRESOLVABLE)
+
+    from src.order_resolution import classify_order
+    status, _ = classify_order(entry_order)
+
+    # Both sides on the SAME canonical form: the monitor builds live_symbols
+    # slash-STRIPPED ("BTCUSD") while row["symbol"] is slashed ("BTC/USD").
+    norm_live = {normalize(s) for s in live_symbols}
+    norm_row = dict(row)
+    norm_row["symbol"] = normalize(row.get("symbol"))
+
+    close_order = None
+    if status == "open" and norm_row["symbol"] not in norm_live:
+        try:
+            closes = alpaca.get_closed_orders(
+                row["symbol"], after=entry_order.get("filled_at") or None)
+        except Exception as exc:
+            log.warning("[MONITOR] get_closed_orders failed for %s: %s — leaving the row open",
+                        row.get("symbol"), exc)
+            return {}
+        close_order = _match_close(closes, entry_order, row)
+
+    outcome, kwargs = resolve_stale_row(norm_row, entry_order, norm_live, close_order)
+    if outcome == "resolved":
+        return kwargs
+    if outcome == "unchanged":
+        return {}
+    # "unresolvable" means Alpaca ANSWERED and there is no matching close.
+    return dict(_UNRESOLVABLE)
+
+
+# ---------------------------------------------------------------------------
 # Position Monitor — background thread with deterministic ATR exits
 # ---------------------------------------------------------------------------
 
@@ -164,16 +232,12 @@ class PositionMonitor(threading.Thread):
 
         if live_symbols is not None:
             for trade in open_trades:
-                sym = trade.get("symbol", "")
-                alpaca_sym = sym.replace("/", "")
-                if alpaca_sym and alpaca_sym not in live_symbols:
-                    log.info("[MONITOR] %s not in Alpaca positions — marking closed (externally exited)", sym)
-                    self.logger.update_alpaca_trade(
-                        trade_id=trade["id"],
-                        status="closed",
-                        exit_price=trade.get("entry_price", 0),
-                        pnl=0.0,
-                    )
+                kwargs = _resolve_external_exit(self.alpaca, trade, live_symbols)
+                if not kwargs:
+                    continue   # still held, in-flight, or Alpaca errored — leave it open
+                log.info("[MONITOR] %s no longer held — resolved to %s (pnl=%s)",
+                         trade.get("symbol"), kwargs["status"], kwargs["pnl"])
+                self.logger.update_alpaca_trade(trade_id=trade["id"], **kwargs)
             # Re-fetch so the loop below only processes genuinely live positions
             open_trades = self.logger.get_open_alpaca_positions()
             if not open_trades:
