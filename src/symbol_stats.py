@@ -43,7 +43,7 @@ from src.universe import normalize
 
 MIN_SAMPLE = 5
 
-# The position-closed terminal set — copied from src/db.py:215. This repo already
+# The position-closed terminal set — the literal at src/db.py:215. This repo already
 # carries four spellings of it; do not add a fifth.
 _POSITION_CLOSED = ("closed", "stopped", "target_hit")
 
