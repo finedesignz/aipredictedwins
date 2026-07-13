@@ -138,7 +138,11 @@ is Postgres via `src/db.py`. One Alpaca account per bot — never share.
   1. An analysis produces per-symbol/per-bot win rate and net realized P&L from the reconciled dataset.
   2. It surfaces the winner/loser split (winners e.g. UNI, ADA, SOL, XRP, CRV; losers e.g. BTC, AVAX, TRUMP, FIL) as concrete numbers.
   3. Output is a reproducible report/command whose figures reconcile with Phase 13 totals.
-**Plans**: TBD
+**Plans**: 4 plans (3 waves)
+- [ ] 17-01-PLAN.md — Wave 0: RED suite, all 18 VALIDATION cases (tests/test_symbol_stats.py)
+- [ ] 17-02-PLAN.md — Wave 1: db.get_resolved_trades, one read-only parameterized SELECT
+- [ ] 17-03-PLAN.md — Wave 1: src/symbol_stats.py::aggregate, pure zero-I/O aggregator
+- [ ] 17-04-PLAN.md — Wave 2: scripts/symbol_report.py (no --apply) + EVIDENCE.md
 
 ### Phase 18: Profitable Retune (Confluence + Kelly)
 **Goal**: Confluence entry threshold and quarter-Kelly sizing are retuned on the real resolved dataset + backtest harness, targeting win rate ≥40% and halted drawdown, and validated before going live on paper.
