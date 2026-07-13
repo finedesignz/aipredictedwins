@@ -424,3 +424,161 @@ def test_ranking_is_sufficient_only():
     assert all(c["sample"] == "sufficient" for c in ranked)
     assert all(c["symbol"] != "TRUMPUSD" for c in ranked)          # ABSENT from the ranking
     assert any(c["symbol"] == "TRUMPUSD" for c in cells)           # PRESENT in the full table
+
+
+# ── the read-only fence: shared helpers (cases 20 + 21 use the SAME code path) ─
+
+_MUTATING = re.compile(r"\b(INSERT|UPDATE|DELETE|ALTER|DROP|TRUNCATE)\b", re.IGNORECASE)
+
+
+def _slice_function(path: pathlib.Path, name: str) -> str:
+    """Return the source of one top-level function, verbatim."""
+    text = path.read_text(encoding="utf-8")
+    tree = ast.parse(text)
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name == name:
+            return ast.get_source_segment(text, node) or ""
+    raise AssertionError(f"{name} not found in {path}")
+
+
+def _strip_comments_and_docstrings(text: str) -> str:
+    """Blank out every `#` comment line AND every docstring, leaving CODE only.
+
+    A fence that greps raw text fires on PROSE (these modules are REQUIRED to explain
+    the write prohibition in their docstrings) while still missing a real write hidden
+    in an f-string. It must scan code.
+    """
+    lines = text.splitlines()
+    tree = ast.parse(text)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant) \
+                and isinstance(node.value.value, str):
+            for i in range(node.lineno - 1, (node.end_lineno or node.lineno)):
+                lines[i] = ""
+    return "\n".join(ln for ln in lines if not ln.strip().startswith("#"))
+
+
+def _scan_source(text: str) -> set[str]:
+    """The mutating keywords present in already-stripped source."""
+    return {m.upper() for m in _MUTATING.findall(text)}
+
+
+# ── case 18: the ONE test that writes — and it proves WHERE it writes ─────────
+
+@pytest.mark.skipif(
+    not os.environ.get("TEST_DATABASE_URL"),
+    reason="needs a LOCAL Postgres (TEST_DATABASE_URL) — NEVER prod",
+)
+def test_get_resolved_trades_sql(monkeypatch):
+    """case 18 (R3-B1) — real SQL against a LOCAL Postgres, PROVEN on the live connection.
+
+    src/db.py:18,40-45 caches `_pool` process-globally and reads DATABASE_URL only on
+    the FIRST get_pool(). tests/test_db.py, tests/test_reconciliation.py and
+    tests/test_backfill.py are DATABASE_URL-gated and bind that same pool in the same
+    pytest process — so with DATABASE_URL=prod the pool may ALREADY be bound to prod
+    and monkeypatching the env var does NOTHING. Rebind the pool, then prove it on the
+    LIVE connection (conn.info.dbname / conn.info.host) BEFORE the first INSERT.
+    """
+    import src.db as _db
+
+    test_url = os.environ["TEST_DATABASE_URL"]
+    assert test_url != os.environ.get("DATABASE_URL"), "refusing to seed prod"  # necessary, NOT sufficient
+
+    if _db._pool is not None:
+        _db._pool.close()
+    _db._pool = None
+    monkeypatch.setenv("DATABASE_URL", test_url)
+
+    try:
+        parsed = urllib.parse.urlparse(test_url)
+        # POSITIVE CONTROL on the LIVE connection — before a single byte is written.
+        with _db.connection() as conn:
+            assert conn.info.dbname == parsed.path.lstrip("/")
+            assert conn.info.host == (parsed.hostname or "localhost")
+
+        now = datetime.now(timezone.utc)
+        old = now - timedelta(days=200)
+        seed = [
+            ("A", now.isoformat(), "BTC/USD", "closed", 12.5, 0.4),
+            ("A", now.isoformat(), "BTC/USD", "rejected", 0.0, None),
+            ("A", old.isoformat(), "ETH/USD", "closed", -3.0, 0.2),
+            ("B", now.isoformat(), "SOL/USD", "closed", None, None),
+        ]
+        with _db.connection() as conn:
+            conn.execute("DELETE FROM alpaca_trades WHERE notes = 'phase17-case18'")
+            for bot_id, ts, symbol, status, pnl, fees in seed:
+                conn.execute(
+                    """
+                    INSERT INTO alpaca_trades (
+                        bot_id, timestamp, symbol, asset_class, side, qty,
+                        entry_price, mirofish_prob, status, pnl, fees, closed_at, notes
+                    ) VALUES (%s, %s, %s, 'crypto', 'buy', 1.0, 100.0, 0.5, %s, %s, %s, %s, 'phase17-case18')
+                    ON CONFLICT DO NOTHING
+                    """,
+                    (bot_id, ts, symbol, status, pnl, fees, ts),
+                )
+
+        rows = _db.get_resolved_trades()
+        assert rows, "seeded rows must come back"
+        assert set(rows[0]) == {
+            "bot_id", "symbol", "asset_class", "side", "status",
+            "pnl", "fees", "entry_ts", "closed_at",
+        }
+        assert all(r["status"] != "rejected" for r in rows)          # (b) filtered in SQL
+
+        windowed = _db.get_resolved_trades(since=now - timedelta(days=90))
+        syms = {r["symbol"] for r in windowed}
+        assert "BTC/USD" in syms
+        assert "ETH/USD" not in syms                                  # (c) the ::timestamptz cast
+
+        bot_a = _db.get_resolved_trades(bot_id="A")
+        assert bot_a and all(r["bot_id"] == "A" for r in bot_a)       # (d)
+
+        nulls = [r for r in _db.get_resolved_trades(bot_id="B") if r["symbol"] == "SOL/USD"]
+        assert nulls and nulls[0]["pnl"] is None                      # (e) NOT 0.0
+    finally:
+        if _db._pool is not None:
+            _db._pool.close()
+        _db._pool = None
+
+
+def test_window_cast_is_in_the_sql():
+    """case 19 — the TEXT column is cast in BOTH the filter and the sort (W1)."""
+    body = _slice_function(REPO_ROOT / "src" / "db.py", "get_resolved_trades")
+    assert '"timestamp"::timestamptz >= %s' in body
+    assert 'ORDER BY "timestamp"::timestamptz' in body
+
+
+def test_phase17_is_read_only():
+    """case 20 (R3-B3) — no write path in any Phase-17 source, and no mutating flag."""
+    stats_src = (REPO_ROOT / "src" / "symbol_stats.py").read_text(encoding="utf-8")
+    report_src = (REPO_ROOT / "scripts" / "symbol_report.py").read_text(encoding="utf-8")
+    db_body = _slice_function(REPO_ROOT / "src" / "db.py", "get_resolved_trades")
+
+    for label, raw in (
+        ("src/symbol_stats.py", stats_src),
+        ("scripts/symbol_report.py", report_src),
+        ("db.get_resolved_trades", db_body),
+    ):
+        code = _strip_comments_and_docstrings(raw)
+        # POSITIVE CONTROL FIRST — an empty slice must not pass vacuously.
+        assert len(code) > 200, f"{label}: stripped source is suspiciously small"
+        if label == "db.get_resolved_trades":
+            assert "SELECT bot_id, symbol" in code
+        assert _scan_source(code) == set(), f"{label}: mutating keyword in CODE"
+
+    # the mutating-flag check runs on the ARGPARSE SURFACE, not on prose
+    assert re.search(r'add_argument\(\s*["\']--(apply|write|fix|delete)', report_src) is None
+
+    assert re.search(r"import psycopg|from src\.db|from src import db", stats_src) is None
+
+
+def test_readonly_fence_actually_fires():
+    """case 21 — the SAME helper, aimed at update_alpaca_trade, MUST match.
+
+    src/db.py carries INSERT/UPDATE at :70, :118, :283, :347. A fence that cannot see
+    them is a fake, and case 20 would be green for the wrong reason.
+    """
+    body = _slice_function(REPO_ROOT / "src" / "db.py", "update_alpaca_trade")
+    code = _strip_comments_and_docstrings(body)
+    assert "UPDATE" in _scan_source(code)
