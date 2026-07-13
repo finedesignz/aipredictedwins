@@ -259,6 +259,49 @@ def get_realized_pnl(bot_id: str) -> float:
     return sum((r["pnl"] or 0.0) for r in rows)
 
 
+def get_resolved_trades(bot_id: str | None = None, since=None) -> list[dict]:
+    """Position-closed rows for per-symbol stats (TUNE-02). READ-ONLY.
+
+    Terminal set mirrors get_alpaca_accuracy (db.py:215) / get_realized_pnl
+    (db.py:256-257) EXACTLY: ('closed','stopped','target_hit'). Non-position
+    terminals (canceled/cancelled/expired/rejected) never held a position — and a
+    Phase-15 gate block writes a 'rejected' row with pnl=0 (bot_thread.py:309),
+    which would otherwise score as a LOSS.
+
+    NOTE: a 'closed' row may ALSO carry pnl=0.0 — the external-exit sentinel at
+    alpaca_orchestrator.py:167-176 (same shape at bot_c/strategy.py:393 and
+    trend_strategy.py:172). SQL cannot distinguish that from a genuine flat trade,
+    so it is returned as-is and symbol_stats buckets it into zero_pnl. A NULL pnl
+    is likewise returned as-is: db.py:228 and db.py:259 coerce it to zero — this
+    function must NOT copy that idiom.
+
+    fees may be NULL: bot_c/strategy.py:393-395 and trend_strategy.py:172-173 store
+    a GROSS pnl and pass no fees arg. NULL fees is the TELL that pnl is gross —
+    symbol_stats flags it as gross_pnl_rows. Do not paper over it here.
+
+    `timestamp` is a TEXT column (db_schema.sql:28), so it is cast to timestamptz in
+    BOTH the window filter and the sort — a bare compare/sort would be lexicographic.
+    bot_id and since reach SQL only as %s params.
+    """
+    clauses = [
+        'SELECT bot_id, symbol, asset_class, side, status, pnl, fees,',
+        '       "timestamp" AS entry_ts, closed_at',
+        "FROM alpaca_trades",
+        "WHERE status IN ('closed', 'stopped', 'target_hit')",
+    ]
+    params: list = []
+    if bot_id:
+        clauses.append("AND bot_id = %s")
+        params.append(bot_id)
+    if since is not None:
+        clauses.append('AND "timestamp"::timestamptz >= %s')
+        params.append(since)
+    clauses.append('ORDER BY "timestamp"::timestamptz ASC')
+
+    with connection() as conn:
+        return conn.execute("\n".join(clauses), tuple(params)).fetchall()
+
+
 def get_starting_equity(bot_id: str) -> float:
     """Read the reconciliation baseline from the bot's row (never hardcode 100000)."""
     with connection() as conn:
