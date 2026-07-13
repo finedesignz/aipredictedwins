@@ -60,10 +60,14 @@ def _portfolio_for_bot(conn, bot_id: str, days: int = 30) -> PortfolioData:
 
     # Closed trades filtered to window → win rate / trade counts
     since = datetime.now(timezone.utc) - timedelta(days=days)
+    # `AND pnl IS NOT NULL` (Phase 18): an unresolved row is not a loss. Without it
+    # `losses = len(closed) - wins` books every NULL-pnl row as a fresh loss and the
+    # headline win rate reads ~12% instead of ~33%.
     closed = conn.execute(
         """
         SELECT pnl FROM alpaca_trades
         WHERE bot_id = %s AND status IN ('closed', 'stopped', 'target_hit')
+          AND pnl IS NOT NULL
           AND (closed_at IS NULL OR closed_at::timestamptz >= %s)
         """,
         (bot_id, since),

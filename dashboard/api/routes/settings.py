@@ -34,10 +34,13 @@ def get_settings(
             f"SELECT COUNT(*) AS n FROM alpaca_trades WHERE bot_id IN ({bot_placeholders})",
             tuple(bot_ids),
         ).fetchone()["n"]
+        # `AND pnl IS NOT NULL` (Phase 18): this win_rate IS the paper-gate readout
+        # (win_rate vs win_rate_target=40.0). An unresolved row is not a loss.
         closed_rows = conn.execute(
             f"""SELECT pnl FROM alpaca_trades
                WHERE bot_id IN ({bot_placeholders})
-                 AND status IN ('closed', 'stopped', 'target_hit')""",
+                 AND status IN ('closed', 'stopped', 'target_hit')
+                 AND pnl IS NOT NULL""",
             tuple(bot_ids),
         ).fetchall()
         last_row = conn.execute(

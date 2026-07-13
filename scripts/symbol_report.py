@@ -236,7 +236,9 @@ def render_markdown(cells: list[dict], rollups: dict, summary: dict) -> str:
     L.append("Y books every sentinel zero and every NULL as a LOSS (src/db.py:228-229 "
              "`losses = resolved - wins`); avg_pnl divides by `resolved`. realized_pnl AGREES with "
              "db.get_realized_pnl BY CONSTRUCTION — the defect is in the DENOMINATOR, not the sum. "
-             "Phase 17 does not change get_alpaca_accuracy.")
+             "Phase 18 DOES change get_alpaca_accuracy: it excludes `pnl IS NULL` from the "
+             "denominator, so the R-T divergence this table measures SHRINKS — that gap IS the "
+             "sentinel + NULL defect.")
     L.append("")
     L.append("### (b) 'stopped' and 'target_hit' are EMPTY populations")
     L.append("")

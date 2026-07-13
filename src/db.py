@@ -18,6 +18,11 @@ from psycopg_pool import ConnectionPool
 _pool: ConnectionPool | None = None
 
 
+def _readonly() -> bool:
+    """AIPW_DB_READONLY=1 — analysis scripts read prod; they never write to it."""
+    return os.environ.get("AIPW_DB_READONLY", "") == "1"
+
+
 def _create_pool() -> ConnectionPool:
     url = os.environ["DATABASE_URL"]
     for attempt in range(3):
@@ -26,7 +31,12 @@ def _create_pool() -> ConnectionPool:
                 conninfo=url,
                 min_size=2,
                 max_size=10,
-                kwargs={"row_factory": dict_row},
+                kwargs={
+                    "row_factory": dict_row,
+                    # libpq `options` applies to EVERY connection the pool hands out and
+                    # is enforced by Postgres (SQLSTATE 25006) — not a client convention.
+                    **({"options": "-c default_transaction_read_only=on"} if _readonly() else {}),
+                },
                 open=True,
             )
             return pool
@@ -41,7 +51,10 @@ def get_pool() -> ConnectionPool:
     global _pool
     if _pool is None:
         _pool = _create_pool()
-        _bootstrap_schema()
+        # _bootstrap_schema() executes DDL + INSERT INTO bots against DATABASE_URL.
+        # A read-only analysis script must never do that.
+        if not _readonly():
+            _bootstrap_schema()
     return _pool
 
 
@@ -210,9 +223,13 @@ def get_recent_loss_symbols(bot_id: str, hours: int = 24) -> set[str]:
 
 def get_alpaca_accuracy(bot_id: str, last_n: int | None = None) -> dict:
     with connection() as conn:
+        # `AND pnl IS NOT NULL` (Phase 18): a row whose P&L could not be resolved is
+        # UNRESOLVED, not a loss. Without it `losses = resolved - wins` books every
+        # NULL as a loss. A genuine 0.00 close is still counted — only NULL is excluded.
         base = """
             SELECT status, pnl, symbol, asset_class FROM alpaca_trades
             WHERE bot_id = %s AND status IN ('closed', 'stopped', 'target_hit')
+              AND pnl IS NOT NULL
             ORDER BY closed_at DESC
         """
         if last_n:
