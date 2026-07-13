@@ -44,7 +44,19 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--fixture-dir", default=None,
                         help="Use fixture JSON files instead of Alpaca API")
     parser.add_argument("--output-dir", default="data/backtest_results")
+    # Phase 18 — the three sweep knobs.
+    parser.add_argument("--min-confluence", type=int, default=None)
+    parser.add_argument("--kelly-fraction", type=float, default=None)
+    parser.add_argument("--symbols", default=None,
+                        help="comma-separated allowlist (overrides the module SYMBOLS)")
+    parser.add_argument("--exclude-symbols", default=None,
+                        help="comma-separated quarantine deny-list (slash form: BTC/USD)")
     args = parser.parse_args(argv)
+
+    # Quarter-Kelly is a hardcoded CEILING (CLAUDE.md risk rules); Kelly may only go DOWN.
+    if args.kelly_fraction is not None and args.kelly_fraction > 0.25:
+        parser.error("--kelly-fraction may not exceed 0.25 (quarter-Kelly is a hardcoded "
+                     "CEILING — CLAUDE.md risk rules; Kelly may only go DOWN)")
 
     # Resolve date range
     if args.train:
@@ -65,13 +77,28 @@ def main(argv: list[str] | None = None) -> None:
             sys.exit(1)
         config = dataclasses.replace(config, **{flag: False})
 
-    log.info("Phase %d | %s to %s | disabled=%s",
-             args.phase, start, end, args.disable or "none")
+    def _csv(value: str) -> tuple[str, ...]:
+        return tuple(s.strip() for s in value.split(",") if s.strip())
+
+    overrides: dict = {}
+    if args.min_confluence is not None:
+        overrides["min_confluence"] = args.min_confluence
+    if args.kelly_fraction is not None:
+        overrides["kelly_fraction"] = args.kelly_fraction
+    # entry_allowed always gets the allowlist — an empty one means "no restriction".
+    overrides["symbols"] = _csv(args.symbols) if args.symbols else tuple(SYMBOLS)
+    if args.exclude_symbols:
+        overrides["quarantined"] = _csv(args.exclude_symbols)
+    config = dataclasses.replace(config, **overrides)
+
+    log.info("Phase %d | %s to %s | disabled=%s | mc=%s k=%s quarantined=%s",
+             args.phase, start, end, args.disable or "none",
+             config.min_confluence, config.kelly_fraction, config.quarantined or "none")
 
     # Load bars
     from src.backtester.data_loader import load_bars
     bars_by_symbol: dict[str, list[dict]] = {}
-    for sym in SYMBOLS:
+    for sym in config.symbols:
         try:
             bars = load_bars(sym, start, end, fixture_dir=args.fixture_dir)
             if bars:
