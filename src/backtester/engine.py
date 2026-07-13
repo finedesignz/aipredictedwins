@@ -16,6 +16,7 @@ from typing import Any
 from src.backtester.config import PhaseConfig
 from src.backtester.portfolio import BacktestPortfolio
 from src.exit_advisor import HARD_STOP_PCT, HARD_TAKE_PROFIT_PCT
+from src.universe import entry_allowed
 
 log = logging.getLogger(__name__)
 
@@ -107,6 +108,9 @@ class BacktestEngine:
             for sym, bars_window in windows.items():
                 if sym in open_trade_ids:
                     continue
+                # THE LIVE GATE (bot_thread.py:146), imported — never re-implemented.
+                if not entry_allowed(sym, self.config.symbols, self.config.quarantined)[0]:
+                    continue
                 if len(bars_window) < SIGNAL_WINDOW:
                     continue
                 if ts_idx - last_scan_idx.get(sym, -SCAN_INTERVAL_BARS) < SCAN_INTERVAL_BARS:
@@ -122,6 +126,10 @@ class BacktestEngine:
                     continue
 
                 if signal is None or signal.confluence_score < self.config.min_confluence:
+                    continue
+
+                # The live bot refuses overbought longs (bot_thread.py:147, strict <).
+                if signal.rsi_value >= self.config.rsi_ceiling:
                     continue
 
                 price = current_prices.get(sym)

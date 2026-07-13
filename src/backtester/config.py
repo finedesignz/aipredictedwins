@@ -35,6 +35,11 @@ class PhaseConfig:
     max_position_pct: float = 0.05
     starting_equity: float = 100_000.0
 
+    # Phase 18 — live-fidelity gates. Tuples: PhaseConfig is frozen.
+    symbols: tuple[str, ...] = ()      # () = no allowlist restriction (universe.py:47-49)
+    quarantined: tuple[str, ...] = ()  # () = nothing denied
+    rsi_ceiling: float = 65.0          # matches BotConfig's default (src/bot_config.py:22)
+
 
 PHASE_PRESETS: dict[int, PhaseConfig] = {
     0: PhaseConfig(),
