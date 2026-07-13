@@ -108,8 +108,6 @@ def load_bars_from_alpaca(
 
     api_key = os.environ.get("ALPACA_API_KEY")
     secret_key = os.environ.get("ALPACA_SECRET_KEY")
-    if not api_key or not secret_key:
-        raise RuntimeError("ALPACA_API_KEY and ALPACA_SECRET_KEY must be set")
 
     tf_map = {
         "1Hour": TimeFrame.Hour,
@@ -117,10 +115,18 @@ def load_bars_from_alpaca(
         "15Min": TimeFrame(15, TimeFrameUnit.Minute),
     }
     tf = tf_map.get(timeframe, TimeFrame.Hour)
-    client = CryptoHistoricalDataClient(api_key, secret_key)
     request = CryptoBarsRequest(symbol_or_symbols=symbol, timeframe=tf,
                                  start=start_iso, end=end_iso)
-    response = client.get_crypto_bars(request)
+    # Alpaca's crypto market-data endpoint is PUBLIC. Use the account keys when they
+    # are present, but fall back to the keyless client if they are absent or stale —
+    # a rotated trading key must not be able to block a read-only backtest fetch.
+    try:
+        if not api_key or not secret_key:
+            raise RuntimeError("no Alpaca keys in env — using the public crypto feed")
+        response = CryptoHistoricalDataClient(api_key, secret_key).get_crypto_bars(request)
+    except Exception as exc:
+        log.info("Authenticated crypto-bar fetch unavailable (%s) — using the public feed", exc)
+        response = CryptoHistoricalDataClient().get_crypto_bars(request)
     df = response.df.reset_index()
     bars = []
     for _, row in df.iterrows():

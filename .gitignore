@@ -13,6 +13,8 @@ private_key.pem
 data/trades.db
 data/simulations/
 data/backtest_results/
+data/backtest_bars/
+data/bar_cache/
 
 # MiroFish clone
 mirofish/
