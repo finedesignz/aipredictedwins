@@ -1,5 +1,6 @@
 "use client";
 import type { BotFull } from "@/types";
+import UniversePanel from "@/components/bots/UniversePanel";
 
 interface Props {
   bot: BotFull;
@@ -35,7 +36,7 @@ export default function BotCard({ bot, onEdit, onToggle }: Props) {
         <div>RSI ceiling: <span className="text-text-primary">{bot.rsi_ceiling}</span></div>
         <div>Max position: <span className="text-text-primary">{(bot.max_position_pct * 100).toFixed(0)}%</span></div>
       </div>
-      <div className="text-xs text-text-muted truncate">Assets: <span className="text-text-primary">{bot.crypto_universe}</span></div>
+      <UniversePanel botId={bot.bot_id} />
       {bot.status === "error" && bot.status_detail && (
         <div className="text-xs text-red-400 bg-red-900/20 rounded p-2">{bot.status_detail}</div>
       )}

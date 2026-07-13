@@ -170,12 +170,45 @@ export interface BotFull {
   rsi_ceiling: number;
   crypto_universe: string;
   stock_universe: string | null;
+  asset_class: string | null;
   skip_risk_gate: boolean;
   max_position_pct: number;
+  min_short_confluence: number | null;
+  tradingagents_enabled: boolean | null;
+  strategy: string | null;
+  trend_ma_window: number | null;
+  trend_symbol: string | null;
+  trend_benchmark: string | null;
+  quarantined_symbols: string;
   enabled: boolean;
   status: "running" | "stopped" | "error";
   status_detail: string | null;
   thread_alive: boolean;
+}
+
+// Phase 16 (UNIV-03) — the effective trading universe, computed server-side by
+// src/effective_universe.resolve_universe. The client renders it; it never
+// recomputes allow-vs-block.
+export interface BlockedSymbol {
+  symbol: string;
+  reason: "quarantined" | "off_universe" | "meme" | "untradeable";
+  open_positions: number;
+  recent_trades: number;
+}
+
+export interface BotUniverse {
+  bot_id: string;
+  strategy: string;
+  asset_class: string;
+  allowlist: string[];
+  quarantined: string[];
+  effective: string[];
+  blocked: BlockedSymbol[];
+  starvation: boolean;
+  leak: string[];
+  shadow_applied: boolean;
+  shadow_sets_loaded: boolean;
+  exposure_loaded: boolean;
 }
 
 export type MultiBotPortfolio = Record<string, Portfolio>;
