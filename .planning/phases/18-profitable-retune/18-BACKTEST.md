@@ -185,14 +185,65 @@ closing them would be a new strategy model, not a retune:
    `trend_4h` is ALWAYS `"unknown"` and the filter never bites.
 3. **The SHORT side** (`select_short_candidates`, `bot_thread.py:152-167`) — every live short is
    invisible to the backtest.
-4. **The soft / trailing / MiroFish-advisor exit stack** — the engine has HARD thresholds ONLY
-   (-4% / +10%).
+4. **The ENTIRE exit stack.** The engine imports `HARD_STOP_PCT = -0.15` and
+   `HARD_TAKE_PROFIT_PCT = +0.30` (`src/exit_advisor.py:27-28`) and has ONLY those two
+   thresholds (`src/backtester/engine.py:18,100,103`). The LIVE swing bot exits on a
+   **`hard_stop_pct = -0.08`** (`src/strategy_profile.py:62`, enforced at
+   `src/alpaca_orchestrator.py:322`) PLUS an **ATR trailing stop** PLUS an **ATR fixed stop**
+   PLUS a max-hold — **none of which the engine models**. So the engine's stop is nearly
+   **twice as wide** as the live bot's and it has no trailing behaviour at all. Its exits are
+   not an approximation of the live exits; they are a different, much cruder mechanism.
 
-**The holdout number is the LONG-ONLY, HARD-EXIT LOWER BOUND — it is not a promise about live
-P&L.** And note the sharpest edge of this: Phase 17 found the SOL/AVAX/ADA losses to be
+   *(An earlier revision of this document stated the engine's hard exits were "-4% / +10%".
+   That was FALSE — those are the SOFT advisory thresholds, not the engine's. Corrected here.)*
+
+**The holdout number is the LONG-ONLY, WIDE-STOP (-15%/+30%) LOWER BOUND — it is not a promise
+about live P&L.** And note the sharpest edge of this: Phase 17 found the SOL/AVAX/ADA losses to be
 **EXIT-side** (avg_loss > avg_win) — precisely the dimension the engine models least faithfully.
 A sweep over ENTRY knobs cannot be expected to fix an EXIT-side defect, and this grid is
 consistent with that: no entry configuration rescued the P&L.
+
+---
+
+## CRITERION 2 NEVER DISCRIMINATED — read this before citing any cell above
+
+**`win_rate >= 40%` was unreachable BY CONSTRUCTION. It tested nothing.**
+
+- **Kelly cannot move win rate.** `kelly_fraction` scales POSITION SIZE. It does not change
+  which trades are taken, when they exit, or whether they win. Sweeping kelly across a win-rate
+  criterion is a no-op by definition.
+- **Only `min_confluence` moved, and it moved to two values.** Across the 12 live cells there
+  are exactly **TWO distinct win rates**: **3.23% at `mc=3`** and **0.00% at `mc=4`**. Every
+  kelly column within a given `mc` row is identical on criterion 2. The grid contains two
+  observations of win rate, not twelve.
+- **Neither is within 36 points of the 40% bar.** No cell could have passed. The criterion
+  produced 12 FAILs and zero information.
+
+### What the negative result DOES support
+
+> **No entry-knob configuration rescues a long-only, wide-stop (-15%/+30%) model over a crash
+> window.** Entry tuning is not where the money is.
+
+That is a real, useful finding, and it is why 18-07 is held and why the recommendation is "ship
+the quarantine only, tune nothing."
+
+### What the negative result does NOT support
+
+- **It CANNOT show the current knobs (`min_confluence=4`, `kelly_fraction=0.25`) are optimal.**
+  "Everything failed" is not evidence that the incumbent is best; it is evidence the harness
+  could not separate the candidates. Leaving the knobs alone is the correct action because the
+  sweep licensed no *change* — not because the sweep endorsed the incumbent.
+- **It CANNOT rule out that a different exit stack is profitable on the same entries.** The
+  harness never modeled the exit stack — no -8% hard stop, no ATR trailing stop, no ATR fixed
+  stop, no max-hold — and the exit stack is exactly where Phase 17 located the actual losses.
+  The sweep looked for the losses in the one place Phase 17 said they were not.
+- **It CANNOT speak to the short side at all** (gap 3), and its win rates are inflated-or-
+  deflated by unknown amounts from gaps 1 and 2.
+
+**The honest summary: this was a well-run experiment on the wrong variable.** It is retained as a
+genuine negative result — it kills entry-knob tuning — and it must not be cited as validation of
+the current configuration or as evidence that the strategy is unfixable. The EXIT stack is
+untested. That is Phase 19's question.
 
 ---
 
