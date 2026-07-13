@@ -69,8 +69,31 @@ than uniform thresholds).
    roll-up:** `trades`, `wins`, `losses`, `win_rate`, `realized_pnl` (sum of stored `pnl`),
    `total_fees`, `avg_win`, `avg_loss`, `expectancy` (`win_rate*avg_win + (1-win_rate)*avg_loss`,
    loss carried negative — must equal `realized_pnl / trades`, which is the unit-test invariant),
-   `best`/`worst`, `first_trade` / `last_trade`. A win is `pnl > 0`; `pnl == 0.0` is a loss (flat is
-   not a win after fees) — stated so the definition cannot drift from `get_alpaca_accuracy`.
+   `best`/`worst`, `first_trade` / `last_trade`. A win is `pnl > 0`; ~~`pnl == 0.0` is a loss (flat is
+   not a win after fees)~~ — stated so the definition cannot drift from `get_alpaca_accuracy`.
+
+   > **⚠ SUPERSEDED IN PART (Revision 2, plan-check B1) — the "`pnl == 0.0` is a loss" clause is VOID.**
+   > `src/alpaca_orchestrator.py:169-176` writes `status='closed', pnl=0.0` for **every externally-exited
+   > position** (same sentinel shape at `src/bot_c/strategy.py:393` and `src/trend_strategy.py:172` when
+   > `entry_price == 0`). Those rows are *position-closed*, so the terminal-status filter does **not**
+   > drop them, and the value is `0.0` — not NULL — so a `null_pnl` counter never sees them. A genuine
+   > flat trade is therefore **indistinguishable from a sentinel**. Scoring `pnl == 0.0` as a loss would
+   > fabricate a losing record for every externally-exited position — the exact class of lie this
+   > milestone exists to kill.
+   >
+   > **Amended rule: `pnl == 0.0` on a position-closed row goes to a `zero_pnl` bucket — NEVER a win,
+   > NEVER a loss, NOT counted in `trades`; counted and printed as `zero_pnl_total`.** The rest of
+   > decision 2 (win = `pnl > 0`; the expectancy invariant; the metric list) stands unchanged.
+   >
+   > This decision was locked on the premise that the only zero-pnl writer was the `rejected` path
+   > (`src/bot_thread.py:309`). The code falsifies that premise. See `17-VALIDATION.md` Revision 2 (B1)
+   > and `17-RESEARCH.md` Revision 2 (C1).
+   >
+   > **Corollary (plan-check B2, also superseding the parenthetical "after fees"):** `alpaca_trades.pnl`
+   > is **NOT uniformly net of fees**. `src/bot_c/strategy.py:393-395` and `src/trend_strategy.py:172-173`
+   > store a **GROSS** `pnl` and pass **no `fees`** arg (so `fees` lands NULL, `src/db.py:101-107,118`).
+   > Only `src/alpaca_orchestrator.py:316-318` and `src/backfill.py:83-86` store a fee-net `pnl`. Rows
+   > with `fees IS NULL` are flagged `gross_pnl_rows` and disclosed; fees are still **never** subtracted.
 3. **Minimum-sample guard: `MIN_SAMPLE = 5` resolved trades.** A `(bot, symbol)` cell with fewer is
    still **reported** (hiding it would hide a leak like TRUMP) but is stamped
    `sample: "insufficient"` and is **NEVER eligible to be called a winner or a loser**. Phase 18 may
