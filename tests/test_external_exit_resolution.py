@@ -211,3 +211,22 @@ def test_missing_order_id_resolves_to_null():
     assert kwargs["status"] == "closed"
     assert kwargs["pnl"] is None
     assert kwargs["exit_price"] is None
+
+
+# ---------------------------------------------------------------------------
+# case 9 — a STILL-HELD symbol is "unchanged" even with a NULL order_id.
+#
+# The order_id branch must NOT fire ahead of the live_symbols membership check:
+# terminating a still-held position as closed/NULL drops it out of
+# get_open_alpaca_positions (src/db.py:128), so its stop-loss, take-profit and
+# exit advisor all stop running while the position is STILL OPEN at Alpaca.
+# ---------------------------------------------------------------------------
+
+def test_null_order_id_but_symbol_still_held_is_unchanged():
+    alpaca = FakeAlpaca()
+
+    kwargs = _resolve_external_exit(
+        alpaca, _row(order_id=None, symbol="BTC/USD"), live_symbols={"BTCUSD"})
+
+    assert kwargs == {}          # no write
+    assert alpaca.calls == []    # no Alpaca call

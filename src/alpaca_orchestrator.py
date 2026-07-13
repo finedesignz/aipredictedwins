@@ -133,6 +133,16 @@ def _resolve_external_exit(alpaca, row: dict, live_symbols) -> dict:
     if live_symbols is None:
         return {}
 
+    # THE SECOND DOOR. A symbol Alpaca STILL HOLDS is not a vanished position — it is
+    # unchanged, no matter what the row's bookkeeping looks like. This membership check
+    # MUST precede the order_id branch: a NULL order_id on a still-held symbol would
+    # otherwise be terminated closed/NULL and drop out of get_open_alpaca_positions
+    # (src/db.py:128), killing its stop-loss, take-profit and exit advisor while the
+    # position is still live at Alpaca. Only a genuinely absent symbol may proceed.
+    norm_live = {normalize(s) for s in live_symbols}
+    if normalize(row.get("symbol")) in norm_live:
+        return {}
+
     if not row.get("order_id"):
         return dict(_UNRESOLVABLE)
 
@@ -150,7 +160,6 @@ def _resolve_external_exit(alpaca, row: dict, live_symbols) -> dict:
 
     # Both sides on the SAME canonical form: the monitor builds live_symbols
     # slash-STRIPPED ("BTCUSD") while row["symbol"] is slashed ("BTC/USD").
-    norm_live = {normalize(s) for s in live_symbols}
     norm_row = dict(row)
     norm_row["symbol"] = normalize(row.get("symbol"))
 
