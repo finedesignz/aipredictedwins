@@ -267,3 +267,160 @@ def test_naive_accuracy_divergence():
     assert naive_losses == 4                                    # the fabricated losses, named
     assert cell["win_rate"] != pytest.approx(naive_win_rate)    # THE DIVERGENCE
     assert cell["realized_pnl"] == pytest.approx(naive_total)   # the sums agree by construction
+
+
+# ── cases 8-10: the sample guard ──────────────────────────────────────────────
+
+def test_min_sample_threshold():
+    """case 8 — MIN_SAMPLE == 5, and `trades` (not row count) is what is measured."""
+    assert MIN_SAMPLE == 5
+
+    four = _one([_row(pnl=1.0) for _ in range(4)])
+    assert four["trades"] == 4
+    assert four["sample"] == "insufficient"
+
+    five = _one([_row(pnl=1.0) for _ in range(5)])
+    assert five["trades"] == 5
+    assert five["sample"] == "sufficient"
+
+    # the zero_pnl interaction: 5 ROWS, but one is an external-exit sentinel
+    with_sentinel = _one([_row(pnl=1.0) for _ in range(4)] + [_row(pnl=0.0)])
+    assert with_sentinel["trades"] == 4
+    assert with_sentinel["zero_pnl"] == 1
+    assert with_sentinel["sample"] == "insufficient"
+
+
+def test_insufficient_is_marked_not_hidden():
+    """case 9 — an insufficient cell is MARKED, never dropped. Hiding it hides a leak."""
+    cells = aggregate([_row(symbol="TRUMP/USD", pnl=-50.0) for _ in range(4)])
+    assert len(cells) == 1
+    cell = cells[0]
+    assert cell["sample"] == "insufficient"
+    assert cell["trades"] == 4
+    assert cell["realized_pnl"] == pytest.approx(-200.0)
+    assert cell["expectancy"] == pytest.approx(-50.0)
+
+
+def test_min_sample_is_a_kwarg():
+    """case 10 — min_sample is caller-tunable; MIN_SAMPLE is only the default."""
+    rows = [_row(pnl=1.0) for _ in range(5)]
+    assert _one(rows)["sample"] == "sufficient"
+    assert _one(rows, min_sample=10)["sample"] == "insufficient"
+
+
+# ── case 11: the group key ────────────────────────────────────────────────────
+
+def test_normalization_collapses_slash():
+    """case 11 — the group key is src.universe.normalize; BTC/USD and BTCUSD are ONE cell."""
+    from src.universe import normalize
+
+    rows = [
+        _row(symbol="BTC/USD", pnl=10.0),
+        _row(symbol="BTCUSD", pnl=-4.0),
+        _row(symbol="btc/usd", pnl=6.0),
+    ]
+    cell = _one(rows)
+    assert cell["symbol"] == normalize("BTC/USD") == "BTCUSD"
+    assert cell["display"] == "BTC/USD"          # first-seen raw spelling
+    assert cell["trades"] == 3
+    assert cell["realized_pnl"] == pytest.approx(12.0)
+
+
+# ── case 16: roll-ups through the SAME function ───────────────────────────────
+
+def test_rollup_by_key():
+    """case 16 — key=('symbol',) and key=('bot_id',) roll up through one code path.
+
+    The defect counters are SUMS, not ratios — they roll up too.
+    """
+    rows = [
+        _row(bot_id="A", symbol="BTC/USD", pnl=10.0),
+        _row(bot_id="A", symbol="BTC/USD", pnl=-4.0, fees=None),
+        _row(bot_id="A", symbol="ETH/USD", pnl=0.0),
+        _row(bot_id="A", symbol="ETH/USD", pnl=None, fees=None),
+        _row(bot_id="B", symbol="BTC/USD", pnl=7.0),
+        _row(bot_id="B", symbol="ETH/USD", pnl=-9.0, fees=None),
+    ]
+    cells = aggregate(rows)
+    by_symbol = aggregate(rows, key=("symbol",))
+    by_bot = aggregate(rows, key=("bot_id",))
+
+    assert len(cells) == 4
+    assert len(by_symbol) == 2
+    assert len(by_bot) == 2
+
+    bot_a = next(c for c in by_bot if c["bot_id"] == "A")
+    assert bot_a["realized_pnl"] == pytest.approx(6.0)          # 10 - 4 (0.0 and None excluded)
+    assert bot_a["trades"] == 2
+    assert bot_a["zero_pnl"] == 1
+    assert bot_a["null_pnl"] == 1
+    assert bot_a["gross_pnl_rows"] == 1                          # the counted -4.0 with NULL fees
+    assert bot_a["null_fees"] == 2                               # + the null_pnl row
+
+    a_cells = [c for c in cells if c["bot_id"] == "A"]
+    assert sum(c["realized_pnl"] for c in a_cells) == pytest.approx(bot_a["realized_pnl"])
+    for field in ("trades", "zero_pnl", "null_pnl", "gross_pnl_rows", "null_fees"):
+        assert sum(c[field] for c in a_cells) == bot_a[field]
+
+    btc = next(c for c in by_symbol if c["symbol"] == "BTCUSD")
+    assert btc["trades"] == 3
+    assert btc["realized_pnl"] == pytest.approx(13.0)
+    assert btc["bot_id"] is None                                # not in the key
+
+
+# ── cases 22-23: annotation + sufficient-only ranking (scripts/symbol_report) ──
+
+def test_annotation_from_resolve_universe():
+    """case 22 — the verdict is READ from the gate's own resolver, never re-derived."""
+    from src.bot_config import BotConfig
+    from src.effective_universe import resolve_universe
+    from src.universe import normalize
+    from scripts.symbol_report import annotate
+
+    cfg = BotConfig(
+        bot_id="A",
+        label="Bot A",
+        alpaca_api_key="",
+        alpaca_secret_key="",
+        crypto_universe="BTC/USD,SOL/USD,AVAX/USD",
+        quarantined_symbols="AVAX/USD",
+    )
+    rows = [
+        _row(bot_id="A", symbol="BTC/USD", pnl=5.0),
+        _row(bot_id="A", symbol="AVAX/USD", pnl=-5.0),
+        _row(bot_id="A", symbol="TRUMP/USD", pnl=-9.0),
+    ]
+    cells = annotate(aggregate(rows), [cfg])
+    by_key = {c["symbol"]: c for c in cells}
+
+    assert by_key[normalize("AVAX/USD")]["already_quarantined"] is True
+    assert by_key[normalize("AVAX/USD")]["off_universe"] is False
+    assert by_key[normalize("TRUMP/USD")]["off_universe"] is True
+    assert by_key[normalize("TRUMP/USD")]["already_quarantined"] is False
+    assert by_key[normalize("BTC/USD")]["already_quarantined"] is False
+    assert by_key[normalize("BTC/USD")]["off_universe"] is False
+
+    # the resolver is the source of truth for those verdicts
+    blocked = {
+        normalize(b["symbol"]): b["reason"]
+        for b in resolve_universe(cfg)["blocked"]
+    }
+    assert blocked[normalize("AVAX/USD")] == "quarantined"
+
+
+def test_ranking_is_sufficient_only():
+    """case 23 — rank_cells() returns ONLY sufficient cells (structural, falsifiable)."""
+    from scripts.symbol_report import rank_cells
+
+    rows = (
+        [_row(bot_id="A", symbol="BTC/USD", pnl=5.0) for _ in range(6)]
+        + [_row(bot_id="A", symbol="ETH/USD", pnl=-1.0) for _ in range(5)]
+        + [_row(bot_id="A", symbol="TRUMP/USD", pnl=-500.0) for _ in range(2)]   # worst, thin
+    )
+    cells = aggregate(rows)
+    ranked = rank_cells(cells)
+
+    assert ranked, "ranking must not be empty"
+    assert all(c["sample"] == "sufficient" for c in ranked)
+    assert all(c["symbol"] != "TRUMPUSD" for c in ranked)          # ABSENT from the ranking
+    assert any(c["symbol"] == "TRUMPUSD" for c in cells)           # PRESENT in the full table
