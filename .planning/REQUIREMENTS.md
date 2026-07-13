@@ -34,7 +34,7 @@ Derived from the 2026-07-06 live audit (see `.planning/PROJECT.md` → Current M
       (e.g. TRUMP, FIL) is rejected before order submission and the rejection is logged.
 - [ ] **UNIV-02**: Chronically unprofitable symbols (BTC, 0-for-12) are droppable/quarantinable via
       config without a code change.
-- [ ] **UNIV-03**: The dashboard exposes the effective live universe per bot so a leak is visible.
+- [x] **UNIV-03**: The dashboard exposes the effective live universe per bot so a leak is visible.
 
 ### Profitable Retune (TUNE)
 - [ ] **TUNE-01**: Confluence entry threshold and quarter-Kelly sizing are retuned using the real
@@ -73,7 +73,7 @@ Derived from the 2026-07-06 live audit (see `.planning/PROJECT.md` → Current M
 | PNL-05 | Phase 14 — Stale-Trade Backfill & Repair | Validated |
 | UNIV-01 | Phase 15 — Universe Hard-Gate Enforcement | Validated |
 | UNIV-02 | Phase 15 — Universe Hard-Gate Enforcement | Validated |
-| UNIV-03 | Phase 16 — Effective-Universe Dashboard Visibility | Pending |
+| UNIV-03 | Phase 16 — Effective-Universe Dashboard Visibility | Validated |
 | TUNE-02 | Phase 17 — Per-Symbol Performance Analysis | Pending |
 | TUNE-01 | Phase 18 — Profitable Retune (Confluence + Kelly) | Pending |
 | TUNE-03 | Phase 18 — Profitable Retune (Confluence + Kelly) | Pending |
