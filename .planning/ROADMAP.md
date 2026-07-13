@@ -39,11 +39,11 @@ is Postgres via `src/db.py`. One Alpaca account per bot — never share.
 ### Phases
 
 - [ ] **Phase 11: Order-State Resolution Engine** - Every submitted order reaches a recorded terminal state; fix the root cause of unresolved trades.
-- [ ] **Phase 12: Realized P&L From Fills** - Closed trades record P&L from actual fills, net of fees/slippage.
+- [x] **Phase 12: Realized P&L From Fills** - Closed trades record P&L from actual fills, net of fees/slippage.
 - [ ] **Phase 13: Alpaca Reconciliation Check** - Trade-log P&L is reconciled per bot against real Alpaca account P&L with a tolerance flag.
 - [ ] **Phase 14: Stale-Trade Backfill & Repair** - Existing open-but-stale trades are resolved to their true terminal state from Alpaca history.
 - [ ] **Phase 15: Universe Hard-Gate Enforcement** - Off-universe symbols are rejected before submission; chronic losers are quarantinable via config.
-- [ ] **Phase 16: Effective-Universe Dashboard Visibility** - The dashboard shows each bot's effective live universe so a leak is visible.
+- [x] **Phase 16: Effective-Universe Dashboard Visibility** - The dashboard shows each bot's effective live universe so a leak is visible.
 - [ ] **Phase 17: Per-Symbol Performance Analysis** - Resolved-trade dataset yields per-symbol/per-bot win-rate & P&L to drive the retune.
 - [ ] **Phase 18: Profitable Retune (Confluence + Kelly)** - Entry threshold and quarter-Kelly sizing retuned on real data, backtest-validated, reversible via config.
 - [ ] **Phase 19: Reliable Runtime & Honest Monitoring** - Thread-death detection alerts; dashboard headline reflects reconciled numbers.
@@ -196,12 +196,12 @@ is Postgres via `src/db.py`. One Alpaca account per bot — never share.
 |-------------|-------|--------|
 | PNL-01 | Phase 11 | Pending |
 | PNL-04 | Phase 11 | Pending |
-| PNL-02 | Phase 12 | Pending |
+| PNL-02 | Phase 12 | Validated |
 | PNL-03 | Phase 13 | Pending |
 | PNL-05 | Phase 14 | Pending |
 | UNIV-01 | Phase 15 | Pending |
 | UNIV-02 | Phase 15 | Pending |
-| UNIV-03 | Phase 16 | Pending |
+| UNIV-03 | Phase 16 | Validated |
 | TUNE-02 | Phase 17 | Pending |
 | TUNE-01 | Phase 18 | Pending |
 | TUNE-03 | Phase 18 | Pending |

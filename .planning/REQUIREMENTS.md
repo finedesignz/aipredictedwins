@@ -18,21 +18,21 @@ Derived from the 2026-07-06 live audit (see `.planning/PROJECT.md` → Current M
 ## v1.1 Requirements
 
 ### Trade Resolution & P&L Integrity (PNL)
-- [ ] **PNL-01**: Every submitted order transitions to a terminal state (filled→closed, or
+- [x] **PNL-01**: Every submitted order transitions to a terminal state (filled→closed, or
       canceled/rejected/expired) and is recorded — no order is silently dropped from the trade log.
-- [ ] **PNL-02**: Each closed trade records realized P&L computed from actual fill prices and
+- [x] **PNL-02**: Each closed trade records realized P&L computed from actual fill prices and
       quantities, net of fees/slippage (not target/estimated prices).
-- [ ] **PNL-03**: A reconciliation check compares summed trade-log P&L against Alpaca account
+- [x] **PNL-03**: A reconciliation check compares summed trade-log P&L against Alpaca account
       realized P&L per bot; discrepancy beyond a tolerance is surfaced (logged + dashboard flag).
-- [ ] **PNL-04**: The root cause of unresolved trades (orders never re-checked / partial fills /
+- [x] **PNL-04**: The root cause of unresolved trades (orders never re-checked / partial fills /
       monitor-thread gaps) is identified and fixed so resolution rate approaches ~100% going forward.
-- [ ] **PNL-05**: A backfill/repair pass resolves existing open-but-stale trades to their true
+- [x] **PNL-05**: A backfill/repair pass resolves existing open-but-stale trades to their true
       terminal state where Alpaca history allows.
 
 ### Universe Enforcement (UNIV)
-- [ ] **UNIV-01**: Entry is hard-gated to the configured per-bot allowlist; any symbol outside it
+- [x] **UNIV-01**: Entry is hard-gated to the configured per-bot allowlist; any symbol outside it
       (e.g. TRUMP, FIL) is rejected before order submission and the rejection is logged.
-- [ ] **UNIV-02**: Chronically unprofitable symbols (BTC, 0-for-12) are droppable/quarantinable via
+- [x] **UNIV-02**: Chronically unprofitable symbols (BTC, 0-for-12) are droppable/quarantinable via
       config without a code change.
 - [x] **UNIV-03**: The dashboard exposes the effective live universe per bot so a leak is visible.
 
