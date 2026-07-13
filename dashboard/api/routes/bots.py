@@ -2,6 +2,7 @@
 Bot CRUD endpoints.
 
 GET    /api/bots              -- list all bots with live status
+GET    /api/bots/{bot_id}/universe -- effective trading universe (read-only)
 POST   /api/bots              -- insert a new bot + spawn thread
 PUT    /api/bots/{bot_id}     -- update DB fields + push to live thread
 DELETE /api/bots/{bot_id}     -- stop thread + delete row
@@ -12,7 +13,7 @@ POST   /api/bots/{bot_id}/disable  -- graceful stop + set enabled=FALSE
 from fastapi import APIRouter, HTTPException, Request
 
 from db import get_db
-from models import BotCreate, BotFull, BotUpdate, Envelope, Meta
+from models import BotCreate, BotFull, BotUniverse, BotUpdate, Envelope, Meta
 
 router = APIRouter(prefix="/api", tags=["bots"])
 
@@ -58,6 +59,69 @@ def get_bots(request: Request):
         ).fetchall()
     data = [_enrich(r, mgr) for r in rows]
     return Envelope(data=data, meta=Meta(count=len(data)))
+
+
+# ---------------------------------------------------------------------------
+# GET /api/bots/{bot_id}/universe
+# ---------------------------------------------------------------------------
+
+@router.get("/bots/{bot_id}/universe")
+def get_bot_universe(bot_id: str):
+    """Return what this bot can ACTUALLY trade, and why not the rest.
+
+    Read-only: two SELECTs, no writes, no Alpaca client, no BotManager.
+
+    Reports what the ENTRY GATE permits (src/universe.entry_allowed), minus the two
+    shadow deny-lists ON THE CONFLUENCE PATH ONLY (they are enforced solely in the
+    confluence selectors, src/bot_thread.py:144-145,163-164).
+
+    NOT valid for a CLI-run bot (`python -m src.alpaca_orchestrator`) — that is not
+    a `bots` row.
+    """
+    from src.bot_config import BotConfig  # noqa: PLC0415
+    from src.effective_universe import resolve_universe  # noqa: PLC0415
+    from src.universe import normalize  # noqa: PLC0415
+
+    with get_db() as conn:
+        row = conn.execute(
+            f"SELECT {_BOT_COLS} FROM bots WHERE bot_id = %s", (bot_id,)
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"Bot '{bot_id}' not found")
+
+    # Per-symbol exposure — the leak evidence. `timestamp` is TEXT
+    # (src/db_schema.sql:28), so the ::timestamptz cast is required. Its own
+    # connection block: a failed cast must not poison the row-fetch transaction.
+    exposure: dict = {}
+    exposure_loaded = True
+    try:
+        with get_db() as conn:
+            rows = conn.execute(
+                """
+                SELECT symbol,
+                       COUNT(*) FILTER (WHERE status = 'open') AS open_positions,
+                       COUNT(*) FILTER (
+                           WHERE "timestamp"::timestamptz > NOW() - INTERVAL '30 days'
+                       ) AS recent_trades
+                FROM alpaca_trades
+                WHERE bot_id = %s
+                GROUP BY symbol
+                """,
+                (bot_id,),
+            ).fetchall()
+        for r in rows:
+            exposure[normalize(r["symbol"])] = {
+                "open": int(r["open_positions"]),
+                "recent": int(r["recent_trades"]),
+                "display": r["symbol"],
+            }
+    except Exception:
+        # Never fail silent: an empty leak list must not read as an all-clear.
+        exposure, exposure_loaded = {}, False
+
+    cfg = BotConfig.from_row(row)
+    result = resolve_universe(cfg, exposure=exposure, exposure_loaded=exposure_loaded)
+    return Envelope(data=BotUniverse(**result), meta=Meta(count=len(result["effective"])))
 
 
 # ---------------------------------------------------------------------------

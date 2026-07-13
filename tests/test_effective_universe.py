@@ -351,21 +351,21 @@ def client():
     with get_db() as conn:
         conn.execute(
             """
-            INSERT INTO bots (bot_id, label, alpaca_api_key, alpaca_secret_key,
+            INSERT INTO bots (id, bot_id, label, alpaca_api_key, alpaca_secret_key,
                               crypto_universe, quarantined_symbols, strategy,
                               asset_class, enabled, status)
-            VALUES (%s, 'Universe Test Bot', '', '',
+            VALUES (%s, %s, 'Universe Test Bot', '', '',
                     'BTC/USD,ETH/USD,SOL/USD,AVAX/USD', 'AVAX/USD', 'confluence',
                     'crypto', FALSE, 'stopped')
             ON CONFLICT DO NOTHING
             """,
-            (TEST_BOT,),
+            (TEST_BOT, TEST_BOT),
         )
         conn.execute(
             """
             INSERT INTO alpaca_trades (bot_id, timestamp, symbol, asset_class, side,
-                                       qty, entry_price, status)
-            VALUES (%s, %s, 'TRUMP/USD', 'crypto', 'buy', 1.0, 10.0, 'open')
+                                       qty, entry_price, mirofish_prob, status)
+            VALUES (%s, %s, 'TRUMP/USD', 'crypto', 'buy', 1.0, 10.0, 0.6, 'open')
             ON CONFLICT DO NOTHING
             """,
             (TEST_BOT, datetime.now(timezone.utc).isoformat()),

@@ -289,3 +289,29 @@ class BenchmarkPoint(BaseModel):
     timestamp: str
     return_pct: float
     price: Optional[float] = None   # actual close price (SPY share price or BTC/USD)
+
+
+# -- Universe (Phase 16, UNIV-03) ---------------------------------------------
+
+class BlockedSymbol(BaseModel):
+    symbol: str
+    # Precedence: quarantined > off_universe > meme > untradeable
+    reason: str
+    open_positions: int = 0
+    recent_trades: int = 0
+
+
+class BotUniverse(BaseModel):
+    bot_id: str
+    strategy: str
+    asset_class: str
+    allowlist: list[str] = Field(default_factory=list)
+    quarantined: list[str] = Field(default_factory=list)
+    effective: list[str] = Field(default_factory=list)
+    blocked: list[BlockedSymbol] = Field(default_factory=list)
+    starvation: bool = False
+    leak: list[str] = Field(default_factory=list)
+    # confluence path only — see src/effective_universe.shadow_applies_to
+    shadow_applied: bool = False
+    shadow_sets_loaded: bool = True
+    exposure_loaded: bool = True   # False -> leak is UNKNOWN, not empty
