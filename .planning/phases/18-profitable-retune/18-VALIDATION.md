@@ -153,3 +153,13 @@ All use `FakeAlpaca`; none touch the network or the DB. The unit under test is t
 7. **Never write to prod.** Cases 24 + 29. The only prod write in Phase 18 is the deliberate `bots`
    row update via `PUT /api/bots/{bot_id}` (Decision 7).
 8. **Full suite ≥ 395 passed.**
+
+## Revision 3 additions (plan-check round 2)
+
+| # | Case | Test | Proves |
+|---|------|------|--------|
+| 4b | `_resolve_external_exit(alpaca, row, live_symbols=None)` returns `{}` — NO write, NO Alpaca call (FakeAlpaca records zero calls) | test_none_live_symbols_is_no_op | THE THIRD DOOR. `None` means get_positions() FAILED (alpaca_orchestrator.py:160-163); it does NOT mean "nothing is held". Coercing it to an empty set terminates EVERY open position as closed/NULL and the monitor abandons live positions with their stops unwatched. |
+| 5b | `get_order` raising and `get_closed_orders` raising, INDEPENDENTLY, each yield `{}` | test_each_alpaca_call_fails_closed | a transient failure must never fall through into the unresolvable branch (`grep -c "try:"` was a weak proxy) |
+| 28d | `BotConfig.from_row({"kelly_fraction": 0.50, ...}).kelly_fraction == 0.25` | test_kelly_clamped_on_read | THE READ-SIDE CLAMP. Every WRITE path is now bounded, but a row written BEFORE those bounds existed (Bot B's live row) is still 0.50 and nothing clamps it on read. `from_row` (src/bot_config.py:49) is the single choke point every bot reads through — clamping there makes the hardcoded quarter-Kelly ceiling TOTAL, not perimeter-only. |
+
+**Baseline reminder:** full suite 395 passed / 24 skipped.
