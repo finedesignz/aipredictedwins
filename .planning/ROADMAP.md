@@ -152,7 +152,14 @@ is Postgres via `src/db.py`. One Alpaca account per bot — never share.
   1. Retuned confluence + sizing parameters are derived from the Phase 17 analysis (per-symbol informed, not uniform).
   2. The existing backtest harness run on the retuned parameters shows improved win rate (target ≥40%) and reduced drawdown vs the current config, with results recorded.
   3. The parameter change is expressed in config/env (reversible), not hardcoded; hardcoded risk invariants (max 5%/pos, quarter-Kelly 0.25, 20% DD stop) are untouched.
-**Plans**: TBD
+**Plans**: 7 plans (4 waves)
+- [ ] 18-01-PLAN.md - Wave 0: RED suite, all 29 VALIDATION cases
+- [ ] 18-02-PLAN.md - Wave 0 BLOCKER: real cached Alpaca bars, 8 symbols x 2025-10-01 -> 2026-04-30
+- [ ] 18-03-PLAN.md - Wave 2: sentinel-writer fix (resolve the real exit, or NULL - never a fabricated 0.0)
+- [ ] 18-04-PLAN.md - Wave 2: the win-rate denominator at all THREE sites + AIPW_DB_READONLY=1
+- [ ] 18-05-PLAN.md - Wave 2: backtester CLI knobs + entry_allowed/rsi_ceiling fidelity fixes + the Kelly ceiling
+- [ ] 18-06-PLAN.md - Wave 3: the 18-cell TRAIN sweep, ONE holdout run -> 18-BACKTEST.md
+- [ ] 18-07-PLAN.md - Wave 4: config-only rollout via PUT /api/bots/{bot_id} (+ the API-side Kelly ceiling)
 
 ### Phase 19: Reliable Runtime & Honest Monitoring
 **Goal**: Bots stay running reliably with unexpected-stop detection, and the dashboard headline P&L / win-rate reflects reconciled numbers, not the overstated trade-log sum.
