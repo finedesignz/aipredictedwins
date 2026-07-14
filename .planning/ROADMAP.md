@@ -191,13 +191,13 @@ is Postgres via `src/db.py`. One Alpaca account per bot — never share.
 **Plans**: 8 plans in 4 waves
 
 Plans:
-- [ ] 20-01-PLAN.md — RED: G3 (backfill slash bug + `None` door) & G2 (paper gate); CORRECTS the mis-test at `tests/test_backfill.py:199`
-- [ ] 20-02-PLAN.md — RED: G4 (anchored window), the anchor/schema-mirror contract, G1 (E2E chain), the `e2e_verify.py` fences + fence self-test
-- [ ] 20-03-PLAN.md — fix `src/backfill.py` (normalize both compare sites; preserve the `None` sentinel); leave it UNARMED
-- [ ] 20-04-PLAN.md — `paper_trades_completed` = the canonical RESOLVED count; the gate reads worse, intended
-- [ ] 20-05-PLAN.md — migration `020_reconciliation_anchor.sql` + the `src/db_schema.sql` mirror + `ON CONFLICT DO NOTHING` + `reconcile_window`
-- [ ] 20-08-PLAN.md — fix the two LIVE fee-less GROSS-P&L writers, so the post-`T0` window is fee-clean by construction
-- [ ] 20-06-PLAN.md — `scripts/e2e_verify.py`, SELECT-only under `AIPW_DB_READONLY=1`; prints the effective tolerance + source and fails loudly on an env override; non-zero exit on FAIL / INSUFFICIENT_SAMPLE / NO_ANCHOR
+- [x] 20-01-PLAN.md — RED: G3 (backfill slash bug + `None` door) & G2 (paper gate); CORRECTS the mis-test at `tests/test_backfill.py:199`
+- [x] 20-02-PLAN.md — RED: G4 (anchored window), the anchor/schema-mirror contract, G1 (E2E chain), the `e2e_verify.py` fences + fence self-test
+- [x] 20-03-PLAN.md — fix `src/backfill.py` (normalize both compare sites; preserve the `None` sentinel); leave it UNARMED
+- [x] 20-04-PLAN.md — `paper_trades_completed` = the canonical RESOLVED count; the gate reads worse, intended
+- [x] 20-05-PLAN.md — migration `020_reconciliation_anchor.sql` + the `src/db_schema.sql` mirror + `ON CONFLICT DO NOTHING` + `reconcile_window`
+- [x] 20-08-PLAN.md — fix the two LIVE fee-less GROSS-P&L writers, so the post-`T0` window is fee-clean by construction
+- [x] 20-06-PLAN.md — `scripts/e2e_verify.py`, SELECT-only under `AIPW_DB_READONLY=1`; prints the effective tolerance + source and fails loudly on an env override; non-zero exit on FAIL / INSUFFICIENT_SAMPLE / NO_ANCHOR
 - [ ] 20-07-PLAN.md — pre-flight credential/window GATE → `20-EVIDENCE.md` + VERIFY-02 (scoped, on the ACTUAL state) + **BLOCKING** human checkpoint for the historical-row backfill
 
 ### Progress
@@ -213,7 +213,7 @@ Plans:
 | 17. Per-Symbol Performance Analysis | 0/? | Not started | - |
 | 18. Profitable Retune (Confluence + Kelly) | 0/? | Not started | - |
 | 19. Reliable Runtime & Honest Monitoring | 0/7 | Planned | - |
-| 20. Verification & E2E Reconciliation | 0/? | Not started | - |
+| 20. Verification & E2E Reconciliation | 7/8 | In Progress|  |
 
 ### Requirement → Phase Traceability
 
