@@ -142,3 +142,156 @@ def test_f8_the_runtime_contract_now_has_a_test_file():
     `if not any_alive: return` survived. The pass/skip floor itself is recorded in the
     SUMMARY, not asserted here (a suite cannot count itself)."""
     assert (_REPO / "tests" / "test_bot_manager.py").exists()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# PHASE 20 FENCES (cases 37-41) — the things THIS phase must not do.
+# ═══════════════════════════════════════════════════════════════════════════
+
+# ── 37 — no new writer to the prod trade log ────────────────────────────────
+
+def test_37_no_new_prod_trade_log_writer_in_phase_20():
+    """The frozen allowlist is REUSED, never re-captured. scripts/e2e_verify.py does NOT
+    join it — the E2E check is SELECT-only."""
+    assert _TRADE_WRITER_ALLOWLIST == {
+        "src/db.py",
+        "dashboard/api/routes/positions.py",
+    }, "the frozen Phase-19 trade-writer allowlist was EDITED"
+
+    # SELF-TEST: the detector still fires on the known writer.
+    assert _TRADE_WRITE.search((_SRC / "db.py").read_text(encoding="utf-8")), \
+        "detector self-test failed"
+
+    found = {_rel(p) for p in _py_files()
+             if _TRADE_WRITE.search(p.read_text(encoding="utf-8"))}
+    assert found <= _TRADE_WRITER_ALLOWLIST, \
+        f"a NEW writer to alpaca_trades appeared: {sorted(found - _TRADE_WRITER_ALLOWLIST)}"
+
+    verify = _SCRIPTS / "e2e_verify.py"
+    if verify.exists():
+        assert not _TRADE_WRITE.search(verify.read_text(encoding="utf-8")), \
+            "scripts/e2e_verify.py writes to the trade log — it must be SELECT-only"
+
+
+# ── 38 — THE BACKFILL STAYS UNARMED (the 395 rows are NOT touched) ──────────
+
+# THE GUN HAS A TRIGGER, AND IT PREDATES PHASE 20.
+#
+# The Phase-20 plan assumed `src/backfill.py` had NO `--apply` entrypoint. IT WAS WRONG:
+# `scripts/backfill_trades.py` has been an armed `--apply` CLI since Phase 14 (PNL-05).
+# Until Phase 20's fix lands, that trigger fires a backfill that resolves every
+# genuinely-HELD position as `closed` with a FABRICATED P&L.
+#
+# It is NOT wired to CI, to any Dockerfile, to compose, or to cron — verified below. The
+# ONLY way it fires is a human typing it. So this fence does the honest thing: it FREEZES
+# the trigger set at exactly one known file, asserts Phase 20 adds no second one, and
+# asserts nothing automated can pull it. Repairing the 395 rows remains a BLOCKING HUMAN
+# AUTHORIZATION (Plan 20-07) — this phase fixes the AMMUNITION, it does not fire the gun.
+_BACKFILL_APPLY_ENTRYPOINTS = {"scripts/backfill_trades.py"}
+
+_ARMS_BACKFILL = re.compile(r"--apply|apply\s*=\s*True")
+
+
+def test_38_the_backfill_stays_unarmed():
+    files = list(_py_files())
+    assert len(files) > 20, "positive control failed — the scan found almost no source files"
+
+    # POSITIVE CONTROL: the detector really fires on the ONE known trigger.
+    known = _SCRIPTS / "backfill_trades.py"
+    assert known.exists() and _ARMS_BACKFILL.search(known.read_text(encoding="utf-8")), \
+        "detector self-test failed — it cannot see the known --apply entrypoint"
+
+    armed = {
+        _rel(p) for p in files
+        if "backfill" in p.read_text(encoding="utf-8")
+        and _ARMS_BACKFILL.search(p.read_text(encoding="utf-8"))
+    }
+    assert armed <= _BACKFILL_APPLY_ENTRYPOINTS, (
+        f"Phase 20 added a NEW way to arm the backfill: "
+        f"{sorted(armed - _BACKFILL_APPLY_ENTRYPOINTS)}. The 395 historical rows are "
+        f"repaired ONLY under explicit human authorization."
+    )
+
+    # src/backfill.py itself is a LIBRARY. It grows no CLI, no argparse, no __main__.
+    lib = (_SRC / "backfill.py").read_text(encoding="utf-8")
+    for banned in ("argparse", "__main__", "--apply"):
+        assert banned not in lib, \
+            f"src/backfill.py grew an entrypoint ({banned}) — the gun must stay holstered"
+
+    # NOTHING AUTOMATED CAN PULL THE TRIGGER. Only a human at a terminal.
+    automation = []
+    for pattern in ("*.yml", "*.yaml"):
+        automation += list((_REPO / ".github").rglob(pattern)) if (_REPO / ".github").exists() else []
+    automation += [p for p in _REPO.glob("Dockerfile*")]
+    automation += [p for p in (_REPO / "dashboard").glob("Dockerfile*")]
+    automation += [p for p in _REPO.glob("docker-compose*")]
+    for p in automation:
+        if not p.is_file():
+            continue
+        assert "backfill" not in p.read_text(encoding="utf-8", errors="ignore"), \
+            f"{_rel(p)} can fire the backfill AUTOMATICALLY — it must be human-only"
+
+
+# ── 39 — the hardcoded risk rules are untouched ────────────────────────────
+
+def test_39_hardcoded_risk_rules_untouched():
+    cfg = (_SRC / "bot_config.py").read_text(encoding="utf-8")
+    conf = (_SRC / "config.py").read_text(encoding="utf-8")
+    models = (_API / "models.py").read_text(encoding="utf-8")
+    settings = (_API / "routes" / "settings.py").read_text(encoding="utf-8")
+    assert "kelly_fraction" in cfg and "max_correlated_positions" in conf, \
+        "positive control failed"
+
+    assert "max_position_pct: float = 0.05" in cfg          # max 5% per position
+    assert models.count("le=0.25") >= 2                      # quarter-Kelly ceiling
+    assert "max_correlated_positions: int = 3" in conf       # max 3 correlated
+    assert "drawdown_stop_pct: float = 0.20" in conf         # 20% drawdown stop
+    assert "paper_trades_target=50" in settings              # 50 paper trades
+    assert "win_rate_target=40.0" in settings                # 40% win rate
+    assert 'mode="paper"' in settings                        # paper mode
+
+
+# ── 40 — no bots-config knob moved (PHASE 21 OWNS THE RETUNE) ──────────────
+
+def test_40_no_bots_config_knob_moved():
+    cfg = (_SRC / "bot_config.py").read_text(encoding="utf-8")
+    assert "min_confluence" in cfg, "positive control failed"
+
+    assert "min_confluence: int = 4" in cfg
+    assert "kelly_fraction: float = 0.25" in cfg
+    assert 'quarantined_symbols: str = ""' in cfg
+
+
+# ── F20-KILLER — DO NOT BREAK PHASE 19's KILLER FIX ────────────────────────
+#
+# NOTE: deliberately NOT numbered 41. VALIDATION case 41 is "zero new skips", which is a
+# property of the SUITE and cannot be asserted by a member of it. It is recorded in the
+# SUMMARY from the final suite run.
+
+def test_f20_killer_phase19_killer_fix_is_intact():
+    """Liveness is SNAPSHOTTED at tick START. If `_revive_dead_bots` ran first, every
+    revivable bot would be alive again and the ALL-BOTS-DOWN alert would NEVER FIRE in
+    the dominant failure mode. Phase 20 must not regress it."""
+    src = (_SRC / "bot_manager.py").read_text(encoding="utf-8")
+    assert "_check_bots_down" in src, "positive control failed — the watchdog moved"
+
+    # It takes the snapshot as a PARAMETER...
+    sig = re.search(r"def _check_bots_down\(([^)]*)\)", src)
+    assert sig, "_check_bots_down is gone"
+    assert "alive_before" in sig.group(1), \
+        "_check_bots_down no longer takes the alive_before snapshot"
+
+    # ...and NEVER re-derives liveness inside its own body.
+    body_start = src.index("def _check_bots_down")
+    nxt = src.find("\n    def ", body_start + 1)
+    body = src[body_start: nxt if nxt != -1 else len(src)]
+    assert "is_alive()" not in body, \
+        "_check_bots_down calls is_alive() in its own body — it must use the SNAPSHOT"
+
+    # ...and in the tick it runs BEFORE the revive. If a revive ran first, every
+    # revivable bot is alive again and the ALL-BOTS-DOWN alert never fires.
+    check_at = src.index("self._check_bots_down(alive_before")
+    revive_at = src.index("self._revive_dead_bots", check_at - 400)
+    assert check_at < revive_at, \
+        "_revive_dead_bots runs BEFORE _check_bots_down — the all-bots-down alert can " \
+        "never fire in the dominant failure mode (Phase 19's killer bug, reintroduced)"
