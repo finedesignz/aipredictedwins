@@ -392,6 +392,122 @@ def record_reconciliation(bot_id: str, result: dict) -> None:
         )
 
 
+# ── The reconciliation ANCHOR — T0 (VERIFY-02, Phase 20) ──────────────────────
+
+def get_reconciliation_anchor(bot_id: str) -> dict | None:
+    """Read this bot's T0 snapshot. ``None`` means IT HAS NEVER BEEN ANCHORED.
+
+    ``None`` is a real, reportable state — ``scripts/e2e_verify.py`` emits ``NO_ANCHOR``
+    and exits non-zero on it. It is NOT an error to be papered over with a default: a
+    fabricated anchor would silently define the window as "since whenever someone asked".
+    """
+    with connection() as conn:
+        return conn.execute(
+            "SELECT bot_id, anchored_at, equity, unrealized_pnl, trade_log_pnl "
+            "FROM reconciliation_anchor WHERE bot_id = %s",
+            (bot_id,),
+        ).fetchone()
+
+
+def write_reconciliation_anchor(
+    bot_id: str,
+    equity: float,
+    unrealized_pnl: float,
+    trade_log_pnl: float,
+) -> dict | None:
+    """Write T0 ONCE. Returns the row that is NOW anchored — the PRE-EXISTING one if any.
+
+    ``ON CONFLICT (bot_id) DO NOTHING``. **NEVER ``DO UPDATE``.**
+
+    An UPSERT here would silently re-anchor T0 to "now" on EVERY run: the window would
+    reset to zero samples on every tick, and the windowed reconciliation check would be
+    VACUOUSLY GREEN forever — it would be comparing a period in which nothing had yet
+    happened. That is the same class of self-defeating move as widening the tolerance
+    until the breach disappears.
+
+    Re-anchoring T0 is therefore NOT something this function can do. It requires an
+    explicit, separate, human-authorized action.
+
+    (Contrast ``record_reconciliation`` above, which legitimately UPSERTS — it stores the
+    LATEST result, not a fixed origin. An origin that moves is not an origin.)
+    """
+    with connection() as conn:
+        conn.execute(
+            "INSERT INTO reconciliation_anchor "
+            "(bot_id, anchored_at, equity, unrealized_pnl, trade_log_pnl) "
+            "VALUES (%s, NOW(), %s, %s, %s) "
+            "ON CONFLICT (bot_id) DO NOTHING",
+            (bot_id, equity, unrealized_pnl, trade_log_pnl),
+        )
+        return conn.execute(
+            "SELECT bot_id, anchored_at, equity, unrealized_pnl, trade_log_pnl "
+            "FROM reconciliation_anchor WHERE bot_id = %s",
+            (bot_id,),
+        ).fetchone()
+
+
+def get_post_anchor_counts(bot_id: str, anchored_at) -> dict:
+    """Resolved / unresolved position-closed rows written SINCE T0.
+
+    resolved   := ``pnl IS NOT NULL AND pnl <> 0``   (the canonical predicate, :95)
+    unresolved := ``pnl IS NULL OR pnl = 0``
+
+    ``timestamp`` is a TEXT column (db_schema.sql:28) so it MUST be cast to timestamptz,
+    exactly as ``get_resolved_trades`` does at :350. A bare compare would be
+    LEXICOGRAPHIC and silently wrong. ``bot_id`` and ``anchored_at`` reach SQL only as
+    ``%s`` params.
+    """
+    with connection() as conn:
+        resolved = conn.execute(
+            """
+            SELECT COUNT(*) AS n FROM alpaca_trades
+            WHERE bot_id = %s
+              AND status IN ('closed', 'stopped', 'target_hit')
+              AND "timestamp"::timestamptz >= %s
+              AND pnl IS NOT NULL AND pnl <> 0
+            """,
+            (bot_id, anchored_at),
+        ).fetchone()["n"]
+        unresolved = conn.execute(
+            """
+            SELECT COUNT(*) AS n FROM alpaca_trades
+            WHERE bot_id = %s
+              AND status IN ('closed', 'stopped', 'target_hit')
+              AND "timestamp"::timestamptz >= %s
+              AND (pnl IS NULL OR pnl = 0)
+            """,
+            (bot_id, anchored_at),
+        ).fetchone()["n"]
+    return {"resolved": resolved, "unresolved": unresolved}
+
+
+def get_trade_count(bot_id: str) -> int:
+    """The RAW row count — what the paper gate read BEFORE Phase 20 (settings.py:36).
+
+    Exists to MEASURE the paper-gate before/after. RESEARCH R1 refuted every projected
+    magnitude in this milestone; the number is measured, never asserted.
+    """
+    with connection() as conn:
+        return conn.execute(
+            "SELECT COUNT(*) AS n FROM alpaca_trades WHERE bot_id = %s",
+            (bot_id,),
+        ).fetchone()["n"]
+
+
+def get_resolved_trade_count(bot_id: str) -> int:
+    """The canonical RESOLVED count — what the paper gate reads AFTER Phase 20."""
+    with connection() as conn:
+        return conn.execute(
+            """
+            SELECT COUNT(*) AS n FROM alpaca_trades
+            WHERE bot_id = %s
+              AND status IN ('closed', 'stopped', 'target_hit')
+              AND pnl IS NOT NULL AND pnl <> 0
+            """,
+            (bot_id,),
+        ).fetchone()["n"]
+
+
 # ── Legacy Kalshi trades ───────────────────────────────────────────────────────
 
 def log_trade(bot_id: str, trade_data: dict) -> int:

@@ -235,6 +235,25 @@ CREATE TABLE IF NOT EXISTS runtime_heartbeat (
     bots_enabled INT NOT NULL DEFAULT 0
 );
 
+-- ─────────────────────────────────────────────
+-- 12. reconciliation_anchor — T0, the per-bot reconciliation ANCHOR (VERIFY-02)
+--     Mirrors migration 020_reconciliation_anchor.sql. THIS MIRROR IS NOT OPTIONAL:
+--     _bootstrap_schema() (src/db.py:61-66) executes this file WHOLESALE, so a
+--     migration-only table would exist in PROD AND NOWHERE ELSE — absent from every
+--     fresh-DB bootstrap and every test DB.
+--
+--     T0 is written ONCE PER BOT via ON CONFLICT (bot_id) DO NOTHING. NEVER DO UPDATE:
+--     an UPSERT would re-anchor T0 to "now" on every run, reset the window to zero
+--     samples, and make the windowed check VACUOUSLY GREEN.
+-- ─────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS reconciliation_anchor (
+    bot_id         TEXT PRIMARY KEY,
+    anchored_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    equity         DOUBLE PRECISION NOT NULL,
+    unrealized_pnl DOUBLE PRECISION NOT NULL,
+    trade_log_pnl  DOUBLE PRECISION NOT NULL
+);
+
 -- ═════════════════════════════════════════════
 -- INDEXES
 -- ═════════════════════════════════════════════

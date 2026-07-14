@@ -238,6 +238,15 @@ def driver_env(monkeypatch):
         db, "record_reconciliation",
         lambda bot_id, result: recorded.append((bot_id, result)),
     )
+    # Phase 20: reconcile_bot_live now captures T0 first (ensure_anchor). Stub that seam
+    # so the driver cases stay zero-network — they assert the ALL-TIME reconcile, which is
+    # UNCHANGED by Phase 20. Pretend every bot is already anchored, so no write is attempted.
+    anchors = {
+        b: {"bot_id": b, "anchored_at": "2026-07-12T00:00:00+00:00",
+            "equity": starting[b], "unrealized_pnl": 0.0, "trade_log_pnl": 0.0}
+        for b in ("A", "B")
+    }
+    monkeypatch.setattr(db, "get_reconciliation_anchor", lambda bot_id: anchors.get(bot_id))
     monkeypatch.setattr(
         notifier, "send_alert",
         lambda subject, body: alerts.append((subject, body)) or True,
@@ -681,12 +690,21 @@ def test_migration_020_is_additive_and_idempotent():
 
     path = migrations / "020_reconciliation_anchor.sql"
     assert path.exists(), "migration 020 does not exist"
-    sql = path.read_text(encoding="utf-8")
+    raw = path.read_text(encoding="utf-8")
 
-    assert "CREATE TABLE IF NOT EXISTS reconciliation_anchor" in sql
-    for banned in ("DROP", "DELETE", "ALTER", "UPDATE", "CHECK"):
-        assert banned not in sql.upper(), \
-            f"migration 020 contains {banned} — it must be purely additive"
+    assert "CREATE TABLE IF NOT EXISTS reconciliation_anchor" in raw
+
+    # Scan the STATEMENTS, not the prose. `--` comments are not DDL, and this migration's
+    # header deliberately EXPLAINS why it must never DO UPDATE / carry a bot_id CHECK —
+    # banning those words in a comment would punish the documentation.
+    statements = "\n".join(
+        ln for ln in raw.splitlines() if not ln.strip().startswith("--")
+    ).upper()
+    assert "CREATE TABLE IF NOT EXISTS" in statements, "positive control failed"
+
+    for banned in ("DROP", "DELETE", "ALTER", "UPDATE", "CHECK", "INSERT"):
+        assert banned not in statements, \
+            f"migration 020 executes {banned} — it must be purely additive"
 
 
 def test_the_schema_mirror_exists():
@@ -720,11 +738,20 @@ def test_the_anchor_is_written_once_never_upserted(monkeypatch):
     """
     from src import db
 
-    # (a) STATIC — the writer says DO NOTHING and never DO UPDATE.
+    # (a) STATIC — the writer's CODE says DO NOTHING and never DO UPDATE.
+    #
+    # The DOCSTRING is stripped before scanning: it deliberately EXPLAINS the ban ("NEVER
+    # DO UPDATE"), and a fence that punished the documentation for naming the thing it
+    # forbids would push that explanation out of the file. Scan the code.
     fn = _DB_SRC[_DB_SRC.index("def write_reconciliation_anchor"):]
-    fn = fn[:fn.index("\ndef ", 1)] if "\ndef " in fn[1:] else fn
-    assert "DO NOTHING" in fn, "write_reconciliation_anchor is not ON CONFLICT DO NOTHING"
-    assert "DO UPDATE" not in fn, \
+    nxt = fn.index("\ndef ", 1) if "\ndef " in fn[1:] else len(fn)
+    fn = fn[:nxt]
+    body = fn.split('"""')[2] if fn.count('"""') >= 2 else fn
+
+    assert "INSERT INTO reconciliation_anchor" in body, "positive control failed"
+    assert "DO NOTHING" in body, \
+        "write_reconciliation_anchor is not ON CONFLICT (bot_id) DO NOTHING"
+    assert "DO UPDATE" not in body, \
         "write_reconciliation_anchor UPSERTs — it would re-anchor T0 on every run"
 
     # (b) BEHAVIORAL — a second, DIFFERENT write cannot move T0.
