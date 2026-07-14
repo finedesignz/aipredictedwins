@@ -1,11 +1,11 @@
 """Phase 18 — the rollout is CONFIG-ONLY, and Kelly may only go DOWN
 (VALIDATION cases 26-29, plus 28b / 28c / 28d).
 
-Cases 28 / 28b / 28c / 28d are closed by Plan 18-07 (the API + seed + read-side
-Kelly clamps). 18-07 is HELD for explicit human authorization because its later
-tasks write to the PROD bots row, so those four cases are marked xfail(strict)
-here: they FAIL today, they are recorded, and the moment 18-07 lands they flip
-green (a strict xfail that starts passing is itself a failure, so this cannot rot).
+Cases 28 / 28b / 28c / 28d were closed by Plan 18-07 (the API + seed + read-side
+Kelly clamps). They were marked xfail(strict) while 18-07 was held for human
+authorization; 18-07 has landed, so the markers are gone and the cases assert
+the ceiling directly: Kelly is unreachable above 0.25 from the PUT, the POST,
+the seed's raw SQL INSERT, and the read path.
 """
 import os
 import pathlib
@@ -17,11 +17,6 @@ _ROOT = pathlib.Path(__file__).resolve().parents[1]
 _needs_db = pytest.mark.skipif(
     not os.environ.get("TEST_DATABASE_URL"),
     reason="TEST_DATABASE_URL not set — skipping rollout API tests")
-
-_deferred_to_18_07 = pytest.mark.xfail(
-    reason="closed by Plan 18-07 (held for human authorization — it writes the prod bots row)",
-    strict=True,
-)
 
 
 def _sig(symbol, confluence=4, rsi=50.0):
@@ -76,7 +71,6 @@ def test_put_bots_accepts_all_three_knobs():
     assert resp.status_code == 200
 
 
-@_deferred_to_18_07
 def test_kelly_above_ceiling_cannot_be_rolled_out():
     """case 28 — the API-side mirror of the CLI ceiling."""
     import pydantic
@@ -89,7 +83,6 @@ def test_kelly_above_ceiling_cannot_be_rolled_out():
         BotUpdate(kelly_fraction=0.50)
 
 
-@_deferred_to_18_07
 def test_kelly_ceiling_on_bot_create():
     """case 28b — BotCreate/BotFull are unbounded today: a bot can be CREATED at 0.50."""
     import pydantic
@@ -104,13 +97,17 @@ def test_kelly_ceiling_on_bot_create():
                   kelly_fraction=0.50)
 
 
-@_deferred_to_18_07
 def test_seed_cannot_restore_bot_b_at_half_kelly(monkeypatch):
     """case 28c — seed_bots.py writes by RAW SQL and never sees pydantic."""
     import sys
     sys.path.insert(0, str(_ROOT / "dashboard" / "api"))
     import importlib
     import seed_bots
+
+    # build_bots() only emits Bot B when its Alpaca keys are present (ONE ACCOUNT
+    # PER BOT). Fake keys — build_bots is pure; nothing is written here.
+    monkeypatch.setenv("ALPACA_API_KEY_B", "test-key-b")
+    monkeypatch.setenv("ALPACA_SECRET_KEY_B", "test-secret-b")
 
     monkeypatch.delenv("BOT_B_KELLY", raising=False)
     importlib.reload(seed_bots)
@@ -123,7 +120,6 @@ def test_seed_cannot_restore_bot_b_at_half_kelly(monkeypatch):
     assert b["kelly_fraction"] <= 0.25
 
 
-@_deferred_to_18_07
 def test_kelly_clamped_on_read():
     """case 28d — the READ-side clamp: a row written BEFORE the bounds existed
     (Bot B's live 0.50) must be clamped at from_row, not merely rejected at write."""

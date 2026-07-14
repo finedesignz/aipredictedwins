@@ -34,13 +34,15 @@ def test_from_row_custom():
     row = {
         "bot_id": "B", "label": "Agent B",
         "alpaca_api_key": "k2", "alpaca_secret_key": "s2",
-        "kelly_fraction": 0.5, "min_confluence": 2,
+        # In-bounds Kelly: quarter-Kelly is a hardcoded CEILING, so an explicit
+        # 0.50 would be CLAMPED to 0.25 on read (see test_rollout_config case 28d).
+        "kelly_fraction": 0.20, "min_confluence": 2,
         "hard_stop_pct": -0.10, "soft_stop_pct": -0.06,
         "rsi_ceiling": 70.0, "crypto_universe": "BTC/USD,ETH/USD",
         "skip_risk_gate": True, "max_position_pct": 0.03,
     }
     cfg = BotConfig.from_row(row)
-    assert cfg.kelly_fraction == 0.5
+    assert cfg.kelly_fraction == 0.20
     assert cfg.min_confluence == 2
     assert cfg.hard_stop_pct == -0.10
     assert cfg.skip_risk_gate is True

@@ -209,7 +209,8 @@ class BotInfo(BaseModel):
 class BotFull(BaseModel):
     bot_id: str
     label: str
-    kelly_fraction: float = 0.25
+    # Quarter-Kelly is a hardcoded CEILING (CLAUDE.md risk rules); it may only go DOWN.
+    kelly_fraction: float = Field(default=0.25, gt=0, le=0.25)
     min_confluence: int = 3
     hard_stop_pct: float = -0.05
     soft_stop_pct: float = -0.03
@@ -237,7 +238,8 @@ class BotCreate(BaseModel):
     label: str
     alpaca_api_key: str
     alpaca_secret_key: str
-    kelly_fraction: float = 0.25
+    # Quarter-Kelly is a hardcoded CEILING (CLAUDE.md risk rules); it may only go DOWN.
+    kelly_fraction: float = Field(default=0.25, gt=0, le=0.25)
     min_confluence: int = 3
     hard_stop_pct: float = -0.05
     soft_stop_pct: float = -0.03
@@ -255,7 +257,9 @@ class BotUpdate(BaseModel):
     label: Optional[str] = None
     alpaca_api_key: Optional[str] = None
     alpaca_secret_key: Optional[str] = None
-    kelly_fraction: Optional[float] = None
+    kelly_fraction: Optional[float] = Field(
+        default=None, gt=0, le=0.25,
+        description="Quarter-Kelly is a hardcoded CEILING (CLAUDE.md risk rules); it may only go DOWN.")
     min_confluence: Optional[int] = None
     hard_stop_pct: Optional[float] = None
     soft_stop_pct: Optional[float] = None

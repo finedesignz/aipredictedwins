@@ -46,7 +46,11 @@ class BotConfig:
             label=row["label"],
             alpaca_api_key=row.get("alpaca_api_key") or "",
             alpaca_secret_key=row.get("alpaca_secret_key") or "",
-            kelly_fraction=float(row["kelly_fraction"] if row.get("kelly_fraction") is not None else 0.25),
+            # READ-SIDE CLAMP: quarter-Kelly is a hardcoded ceiling (CLAUDE.md risk
+            # rules). Rows written before the write-side bounds existed (Bot B's 0.50)
+            # must be clamped here, not merely rejected at write — from_row is the
+            # single choke point every bot reads through.
+            kelly_fraction=min(float(row["kelly_fraction"] if row.get("kelly_fraction") is not None else 0.25), 0.25),
             min_confluence=int(row["min_confluence"] if row.get("min_confluence") is not None else 4),
             hard_stop_pct=float(row["hard_stop_pct"] if row.get("hard_stop_pct") is not None else -0.08),
             soft_stop_pct=float(row["soft_stop_pct"] if row.get("soft_stop_pct") is not None else -0.05),

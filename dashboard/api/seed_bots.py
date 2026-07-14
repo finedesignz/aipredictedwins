@@ -50,7 +50,10 @@ def build_bots() -> list[dict]:
             "label": os.environ.get("BOT_B_LABEL", "Agent B"),
             "alpaca_api_key": key_b,
             "alpaca_secret_key": secret_b,
-            "kelly_fraction": float(os.environ.get("BOT_B_KELLY", "0.50")),
+            # Quarter-Kelly CEILING (CLAUDE.md risk rules). The raw SQL INSERT below
+            # bypasses pydantic, so the clamp must live here: neither the default nor
+            # an env var may raise Kelly above 0.25.
+            "kelly_fraction": min(float(os.environ.get("BOT_B_KELLY", "0.25")), 0.25),
             "min_confluence": int(os.environ.get("BOT_B_CONFLUENCE", "2")),
             "skip_risk_gate": os.environ.get("BOT_B_SKIP_RISK_GATE", "false").lower() == "true",
             "hard_stop_pct": float(os.environ.get("BOT_B_HARD_STOP_PCT", "-0.05")),
