@@ -64,10 +64,47 @@ Derived from the 2026-07-06 live audit (see `.planning/PROJECT.md` → Current M
       the overstated trade-log sum.
 
 ### Verification (VERIFY)
-- [ ] **VERIFY-01**: Unit/integration tests cover order-state resolution, realized-P&L math (with
+- [x] **VERIFY-01**: Unit/integration tests cover order-state resolution, realized-P&L math (with
       fees), universe rejection, and the reconciliation check.
-- [ ] **VERIFY-02**: An end-to-end check on live/paper data shows resolution rate and P&L
-      reconciliation within tolerance after the fix.
+      All four clauses covered, plus the four Phase-20 seams (G1 e2e reconciliation, G2 paper gate,
+      G3 backfill, G4 windowed reconciliation), plus the two live GROSS-P&L writers now recording fees
+      (`tests/test_gross_pnl_writers.py`) — which is this requirement's own "with fees" clause. Suite:
+      541 passed / 29 skipped (no new skips). Traceability matrix:
+      `.planning/phases/20-verification-e2e/20-EVIDENCE.md` §3.
+- [~] **VERIFY-02** (PARTIAL — scoped; do not tick without reading this): An end-to-end check on
+      live/paper data shows resolution rate and P&L reconciliation within tolerance after the fix.
+      **Measured against prod 2026-07-14** (`scripts/e2e_verify.py`, SELECT-only, tolerance $25 /
+      0.005 both from `default`, `tolerance_override: false`). Evidence: `20-EVIDENCE.md`.
+
+      **The ALL-TIME window is NOT achieved and is provably NOT achievable.** Both sides of
+      `reconcile_bot` are cumulative-since-inception. The 395 fabricated-zero rows contribute **exactly
+      zero** to `trade_log_pnl`, while Alpaca's `equity − starting_equity` **already contains their real
+      outcomes**. The delta is therefore a **FIXED LEVEL OFFSET** — every future perfectly-recorded trade
+      adds the same amount to *both* sides and leaves it intact. Measured: **Bot A $8,720.31, Bot B
+      $1,610.22, Bot C $9,497.07** (all breaching the unchanged $25 tolerance). Bot A's figure is
+      consistent with the original audit — the log said +$1,296 while the account was −14.34%.
+      `abs(delta) <= $25` all-time is **unreachable forever** unless those rows are repaired.
+      **And the shipped backfill cannot repair them:** all 395 are `status='closed'` with
+      `order_id IS NULL`, while the backfill only selects `open`/`submitted` rows *with* an `order_id`
+      — dry-run recovery ceiling **0 of 395 for every bot** (Alpaca answered; no `positions_unavailable`,
+      so these are real zeros). Closing the offset would need a new `(symbol, qty, timestamp)`-matching
+      mechanism that does not exist. **The backfill was NOT run; the historical rows are untouched.**
+
+      **The ANCHORED POST-T0 WINDOW is the honest path — and it OPENED TODAY.** `T0` was written by the
+      manager's reconcile tick at **2026-07-14 07:18 UTC**, in the same deploy that fixed the two live
+      gross-P&L writers, so the window is fee-clean and sentinel-free **by construction**. Every bot
+      currently reports **`INSUFFICIENT_SAMPLE` (0 resolved post-T0 trades; `MIN_WINDOW_SAMPLE` = 20)**.
+      **`INSUFFICIENT_SAMPLE` IS NOT A PASS.** The window has not earned a verdict, and none is claimed.
+      Nothing was widened and no retry was run to manufacture a sample.
+      **VERIFY-02 stays OPEN on the windowed clause** until a dated follow-up run returns PASS — not
+      before **2026-07-28** (≥20 resolved trades per bot):
+      `python scripts/e2e_verify.py --json`   (exit 0 == every enabled bot's window reconciles)
+
+      **What IS measured today:** the all-time reconciliation (breaching, `legacy: true`), the legacy
+      offset per bot, the recovery ceiling (0/395), and the paper gate — which now reads
+      **655 total rows → 260 resolved** (delta exactly −395, the sentinel count), `win_rate 34.6`
+      (below the 40% gate). **The gate reads worse because it is now counting the truth. It is NOT to be
+      tuned back.**
 
 ## Out of Scope
 - Kalshi prediction markets (paused).
@@ -92,7 +129,7 @@ Derived from the 2026-07-06 live audit (see `.planning/PROJECT.md` → Current M
 | TUNE-03 | Phase 18 — Profitable Retune (Confluence + Kelly) | Validated |
 | RUN-01 | Phase 19 — Reliable Runtime & Honest Monitoring | Pending |
 | RUN-02 | Phase 19 — Reliable Runtime & Honest Monitoring | Pending |
-| VERIFY-01 | Phase 20 — Verification & E2E Reconciliation | Pending |
-| VERIFY-02 | Phase 20 — Verification & E2E Reconciliation | Pending |
+| VERIFY-01 | Phase 20 — Verification & E2E Reconciliation | Validated |
+| VERIFY-02 | Phase 20 — Verification & E2E Reconciliation | **PARTIAL (scoped)** — all-time reconciliation provably unachievable (fixed level offset from 395 unrepairable rows); anchored post-T0 window opened 2026-07-14 07:18 UTC and reports INSUFFICIENT_SAMPLE (0/20 per bot) — NOT a pass. Open until a dated follow-up `e2e_verify` run passes (see requirement text) |
 
 **Coverage:** 15/15 requirements mapped to exactly one phase — no orphans, no duplicates.
