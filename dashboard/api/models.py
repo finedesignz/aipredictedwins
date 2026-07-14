@@ -42,6 +42,9 @@ class PortfolioData(BaseModel):
     total_trades: int = 0
     wins: int = 0
     losses: int = 0
+    # Phase 19 (RUN-02): terminal rows whose P&L could not be resolved
+    # (`pnl IS NULL OR pnl = 0`). Reported BESIDE wins/losses, never folded into losses.
+    unresolved: int = 0
 
 
 # -- Positions ----------------------------------------------------------------
@@ -166,6 +169,7 @@ class SettingsData(BaseModel):
     win_rate_target: float = 40.0
     equity: float = 0.0
     equity_target: float = 100000.0
+    unresolved: int = 0          # Phase 19 (RUN-02) — beside the gate's win rate
     health: HealthStatus = Field(default_factory=HealthStatus)
     config: dict = Field(default_factory=dict)
 

@@ -244,29 +244,42 @@ def get_recent_loss_symbols(bot_id: str, hours: int = 24) -> set[str]:
 
 
 def get_alpaca_accuracy(bot_id: str, last_n: int | None = None) -> dict:
+    """Accuracy over RESOLVED trades only (Phase 19). `unresolved` is ADDITIVE.
+
+    The terminal rows are selected WITHOUT a pnl filter so the unresolved ones can be
+    COUNTED, then partitioned in Python with `is_resolved` — mirroring symbol_stats.py's
+    zero_pnl bucketing exactly. Every figure below (resolved/wins/losses/win_rate/
+    total_pnl/avg_pnl/crypto_pnl/stock_pnl) is computed over RESOLVED rows only;
+    `unresolved` counts the terminal rows that fail the predicate (NULL **and** 0.0) and
+    is reported BESIDE them, never folded in.
+
+    Cost, plainly: a genuinely exactly-break-even trade is dropped from the win rate.
+    With crypto fills and fees that is a measure-zero event, and the alternative is
+    booking 395 fabricated zeros as real losses. Post-Phase-18 the writer emits NULL,
+    never 0.0, so the `<> 0` arm is a HISTORICAL-ROW filter with a shrinking blast radius.
+    """
     with connection() as conn:
-        # `AND pnl IS NOT NULL` (Phase 18): a row whose P&L could not be resolved is
-        # UNRESOLVED, not a loss. Without it `losses = resolved - wins` books every
-        # NULL as a loss. A genuine 0.00 close is still counted — only NULL is excluded.
         base = """
             SELECT status, pnl, symbol, asset_class FROM alpaca_trades
             WHERE bot_id = %s AND status IN ('closed', 'stopped', 'target_hit')
-              AND pnl IS NOT NULL
             ORDER BY closed_at DESC
         """
         if last_n:
-            rows = conn.execute(base + " LIMIT %s", (bot_id, last_n)).fetchall()
+            terminal = conn.execute(base + " LIMIT %s", (bot_id, last_n)).fetchall()
         else:
-            rows = conn.execute(base, (bot_id,)).fetchall()
+            terminal = conn.execute(base, (bot_id,)).fetchall()
 
         total_trades = conn.execute(
             "SELECT COUNT(*) AS n FROM alpaca_trades WHERE bot_id = %s", (bot_id,)
         ).fetchone()["n"]
 
+    rows = [r for r in terminal if is_resolved(r["pnl"])]
+    unresolved = len(terminal) - len(rows)
+
     resolved = len(rows)
-    wins = sum(1 for r in rows if (r["pnl"] or 0) > 0)
+    wins = sum(1 for r in rows if r["pnl"] > 0)
     losses = resolved - wins
-    total_pnl = sum(r["pnl"] or 0.0 for r in rows)
+    total_pnl = sum(r["pnl"] for r in rows)
     return {
         "total_trades": total_trades,
         "resolved": resolved,
@@ -275,8 +288,9 @@ def get_alpaca_accuracy(bot_id: str, last_n: int | None = None) -> dict:
         "win_rate": wins / resolved if resolved > 0 else 0.0,
         "total_pnl": total_pnl,
         "avg_pnl": total_pnl / resolved if resolved > 0 else 0.0,
-        "crypto_pnl": sum(r["pnl"] or 0.0 for r in rows if r["asset_class"] == "crypto"),
-        "stock_pnl": sum(r["pnl"] or 0.0 for r in rows if r["asset_class"] == "us_equity"),
+        "crypto_pnl": sum(r["pnl"] for r in rows if r["asset_class"] == "crypto"),
+        "stock_pnl": sum(r["pnl"] for r in rows if r["asset_class"] == "us_equity"),
+        "unresolved": unresolved,
     }
 
 

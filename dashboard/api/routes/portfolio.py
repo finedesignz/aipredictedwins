@@ -58,23 +58,36 @@ def _portfolio_for_bot(conn, bot_id: str, days: int = 30) -> PortfolioData:
         else _DEFAULT_STARTING_EQUITY
     )
 
-    # Closed trades filtered to window → win rate / trade counts
+    # Closed trades filtered to window → win rate / trade counts.
+    #
+    # RESOLVED := `pnl IS NOT NULL AND pnl <> 0` (Phase 19). 0.0 is NOT NULL, so Phase 18's
+    # filter alone passed the ~395 historical `pnl = 0.0` external-exit sentinels straight
+    # through, and `losses = len(closed) - wins` then booked every one of them as a LOSS.
+    # A sentinel leaves the win-rate NUMERATOR *and DENOMINATOR* and the realized sum, and
+    # is reported as its own `unresolved` count — never folded into losses.
     since = datetime.now(timezone.utc) - timedelta(days=days)
-    # `AND pnl IS NOT NULL` (Phase 18): an unresolved row is not a loss. Without it
-    # `losses = len(closed) - wins` books every NULL-pnl row as a fresh loss and the
-    # headline win rate reads ~12% instead of ~33%.
     closed = conn.execute(
         """
         SELECT pnl FROM alpaca_trades
         WHERE bot_id = %s AND status IN ('closed', 'stopped', 'target_hit')
-          AND pnl IS NOT NULL
+          AND pnl IS NOT NULL AND pnl <> 0
           AND (closed_at IS NULL OR closed_at::timestamptz >= %s)
         """,
         (bot_id, since),
     ).fetchall()
+    # The terminal rows that FAIL the predicate, over the same window. Counted, not hidden.
+    unresolved = conn.execute(
+        """
+        SELECT COUNT(*) AS n FROM alpaca_trades
+        WHERE bot_id = %s AND status IN ('closed', 'stopped', 'target_hit')
+          AND (pnl IS NULL OR pnl = 0)
+          AND (closed_at IS NULL OR closed_at::timestamptz >= %s)
+        """,
+        (bot_id, since),
+    ).fetchone()["n"]
 
-    closed_pnl = sum(r["pnl"] or 0.0 for r in closed)
-    wins = sum(1 for r in closed if (r["pnl"] or 0) > 0)
+    closed_pnl = sum(r["pnl"] for r in closed)
+    wins = sum(1 for r in closed if r["pnl"] > 0)
     losses = len(closed) - wins
     resolved = len(closed)
     win_rate_pct = round(wins / resolved * 100, 1) if resolved > 0 else 0.0
@@ -88,17 +101,21 @@ def _portfolio_for_bot(conn, bot_id: str, days: int = 30) -> PortfolioData:
         (bot_id,),
     ).fetchone()["n"]
 
-    # Daily P&L (closed trades today)
+    # Daily P&L (closed trades today) — THE FIFTH READER (research N7). It had NO pnl
+    # filter at all. Zeros sum to zero so the number does not move, but a fifth reader
+    # with a fifth opinion about what a resolved trade IS is exactly how this class of
+    # bug survives. All five now share one predicate.
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     daily_rows = conn.execute(
         """
         SELECT pnl FROM alpaca_trades
         WHERE bot_id = %s AND status IN ('closed', 'stopped', 'target_hit')
+          AND pnl IS NOT NULL AND pnl <> 0
           AND DATE(closed_at::timestamptz) = %s::date
         """,
         (bot_id, today),
     ).fetchall()
-    daily_pnl = sum(r["pnl"] or 0.0 for r in daily_rows)
+    daily_pnl = sum(r["pnl"] for r in daily_rows)
 
     # Real-time equity from Alpaca account — prefer DB-stored keys (same source
     # the bot threads use); fall back to env vars only if the row has none.
@@ -134,6 +151,7 @@ def _portfolio_for_bot(conn, bot_id: str, days: int = 30) -> PortfolioData:
         total_trades=total_trades,
         wins=wins,
         losses=losses,
+        unresolved=unresolved,
     )
 
 

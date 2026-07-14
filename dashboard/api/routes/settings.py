@@ -16,6 +16,8 @@ from alpaca_health import get_account_health
 router = APIRouter(prefix="/api", tags=["settings"])
 
 _LIVE_THRESHOLD = float(os.environ.get("LIVE_TRADING_THRESHOLD", "100000"))
+# Missing-row fallback ONLY — mirrors src/db.py:322-331. Never a per-bot default.
+_DEFAULT_STARTING_EQUITY = 100_000.0
 
 
 @router.get("/settings", response_model=Envelope[SettingsData])
@@ -34,15 +36,24 @@ def get_settings(
             f"SELECT COUNT(*) AS n FROM alpaca_trades WHERE bot_id IN ({bot_placeholders})",
             tuple(bot_ids),
         ).fetchone()["n"]
-        # `AND pnl IS NOT NULL` (Phase 18): this win_rate IS the paper-gate readout
-        # (win_rate vs win_rate_target=40.0). An unresolved row is not a loss.
+        # RESOLVED := `pnl IS NOT NULL AND pnl <> 0` (Phase 19). THIS win_rate IS THE PAPER
+        # GATE (win_rate vs win_rate_target=40.0) — the gate that guards LIVE TRADING. It
+        # was counting ~395 historical `pnl = 0.0` sentinels as LOSSES. Making it honest
+        # may make it read WORSE; that is the point, and it is NOT to be tuned away.
         closed_rows = conn.execute(
             f"""SELECT pnl FROM alpaca_trades
                WHERE bot_id IN ({bot_placeholders})
                  AND status IN ('closed', 'stopped', 'target_hit')
-                 AND pnl IS NOT NULL""",
+                 AND pnl IS NOT NULL AND pnl <> 0""",
             tuple(bot_ids),
         ).fetchall()
+        unresolved = conn.execute(
+            f"""SELECT COUNT(*) AS n FROM alpaca_trades
+               WHERE bot_id IN ({bot_placeholders})
+                 AND status IN ('closed', 'stopped', 'target_hit')
+                 AND (pnl IS NULL OR pnl = 0)""",
+            tuple(bot_ids),
+        ).fetchone()["n"]
         last_row = conn.execute(
             f"SELECT timestamp FROM alpaca_trades WHERE bot_id IN ({bot_placeholders}) ORDER BY timestamp DESC LIMIT 1",
             tuple(bot_ids),
@@ -59,10 +70,24 @@ def get_settings(
         ).fetchone()["n"] or 0
 
     resolved = len(closed_rows)
-    wins = sum(1 for r in closed_rows if (r["pnl"] or 0) > 0)
-    total_pnl = sum(r["pnl"] or 0.0 for r in closed_rows)
+    wins = sum(1 for r in closed_rows if r["pnl"] > 0)
+    total_pnl = sum(r["pnl"] for r in closed_rows)
     win_rate_pct = round(wins / resolved * 100, 1) if resolved > 0 else 0.0
-    equity = 100_000.0 * len(bot_ids) + total_pnl
+
+    # THE $100k HARDCODE IS DELETED. The old line multiplied a fabricated $100k bankroll by
+    # the bot count and fed it to the readout of the gate that guards LIVE TRADING —
+    # exactly how a gate gets passed by a bug. starting_equity now comes from the bot_rows
+    # already fetched above (a SELECT *); the default below fires ONLY for a bot_id that
+    # has no row at all, mirroring src/db.py:322-331's missing-row-only fallback.
+    equity_by_bot = {
+        r.get("bot_id"): r.get("starting_equity")
+        for r in bot_rows
+        if r.get("starting_equity") is not None
+    }
+    starting_equity_total = sum(
+        equity_by_bot.get(bid, _DEFAULT_STARTING_EQUITY) for bid in bot_ids
+    )
+    equity = starting_equity_total + total_pnl
     last_cycle = last_row["timestamp"] if last_row else None
 
     # Running status from BotManager
@@ -138,6 +163,7 @@ def get_settings(
         win_rate_target=40.0,
         equity=equity,
         equity_target=_LIVE_THRESHOLD,
+        unresolved=unresolved,
         health=health,
         config=config,
     )
