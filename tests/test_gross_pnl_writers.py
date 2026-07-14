@@ -96,7 +96,8 @@ def _run_trend(side):
     from src.bot_config import BotConfig
     from src.trend_strategy import run_trend_cycle
 
-    cfg = BotConfig(bot_id="A", strategy="trend_btc", trend_symbol="BITX",
+    cfg = BotConfig(bot_id="A", label="trend", alpaca_api_key="k",
+                    alpaca_secret_key="s", strategy="trend_btc", trend_symbol="BITX",
                     trend_benchmark="BTC/USD", trend_ma_window=50)
     logger = _RecordingLogger([_row(side=side, symbol="BITX")])
     run_trend_cycle(cfg, _TrendAlpaca(), logger)
@@ -138,7 +139,8 @@ def test_w3_trend_writer_short_sign_is_correct():
         def get_positions(self):
             return [{"symbol": "BITX", "qty": _QTY, "current_price": 80.0}]
 
-    cfg = BotConfig(bot_id="A", strategy="trend_btc", trend_symbol="BITX",
+    cfg = BotConfig(bot_id="A", label="trend", alpaca_api_key="k",
+                    alpaca_secret_key="s", strategy="trend_btc", trend_symbol="BITX",
                     trend_benchmark="BTC/USD", trend_ma_window=50)
     logger = _RecordingLogger([_row(side="sell", entry=_ENTRY, symbol="BITX")])
     run_trend_cycle(cfg, _ShortAlpaca(), logger)

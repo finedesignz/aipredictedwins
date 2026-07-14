@@ -35,6 +35,8 @@ from typing import Optional
 
 from src.alpaca_client import AlpacaClient
 from src.bot_config import BotConfig
+from src.fee_gate import TAKER_FEE
+from src.pnl import realized_pnl
 from src.trade_logger import TradeLogger
 from src.universe import entry_allowed
 from src import db as _db
@@ -392,15 +394,26 @@ def _exit_position(
     )
 
     # Mark matching open rows closed with realised PnL.
+    #
+    # VERIFY-01, "realized-P&L math WITH FEES". This used to record a GROSS,
+    # LONG-ONLY-SIGNED price difference with NO `fees=` argument at all. A NULL `fees` is
+    # the TELL that pnl is gross (src/db.py:331). It now records NET realized P&L via the
+    # SAME helpers src/backfill.py:84-85 uses, with the row's ACTUAL side — the old
+    # formula was sign-WRONG for a short. Recording only: the order above is already
+    # placed and nothing here decides a trade.
     try:
         for row in logger.get_open_alpaca_positions():
             if row.get("symbol") != symbol:
                 continue
+            side = row.get("side") or "buy"
             entry = float(row.get("entry_price") or 0)
             q = float(row.get("qty") or 0)
-            pnl = (current_price - entry) * q if entry > 0 else 0.0
+            fees = (entry * q + current_price * q) * TAKER_FEE
+            pnl = (realized_pnl(side, entry, current_price, q, TAKER_FEE)
+                   if entry > 0 else 0.0)
             logger.update_alpaca_trade(
                 row["id"], status="closed", exit_price=current_price, pnl=pnl,
+                fees=fees,
             )
     except Exception as exc:
         log.warning("[bot:%s][ta] DB close error for %s: %s", bot_id, symbol, exc)
