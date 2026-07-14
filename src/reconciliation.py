@@ -135,9 +135,19 @@ def reconcile(tolerance: float | None = None) -> list[tuple[str, dict]]:
     """Reconcile every enabled bot against its OWN Alpaca account.
 
     Returns a list of (bot_id, result). One client per bot — never shared.
+
+    PER-BOT GUARD (research N1). `_enabled_bot_ids` has NO key predicate and
+    `_client_for_bot` RAISES on a keyless bot (:86-90) — correctly, since that raise is
+    what enforces one-account-per-bot. Without this try, ONE misconfigured bot propagates
+    out and reconciles ZERO bots, including the healthy ones. A bad bot must cost exactly
+    one bot's reconciliation, not all of it. Nothing escapes this function.
     """
     results: list[tuple[str, dict]] = []
     for bot_id in _enabled_bot_ids():
-        client = _client_for_bot(bot_id)
-        results.append((bot_id, reconcile_bot_live(bot_id, client, tolerance)))
+        try:
+            client = _client_for_bot(bot_id)
+            results.append((bot_id, reconcile_bot_live(bot_id, client, tolerance)))
+        except Exception as exc:
+            log.error("Reconciliation failed for bot %s: %s", bot_id, exc)
+            continue
     return results

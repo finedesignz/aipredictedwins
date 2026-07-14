@@ -21,6 +21,7 @@ _SILENCE_CHECK_INTERVAL = 3600   # check for trade silence once per hour
 _BOTS_DOWN_COOLDOWN = 3600       # ALL BOTS DOWN repeats hourly until one bot is alive
 _MISCONFIG_ALERT_COOLDOWN = 3600  # only alert once per hour per misconfigured bot
 _HEARTBEAT_COMPONENT = "bot_manager"
+_RECONCILE_INTERVAL_HOURS = float(os.environ.get("RECONCILE_INTERVAL_HOURS", "1"))
 
 
 class BotManager:
@@ -62,6 +63,8 @@ class BotManager:
         self._last_silence_check: float = 0.0
         # ALL BOTS DOWN: reset ONLY when a bot was alive AT SNAPSHOT TIME (see _tick).
         self._last_bots_down_alert: float = 0.0
+        # Hourly reconciliation, self-throttled on the tick that already exists.
+        self._last_reconcile: float = 0.0
 
         self._watchdog = threading.Thread(
             target=self._watchdog_loop,
@@ -173,6 +176,7 @@ class BotManager:
             self._revive_dead_bots,
             self._check_trade_silence,
             self._heartbeat,
+            self._maybe_reconcile,
         ):
             try:
                 step()
@@ -204,6 +208,22 @@ class BotManager:
         # resets its cooldown every 60s and "repeats until one is alive" is a lie.
         if alive_before > 0:
             self._last_bots_down_alert = 0.0
+
+    def _maybe_reconcile(self) -> None:
+        """Run reconciliation once per RECONCILE_INTERVAL_HOURS, on the tick that already
+        exists. NO second thread, NO scheduler, NO cron, NO new container.
+
+        This is the LAST step of _tick: a slow or raising reconcile can never delay or
+        suppress the ALL BOTS DOWN alert, which runs FIRST. `reconcile()` guards each bot
+        itself (research N1), so one misconfigured bot costs exactly one bot's
+        reconciliation.
+        """
+        now = time.time()
+        if now - self._last_reconcile < _RECONCILE_INTERVAL_HOURS * 3600:
+            return
+        self._last_reconcile = now
+        from src import reconciliation
+        reconciliation.reconcile()
 
     def _heartbeat(self) -> None:
         """UPSERT the outside-the-process liveness signal (migration 019).
