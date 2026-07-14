@@ -305,6 +305,7 @@ class BotManager:
                 f"Open positions may have been unmonitored briefly. The bot will resume scanning "
                 f"within one cycle (~30 minutes).\n\n"
                 f"If this alert repeats frequently, check the container logs for root cause.",
+                category="BOT_DEATH",
             )
         except Exception as exc:
             log.warning("Failed to send death alert for bot %s: %s", bot_id, exc)
@@ -399,6 +400,7 @@ class BotManager:
                 f"  - RSI ceiling filtering all candidates\n"
                 f"  - One or more bot threads are dead (see the ALL BOTS DOWN alert)\n\n"
                 f"Check the dashboard for current signal scores, bot status, and logs.",
+                category="TRADE_SILENCE",
             )
         except Exception as exc:
             log.warning("Failed to send trade silence alert: %s", exc)

@@ -73,8 +73,9 @@ def test_alerts_configured_is_a_bool_and_leaks_nothing(monkeypatch, tmp_path):
     assert isinstance(alerts_configured(), bool)
 
     sent: list[tuple[str, str]] = []
-    monkeypatch.setattr(notifier, "send_alert",
-                        lambda subject, body: sent.append((subject, body)) or True)
+    monkeypatch.setattr(
+        notifier, "send_alert",
+        lambda subject, body, category="GENERAL": sent.append((subject, body)) or True)
 
     alert_bot_misconfigured("X", "Bot X", "missing alpaca keys")
     alert_all_bots_down(2, 30.0)

@@ -42,6 +42,55 @@ def _get_ses_client():
 _last_error: str | None = None
 
 
+# Every category that can be muted. `send_alert`'s default category is GENERAL, so an
+# un-categorised caller is muted only by the global kill switch — never by a per-category
+# one it does not know it has.
+ALERT_CATEGORIES: tuple[str, ...] = (
+    "BOTS_DOWN",
+    "BOT_DEATH",
+    "BOT_MISCONFIGURED",
+    "RECONCILIATION",
+    "TRADE_SILENCE",
+    "MANAGER_NEVER_STARTED",
+    "BOT_CRASH",
+    "DRAWDOWN",
+    "MONITOR_ERROR",
+    "POSITION_CLOSED",
+    "SUMMARY",
+    "GENERAL",
+)
+
+
+def _env_flag(name: str, default: bool = True) -> bool:
+    """An env flag that DEFAULTS TO ON. Absence of config must never mute a safety alert."""
+    raw = os.environ.get(name)
+    if raw is None or raw.strip() == "":
+        return default
+    return raw.strip().lower() not in ("0", "false", "no", "off")
+
+
+def alerts_enabled(category: str = "GENERAL") -> bool:
+    """May this category's alert EMAIL be sent?
+
+    Precedence: ALERTS_ENABLED=0 mutes everything; otherwise ALERT_<CATEGORY>_ENABLED
+    decides. Both default to ON — a missing env var can never silence an alert.
+
+    This gates the SEND, never the DETECT. Callers still run their checks and still log;
+    a suppressed alert is logged at WARNING with its full body (see send_alert).
+    """
+    if not _env_flag("ALERTS_ENABLED"):
+        return False
+    return _env_flag(f"ALERT_{category.upper()}_ENABLED")
+
+
+def alerts_suppressed() -> list[str]:
+    """The categories whose email is currently muted — surfaced on the health payload.
+
+    Muting is a VISIBLE state, not a hidden one. The dashboard shows what is silent.
+    """
+    return [c for c in ALERT_CATEGORIES if not alerts_enabled(c)]
+
+
 def alerts_configured() -> bool:
     """Can this process send an alert AT ALL? Config PRESENCE only — no SES call, no send.
 
@@ -68,13 +117,22 @@ def last_alert_error() -> str | None:
     return _last_error
 
 
-def send_alert(subject: str, body: str) -> bool:
-    """Send an alert email. Returns True on success, False on failure.
+def send_alert(subject: str, body: str, category: str = "GENERAL") -> bool:
+    """Send an alert email. Returns True on success, False on failure or suppression.
 
     Never raises — errors are logged but swallowed so alerts don't crash the bot. The
     swallowed exception is RECORDED in _last_error and surfaced by last_alert_error().
+
+    If `category` is muted (see alerts_enabled), NO EMAIL IS SENT — but the alert is
+    LOGGED AT WARNING WITH ITS FULL BODY, prefixed `[alert suppressed: <category>]`.
+    SUPPRESSION IS NEVER SILENT: an alert that fires, sends nothing, and leaves no trace
+    is the same class of lie this milestone exists to kill. The signal always survives in
+    the container logs even when the email is off.
     """
     global _last_error
+    if not alerts_enabled(category):
+        log.warning("[alert suppressed: %s] %s\n\n%s", category.upper(), subject, body)
+        return False
     try:
         ses = _get_ses_client()
         ses.send_email(
@@ -104,7 +162,7 @@ def alert_bot_crash(error: Exception, context: str = "") -> bool:
         f"Traceback:\n{''.join(tb)}\n\n"
         f"ACTION REQUIRED: Restart the bot. Open positions may be unmonitored."
     )
-    return send_alert("BOT CRASHED", body)
+    return send_alert("BOT CRASHED", body, category="BOT_CRASH")
 
 
 def alert_drawdown_stop(daily_pnl: float, limit: float, bankroll: float) -> bool:
@@ -116,7 +174,7 @@ def alert_drawdown_stop(daily_pnl: float, limit: float, bankroll: float) -> bool
         f"Bankroll: ${bankroll:,.2f}\n\n"
         f"The bot is pausing for 1 hour before resuming."
     )
-    return send_alert("DRAWDOWN STOP", body)
+    return send_alert("DRAWDOWN STOP", body, category="DRAWDOWN")
 
 
 def alert_monitor_error(symbol: str, error: Exception) -> bool:
@@ -126,7 +184,7 @@ def alert_monitor_error(symbol: str, error: Exception) -> bool:
         f"Error: {error}\n\n"
         f"The position may not be monitored correctly."
     )
-    return send_alert(f"Monitor error: {symbol}", body)
+    return send_alert(f"Monitor error: {symbol}", body, category="MONITOR_ERROR")
 
 
 def alert_position_closed(symbol: str, side: str, entry: float, exit_price: float,
@@ -142,7 +200,8 @@ def alert_position_closed(symbol: str, side: str, entry: float, exit_price: floa
         f"P&L: ${pnl:+,.2f} ({pnl_pct:+.1f}%)\n"
         f"Reason: {reason}"
     )
-    return send_alert(f"Position closed: {symbol} ${pnl:+,.2f}", body)
+    return send_alert(f"Position closed: {symbol} ${pnl:+,.2f}", body,
+                      category="POSITION_CLOSED")
 
 
 def alert_reconciliation_breach(bot_id: str, delta: float, tolerance: float,
@@ -157,7 +216,8 @@ def alert_reconciliation_breach(bot_id: str, delta: float, tolerance: float,
         f"The summed trade-log P&L diverges from Alpaca's booked realized P&L "
         f"beyond tolerance. Investigate trade-log accuracy for this bot."
     )
-    return send_alert(f"Reconciliation breach: Bot {bot_id}", body)
+    return send_alert(f"Reconciliation breach: Bot {bot_id}", body,
+                      category="RECONCILIATION")
 
 
 def alert_all_bots_down(bots_enabled: int, hours_since_trade: float | None) -> bool:
@@ -178,7 +238,8 @@ def alert_all_bots_down(bots_enabled: int, hours_since_trade: float | None) -> b
         f"container logs and the bots' status/status_detail on the dashboard.\n\n"
         f"This alert repeats hourly until at least one bot is alive."
     )
-    return send_alert("ALL BOTS DOWN — no bot threads alive", body)
+    return send_alert("ALL BOTS DOWN — no bot threads alive", body,
+                      category="BOTS_DOWN")
 
 
 def alert_bot_misconfigured(bot_id: str, label: str, reason: str) -> bool:
@@ -194,7 +255,8 @@ def alert_bot_misconfigured(bot_id: str, label: str, reason: str) -> bool:
         f"always be either RUNNING or LOUDLY BROKEN — 'invisible' is not a state we ship.\n\n"
         f"Fix the bot's configuration on the dashboard, then re-enable it."
     )
-    return send_alert(f"Bot {bot_id} misconfigured — not trading", body)
+    return send_alert(f"Bot {bot_id} misconfigured — not trading", body,
+                      category="BOT_MISCONFIGURED")
 
 
 def alert_manager_never_started(error: str) -> bool:
@@ -209,7 +271,8 @@ def alert_manager_never_started(error: str) -> bool:
         f"The dashboard is still serving in read-only mode, so the container looks healthy "
         f"and no restart policy will fix this. Check DATABASE_URL and the container logs."
     )
-    return send_alert("BotManager NEVER STARTED — no bots are running", body)
+    return send_alert("BotManager NEVER STARTED — no bots are running", body,
+                      category="MANAGER_NEVER_STARTED")
 
 
 def alert_cycle_summary(cycle: int, trades_placed: int, positions_closed: int,
@@ -225,4 +288,4 @@ def alert_cycle_summary(cycle: int, trades_placed: int, positions_closed: int,
         f"Bankroll: ${bankroll:,.2f}\n"
         f"Open positions: {open_positions}"
     )
-    return send_alert("Daily Summary", body)
+    return send_alert("Daily Summary", body, category="SUMMARY")

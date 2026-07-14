@@ -140,6 +140,9 @@ export interface BotSettings {
     manager_alive: boolean;
     alerts_configured: boolean;
     alerts_last_error: string | null;
+    // Categories whose alert EMAIL is muted by env. They still fire and still log at
+    // WARNING — muting is shown, never hidden. [] = nothing muted.
+    alerts_suppressed?: string[];
     bots_alive: number;
     bots_enabled: number;
     last_heartbeat: string | null;

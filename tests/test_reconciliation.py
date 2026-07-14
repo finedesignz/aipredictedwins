@@ -249,7 +249,7 @@ def driver_env(monkeypatch):
     monkeypatch.setattr(db, "get_reconciliation_anchor", lambda bot_id: anchors.get(bot_id))
     monkeypatch.setattr(
         notifier, "send_alert",
-        lambda subject, body: alerts.append((subject, body)) or True,
+        lambda subject, body, category="GENERAL": alerts.append((subject, body)) or True,
     )
     monkeypatch.setenv("RECONCILIATION_TOLERANCE_USD", "25.0")
 

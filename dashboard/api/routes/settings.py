@@ -189,10 +189,19 @@ def get_settings(
     # failed would take the whole route module down at startup. (This is not the 19-04
     # fence, which is specifically NO `src.db` import — i.e. no second connection pool.)
     try:
-        from src.notifier import alerts_configured as _ac, last_alert_error as _lae
+        from src.notifier import (
+            alerts_configured as _ac,
+            alerts_suppressed as _as,
+            last_alert_error as _lae,
+        )
         alerts_ok, alerts_err = bool(_ac()), _lae()
+        alerts_muted = list(_as())
     except Exception:
-        alerts_ok, alerts_err = False, None       # PESSIMISTIC, never a cheerful default
+        # PESSIMISTIC, never a cheerful default. alerts_muted stays [] because an unknown
+        # mute-state must not be RENDERED as "these are muted" — the notifier is the only
+        # authority on that, and if it cannot be imported, alerts_configured=False is
+        # already the louder signal.
+        alerts_ok, alerts_err, alerts_muted = False, None, []
 
     health = HealthStatus(
         claude_cli=True,
@@ -202,6 +211,7 @@ def get_settings(
         manager_alive=manager_alive,
         alerts_configured=alerts_ok,
         alerts_last_error=alerts_err,
+        alerts_suppressed=alerts_muted,
         bots_alive=bots_alive,
         bots_enabled=bots_enabled,
         last_heartbeat=last_heartbeat,

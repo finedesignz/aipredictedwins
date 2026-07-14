@@ -6,7 +6,7 @@ All endpoints return a standard envelope:
 """
 
 from datetime import datetime, timezone
-from typing import Any, Generic, Optional, TypeVar
+from typing import Any, Generic, List, Optional, TypeVar
 
 from pydantic import BaseModel, Field
 
@@ -168,6 +168,10 @@ class HealthStatus(BaseModel):
     manager_alive: bool = False
     alerts_configured: bool = False
     alerts_last_error: Optional[str] = None
+    # Muting is a VISIBLE state. Categories whose EMAIL is off (they still fire and still
+    # log at WARNING). Default [] = nothing muted, matching the notifier's fail-safe
+    # default-on. Category NAMES only — never an env value.
+    alerts_suppressed: List[str] = Field(default_factory=list)
     bots_alive: int = 0
     bots_enabled: int = 0
     last_heartbeat: Optional[str] = None

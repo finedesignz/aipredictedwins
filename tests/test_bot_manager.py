@@ -157,7 +157,7 @@ def capture_alerts(monkeypatch):
     """Record every alert as (subject, body). boto3 is NEVER imported."""
     sent: list[tuple[str, str]] = []
 
-    def _send(subject, body):
+    def _send(subject, body, category="GENERAL"):
         sent.append((subject, body))
         return True
 
