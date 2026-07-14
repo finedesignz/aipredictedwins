@@ -86,15 +86,14 @@ class BotManager:
 
     @staticmethod
     def _has_keys(row: dict) -> bool:
-        """BOTH keys. An api-key-only check is NOT sufficient.
-
-        bot_config.py:46-47 coerces a missing secret to `or ""` (EMPTY IS LEGAL);
-        bot_thread.py:118-126 passes it straight into Config with no env reads; and
-        config.py:74-76's frozen dataclass defaults its keys to "" and **DOES NOT RAISE**.
-        So a row with an api_key and an EMPTY secret would spawn, 401 on its first Alpaca
-        call, exit, and be revived every 60 seconds FOREVER — the 1h cooldown throttles the
-        EMAIL, not the SPAWN. (CLAUDE.md's "empty bare keys fail-clear (raise)" is the
-        ORCHESTRATOR SERVICE's config path; it does NOT hold for BotConfig/BotThread.)
+        """BOTH keys. An api-key-only check is NOT sufficient: bot_config.py:46-47 coerces
+        a missing secret to `or ""` (EMPTY IS LEGAL); bot_thread.py:118-126 passes it
+        straight into Config with no env reads; and config.py:74-76's frozen dataclass
+        defaults its keys to "" and **DOES NOT RAISE**. So a row with an api_key and an
+        EMPTY secret would spawn, 401 on its first Alpaca call, exit, and be revived every
+        60 seconds FOREVER — the 1h cooldown throttles the EMAIL, not the SPAWN.
+        (CLAUDE.md's "empty bare keys fail-clear (raise)" is the ORCHESTRATOR SERVICE's
+        config path; it does NOT hold for BotConfig/BotThread.)
         """
         return bool(row.get("alpaca_api_key") and row.get("alpaca_secret_key"))
 
@@ -188,7 +187,8 @@ class BotManager:
         """ALL BOTS DOWN — the loudest alert in the system.
 
         `alive_before` is a PARAMETER, snapshotted at tick start. This method must NEVER
-        call is_alive() — see _tick's docstring for why that would silently disable it.
+        re-read thread liveness itself — see _tick's docstring for why doing so would
+        silently disable the alert in the dominant failure mode.
         """
         if enabled > 0 and alive_before == 0:
             now = time.time()
@@ -350,17 +350,12 @@ class BotManager:
     def _check_trade_silence(self) -> None:
         """Alert if no trades have been placed in TRADE_SILENCE_ALERT_HOURS.
 
-        PHASE 19 DELETED THE KILLER. This method used to end with:
-
-            with self._lock:
-                any_alive = any(t.is_alive() for t in self._threads.values())
-            if not any_alive:
-                return  # bots are down; death alert handles that separately
-
-        The ONLY alert that fires on "nothing is happening" disabled itself precisely when
-        nothing was happening for the worst possible reason — deferring to a death alert
-        that COULD NOT FIRE, because that loop only iterated rows the key filter had
-        already removed. Trade silence is now evaluated on its OWN merits, and
+        PHASE 19 DELETED THE KILLER (the old :186-190). This method used to end by counting
+        live threads and RETURNING WITHOUT ALERTING when the count was zero, deferring to a
+        death alert that COULD NOT FIRE — that loop only iterated rows the key filter at
+        :104-107 had already removed. So the ONLY alert that fires on "nothing is
+        happening" disabled itself precisely when nothing was happening for the worst
+        possible reason. Trade silence is now evaluated on its OWN merits, and
         all-bots-down is its own, louder, independent alert (_check_bots_down).
         """
         now = time.time()

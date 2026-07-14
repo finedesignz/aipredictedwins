@@ -87,6 +87,7 @@ function ProgressBar({
 }
 
 export default function BotStatus({ settings }: BotStatusProps) {
+  const h = settings.health;
   return (
     <div className="space-y-6">
       {/* Status card */}
@@ -146,6 +147,18 @@ export default function BotStatus({ settings }: BotStatusProps) {
             icon={Database}
             detail={`${settings.health.db_size_mb.toFixed(1)} MB`}
           />
+          <HealthIndicator
+            label="BotManager"
+            healthy={h.manager_alive}
+            icon={Activity}
+            detail={`${h.bots_alive}/${h.bots_enabled} bots alive`}
+          />
+          <HealthIndicator
+            label="Alerts"
+            healthy={h.alerts_configured && !h.alerts_last_error}
+            icon={Clock}
+            detail={h.alerts_configured ? "configured" : "NOT configured"}
+          />
         </div>
       </div>
 
@@ -172,6 +185,12 @@ export default function BotStatus({ settings }: BotStatusProps) {
             target={settings.equity_target}
             format={(n) => `$${n.toLocaleString()}`}
           />
+          {settings.unresolved > 0 && (
+            <p className="text-xs text-text-muted">
+              {settings.unresolved} closed trades could not be resolved (no P&amp;L
+              recorded). They are excluded from the win rate — they are NOT losses.
+            </p>
+          )}
         </div>
       </div>
 

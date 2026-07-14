@@ -23,6 +23,20 @@ router = APIRouter(prefix="/api", tags=["portfolio"])
 
 _ALPACA_BASE = "https://paper-api.alpaca.markets"
 _DEFAULT_STARTING_EQUITY = 100_000.0
+# Same env var the watchdog's _maybe_reconcile uses (bot_manager._RECONCILE_INTERVAL_HOURS).
+_RECONCILE_INTERVAL_HOURS = float(os.environ.get("RECONCILE_INTERVAL_HOURS", "1"))
+
+
+def _reconciliation_for_bot(conn, bot_id: str) -> dict | None:
+    """The bot's latest reconciliation row, or None (incl. on a pre-migration DB)."""
+    try:
+        return conn.execute(
+            "SELECT checked_at, trade_log_pnl, alpaca_realized_pnl, delta, within_tolerance "
+            "FROM reconciliation WHERE bot_id = %s",
+            (bot_id,),
+        ).fetchone()
+    except Exception:
+        return None
 
 
 def _fetch_alpaca_account(api_key: str, secret_key: str) -> dict:
@@ -124,19 +138,48 @@ def _portfolio_for_bot(conn, bot_id: str, days: int = 30) -> PortfolioData:
     sec = (bot_row.get("alpaca_secret_key") if bot_row else None) \
         or os.environ.get(f"ALPACA_SECRET_KEY_{bot_id}", "")
     acct = _fetch_alpaca_account(key, sec)
+    unrealized_today = float(acct.get("unrealized_intraday_pl") or 0.0) if acct else 0.0
+    daily_pnl_total = daily_pnl + unrealized_today
 
-    if acct:
+    # THE HEADLINE (RUN-02). 017_reconciliation.sql's own header says "Consumed by the
+    # dashboard headline in Phase 19" — and nothing consumed it. Worse, the Alpaca ->
+    # trade-log fallback below was SILENT: no flag on the response, so nobody could tell
+    # WHICH number they were looking at. `pnl_source` is now set on EVERY branch.
+    rec = _reconciliation_for_bot(conn, bot_id)
+    checked_at = rec.get("checked_at") if rec else None
+    stale = True
+    if checked_at is not None:
+        if checked_at.tzinfo is None:
+            checked_at = checked_at.replace(tzinfo=timezone.utc)
+        age = (datetime.now(timezone.utc) - checked_at).total_seconds()
+        stale = age > 2 * _RECONCILE_INTERVAL_HOURS * 3600
+
+    if rec is not None:
+        # The reconciler's own identity (src/reconciliation.py:33):
+        #   starting + alpaca_realized + unrealized = equity
+        pnl_source = "reconciled"
+        unrealized = float(acct.get("unrealized_pl") or 0.0) if acct else 0.0
+        total_pnl = float(rec["alpaca_realized_pnl"]) + unrealized
+        equity = float(acct.get("equity")) if acct and acct.get("equity") \
+            else starting_equity + total_pnl
+    elif acct:
+        pnl_source = "alpaca_live"
         equity = float(acct.get("equity") or starting_equity)
         total_pnl = equity - starting_equity
-        # Unrealized component already in equity; daily unrealized from Alpaca if available
-        unrealized = float(acct.get("unrealized_pl") or 0.0)
-        # Add today's unrealized change as part of daily P&L
-        unrealized_today = float(acct.get("unrealized_intraday_pl") or 0.0)
-        daily_pnl_total = daily_pnl + unrealized_today
     else:
+        pnl_source = "trade_log"
         equity = starting_equity + closed_pnl
         total_pnl = closed_pnl
-        daily_pnl_total = daily_pnl
+
+    reconciled = None
+    if rec is not None:
+        reconciled = {
+            "alpaca_realized_pnl": float(rec["alpaca_realized_pnl"]),
+            "trade_log_pnl": float(rec["trade_log_pnl"]),
+            "delta": float(rec["delta"]),
+            "within_tolerance": bool(rec["within_tolerance"]),
+            "checked_at": checked_at.isoformat() if checked_at else None,
+        }
 
     return PortfolioData(
         equity=round(equity, 2),
@@ -152,6 +195,9 @@ def _portfolio_for_bot(conn, bot_id: str, days: int = 30) -> PortfolioData:
         wins=wins,
         losses=losses,
         unresolved=unresolved,
+        pnl_source=pnl_source,
+        stale=stale,
+        reconciled=reconciled,
     )
 
 

@@ -1,3 +1,11 @@
+export interface Reconciliation {
+  alpaca_realized_pnl: number;
+  trade_log_pnl: number;
+  delta: number;
+  within_tolerance: boolean;
+  checked_at: string | null;
+}
+
 export interface Portfolio {
   equity: number;
   total_pnl: number;
@@ -11,6 +19,12 @@ export interface Portfolio {
   losses: number;
   open_positions: number;
   mode: string;
+  // Phase 19 (RUN-02). TS silently DROPS unknown JSON keys, so these fields were
+  // invisible until they were declared here — a field nobody renders is the bug.
+  unresolved: number;
+  pnl_source: "reconciled" | "alpaca_live" | "trade_log";
+  stale: boolean;
+  reconciled?: Reconciliation | null;
 }
 
 export interface Position {
@@ -115,12 +129,20 @@ export interface BotSettings {
   win_rate_target: number;     // 0-100 percentage
   equity: number;
   equity_target: number;
+  unresolved: number;
   config: Record<string, string | number | boolean>;
   health: {
     claude_cli: boolean;
     alpaca_api: boolean;
     database: boolean;
     db_size_mb: number;
+    // Phase 19 (RUN-01) — absence and staleness both mean DEAD; never default healthy.
+    manager_alive: boolean;
+    alerts_configured: boolean;
+    alerts_last_error: string | null;
+    bots_alive: number;
+    bots_enabled: number;
+    last_heartbeat: string | null;
   };
 }
 

@@ -45,6 +45,13 @@ class PortfolioData(BaseModel):
     # Phase 19 (RUN-02): terminal rows whose P&L could not be resolved
     # (`pnl IS NULL OR pnl = 0`). Reported BESIDE wins/losses, never folded into losses.
     unresolved: int = 0
+    # EVERY DEFAULT BELOW IS PESSIMISTIC. A missing signal must NEVER read as
+    # "reconciled and fresh" — portfolio.py:111-122 used to fall back from Alpaca to the
+    # raw trade-log sum SILENTLY, with no flag on the response at all.
+    pnl_source: str = "trade_log"      # {"reconciled", "alpaca_live", "trade_log"}
+    stale: bool = True
+    reconciled: Optional[dict] = None  # alpaca_realized_pnl, trade_log_pnl, delta,
+                                       # within_tolerance, checked_at
 
 
 # -- Positions ----------------------------------------------------------------
@@ -154,6 +161,16 @@ class HealthStatus(BaseModel):
     alpaca_api: bool = True
     database: bool = True
     db_size_mb: float = 0.0
+    # Phase 19 (RUN-01). PESSIMISTIC DEFAULTS — ABSENCE IS THE SIGNAL (research N10).
+    # A reader that default-trusts a missing heartbeat row reintroduces the exact silent
+    # failure this phase exists to kill. BOOLS, INTS AND AN ERROR STRING ONLY — never a
+    # key, a key prefix, a region, or any env value.
+    manager_alive: bool = False
+    alerts_configured: bool = False
+    alerts_last_error: Optional[str] = None
+    bots_alive: int = 0
+    bots_enabled: int = 0
+    last_heartbeat: Optional[str] = None
 
 
 class SettingsData(BaseModel):

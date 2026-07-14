@@ -9,7 +9,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Query, Request
 
-from db import KNOWN_BOTS, get_db
+from db import KNOWN_BOTS, get_db, get_heartbeat, heartbeat_is_fresh
 from models import Envelope, HealthStatus, Meta, SettingsData
 from alpaca_health import get_account_health
 
@@ -137,18 +137,50 @@ def get_settings(
 
     # Health checks
     alpaca_status = get_account_health()
+    hb = None
     try:
         with get_db() as conn:
             conn.execute("SELECT 1")
+            hb = get_heartbeat(conn)
         db_ok = True
     except Exception:
         db_ok = False
+
+    # ABSENCE IS THE SIGNAL (research N10). `if hb else False` is LOAD-BEARING: the
+    # watchdog (bot_manager.py:79) starts AFTER the start_all query that can throw at
+    # :67-70, so it cannot report its own non-existence. A missing row means DEAD.
+    # (`running` above answers a DIFFERENT question — "does the manager think a thread is
+    # alive". `manager_alive` answers "is the manager itself alive AT ALL".)
+    manager_alive = heartbeat_is_fresh(hb["beat_at"]) if hb else False
+    bots_alive = hb["bots_alive"] if hb else 0
+    bots_enabled = hb["bots_enabled"] if hb else 0
+    last_heartbeat = (
+        hb["beat_at"].isoformat() if hb and hb.get("beat_at") is not None else None
+    )
+
+    # CONFIG PRESENCE != DELIVERY. send_alert swallows every failure (notifier.py:59-61),
+    # so a valid-LOOKING config can still be dropping every alert on an unverified SES
+    # identity — alerts_last_error is what makes that visible. The import is FUNCTION-LOCAL
+    # and guarded: no dashboard route imports `src.*` today, so a module-level import that
+    # failed would take the whole route module down at startup. (This is not the 19-04
+    # fence, which is specifically NO `src.db` import — i.e. no second connection pool.)
+    try:
+        from src.notifier import alerts_configured as _ac, last_alert_error as _lae
+        alerts_ok, alerts_err = bool(_ac()), _lae()
+    except Exception:
+        alerts_ok, alerts_err = False, None       # PESSIMISTIC, never a cheerful default
 
     health = HealthStatus(
         claude_cli=True,
         alpaca_api=(alpaca_status in ("ok", "unknown")),
         database=db_ok,
         db_size_mb=0.0,
+        manager_alive=manager_alive,
+        alerts_configured=alerts_ok,
+        alerts_last_error=alerts_err,
+        bots_alive=bots_alive,
+        bots_enabled=bots_enabled,
+        last_heartbeat=last_heartbeat,
     )
 
     data = SettingsData(

@@ -18,6 +18,53 @@ import {
 } from "@/lib/format";
 import ErrorBanner from "@/components/shared/ErrorBanner";
 
+// Phase 19 (RUN-02): the headline P&L must SAY WHICH NUMBER IT IS. portfolio.py used to
+// fall back from the reconciled/live Alpaca figure to the raw trade-log sum SILENTLY —
+// nobody could tell which one they were looking at. An unreconciled number is never
+// presented as reconciled.
+const PNL_SOURCE_LABEL: Record<Portfolio["pnl_source"], string> = {
+  reconciled: "Reconciled",
+  alpaca_live: "Alpaca live",
+  trade_log: "Trade log",
+};
+
+function PnlSourceBadge({ port }: { port: Portfolio }) {
+  const label = PNL_SOURCE_LABEL[port.pnl_source] ?? "Trade log";
+  const reconciled = port.pnl_source === "reconciled" && !port.stale;
+  const breach = port.reconciled?.within_tolerance === false;
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span
+        className={`rounded px-1.5 py-0.5 text-xs font-medium ${
+          reconciled
+            ? "bg-profit-green/10 text-profit-green"
+            : "bg-bg-secondary text-text-muted"
+        }`}
+        title="Where the headline P&L number comes from"
+      >
+        {label}
+      </span>
+      {port.stale && (
+        <span
+          className="rounded px-1.5 py-0.5 text-xs font-medium bg-loss-red/10 text-loss-red"
+          title="No fresh reconciliation — this number has not been checked against Alpaca recently"
+        >
+          STALE
+        </span>
+      )}
+      {breach && (
+        <span
+          className="rounded px-1.5 py-0.5 text-xs font-medium bg-loss-red/10 text-loss-red"
+          title="The trade log and Alpaca disagree beyond tolerance"
+        >
+          RECONCILIATION BREACH
+        </span>
+      )}
+    </div>
+  );
+}
+
 export default function OverviewPage() {
   const { botParam, bots, activeBotIds } = useBotFilter();
   const [weeks, setWeeks] = useState<number>(4);
@@ -67,10 +114,16 @@ export default function OverviewPage() {
       color: x.port.total_pnl >= 0 ? "green" : "red",
     }));
   }
+  // `unresolved` is shown BESIDE wins/losses and is NEVER labelled a loss — that
+  // conflation is the bug Phase 19 removed from every reader.
+  function winRateDelta(port: Portfolio): string {
+    const base = `${port.wins}W / ${port.losses}L`;
+    return port.unresolved > 0 ? `${base} / ${port.unresolved} unresolved` : base;
+  }
   function winRateEntries(): MetricCardEntry[] {
     return activePortfolios.map((x) => ({
       value: formatPercentUnsigned(x.port.win_rate),
-      delta: `${x.port.wins}W / ${x.port.losses}L`,
+      delta: winRateDelta(x.port),
       color: x.port.win_rate >= 50 ? "green" : "red",
     }));
   }
@@ -123,6 +176,18 @@ export default function OverviewPage() {
         </div>
       )}
 
+      {/* P&L provenance — what IS this number, and is it stale? */}
+      <div className="flex flex-wrap items-center gap-4">
+        {isMulti
+          ? activePortfolios.map((x) => (
+              <div key={x.id} className="flex items-center gap-2">
+                <span className="text-xs text-text-muted">{x.label}</span>
+                <PnlSourceBadge port={x.port} />
+              </div>
+            ))
+          : portfolio && <PnlSourceBadge port={portfolio} />}
+      </div>
+
       {/* Metric cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {isMulti ? (
@@ -143,7 +208,7 @@ export default function OverviewPage() {
             <MetricCard
               label="Win Rate"
               value={portfolio ? formatPercentUnsigned(portfolio.win_rate) : "--"}
-              delta={portfolio ? `${portfolio.wins}W / ${portfolio.losses}L` : undefined}
+              delta={portfolio ? winRateDelta(portfolio) : undefined}
               color={portfolio ? (portfolio.win_rate >= 50 ? "green" : "red") : "default"}
             />
             <MetricCard
