@@ -37,11 +37,24 @@ Derived from the 2026-07-06 live audit (see `.planning/PROJECT.md` → Current M
 - [x] **UNIV-03**: The dashboard exposes the effective live universe per bot so a leak is visible.
 
 ### Profitable Retune (TUNE)
-- [ ] **TUNE-01**: Confluence entry threshold and quarter-Kelly sizing are retuned using the real
-      resolved-trade dataset + backtest harness, targeting win rate ≥40% and halted drawdown.
+- [~] **TUNE-01** (PARTIAL — do not tick without reading this): Confluence entry threshold and
+      quarter-Kelly sizing are retuned using the real resolved-trade dataset + backtest harness,
+      targeting win rate ≥40% and halted drawdown.
+      **What shipped:** the per-symbol quarantine (BTC/ETH/TRUMP/FIL/ARB), justified independently by
+      Phase-17 real-trade evidence (BTC 2-for-23, −$1,207), plus Bot B's Kelly 0.50→0.25 and
+      max_position 0.10→0.05 (both were hardcoded-risk-rule breaches, not tuning results).
+      **What did NOT ship, and why:** no `min_confluence` / `kelly_fraction` change. The 12-cell sweep
+      returned a NEGATIVE result that the harness could not have falsified — the backtest engine models
+      exits as a flat −15%/+30% barrier while the live bot runs −8% plus an ATR trailing stop and an ATR
+      fixed stop. Kelly cannot move win rate, so criterion 2 (win_rate ≥40%) produced exactly two
+      distinct values across all 12 live cells (3.23%, 0.00%) — unreachable by construction, 12 FAILs
+      and zero information. Phase 17 located the actual losses on the EXIT side, precisely the dimension
+      the harness does not model. Tuning entry knobs was aiming at the wrong half of the system.
+      **To close this properly:** a new phase that models the live exit stack in the backtester, then
+      re-runs the sweep. Tracked in ROADMAP. See `.planning/phases/18-profitable-retune/18-BACKTEST.md`.
 - [x] **TUNE-02**: Per-symbol / per-bot performance analysis drives the retune (winners: UNI, ADA,
       SOL, XRP, CRV; losers: BTC, AVAX, TRUMP, FIL) rather than uniform thresholds.
-- [ ] **TUNE-03**: Retuned parameters are validated against the existing backtest before going live
+- [x] **TUNE-03**: Retuned parameters are validated against the existing backtest before going live
       on paper; the change is reversible via config/env.
 
 ### Reliable Runtime & Honest Monitoring (RUN)
@@ -75,8 +88,8 @@ Derived from the 2026-07-06 live audit (see `.planning/PROJECT.md` → Current M
 | UNIV-02 | Phase 15 — Universe Hard-Gate Enforcement | Validated |
 | UNIV-03 | Phase 16 — Effective-Universe Dashboard Visibility | Validated |
 | TUNE-02 | Phase 17 — Per-Symbol Performance Analysis | Validated |
-| TUNE-01 | Phase 18 — Profitable Retune (Confluence + Kelly) | Pending |
-| TUNE-03 | Phase 18 — Profitable Retune (Confluence + Kelly) | Pending |
+| TUNE-01 | Phase 18 — Profitable Retune (Confluence + Kelly) | **PARTIAL** — quarantine + risk-rule fixes shipped; entry-knob retune blocked by backtest exit-model fidelity gap (see requirement text) |
+| TUNE-03 | Phase 18 — Profitable Retune (Confluence + Kelly) | Validated |
 | RUN-01 | Phase 19 — Reliable Runtime & Honest Monitoring | Pending |
 | RUN-02 | Phase 19 — Reliable Runtime & Honest Monitoring | Pending |
 | VERIFY-01 | Phase 20 — Verification & E2E Reconciliation | Pending |

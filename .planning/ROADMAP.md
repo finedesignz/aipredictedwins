@@ -45,7 +45,7 @@ is Postgres via `src/db.py`. One Alpaca account per bot — never share.
 - [ ] **Phase 15: Universe Hard-Gate Enforcement** - Off-universe symbols are rejected before submission; chronic losers are quarantinable via config.
 - [x] **Phase 16: Effective-Universe Dashboard Visibility** - The dashboard shows each bot's effective live universe so a leak is visible.
 - [x] **Phase 17: Per-Symbol Performance Analysis** - Resolved-trade dataset yields per-symbol/per-bot win-rate & P&L to drive the retune.
-- [ ] **Phase 18: Profitable Retune (Confluence + Kelly)** - Entry threshold and quarter-Kelly sizing retuned on real data, backtest-validated, reversible via config.
+- [x] **Phase 18: Profitable Retune (Confluence + Kelly)** - Entry threshold and quarter-Kelly sizing retuned on real data, backtest-validated, reversible via config.
 - [ ] **Phase 19: Reliable Runtime & Honest Monitoring** - Thread-death detection alerts; dashboard headline reflects reconciled numbers.
 - [ ] **Phase 20: Verification & E2E Reconciliation** - Test suite covers resolution/P&L/universe/reconciliation; live-data check confirms resolution rate + reconciliation within tolerance.
 
@@ -218,3 +218,19 @@ is Postgres via `src/db.py`. One Alpaca account per bot — never share.
 | VERIFY-02 | Phase 20 | Pending |
 
 **Coverage:** 15/15 v1.1 requirements mapped ✓ — no orphans, no duplicates.
+
+### Phase 21: Exit-Stack Backtest Fidelity + Real Retune (NEW — opened by Phase 18)
+
+**Why:** Phase 18's entry-knob sweep returned a negative result its own harness could not have
+falsified. The backtest engine models exits as a flat −15%/+30% barrier; the live bot runs −8% plus
+an ATR trailing stop and an ATR fixed stop. Kelly cannot move win rate, so the ≥40% criterion had
+exactly two possible values across all 12 live cells and was unreachable by construction. Phase 17
+located the actual losses on the EXIT side — the one dimension the harness does not model. Tuning
+entry thresholds was aiming at the wrong half of the system.
+
+**Goal:** Model the live exit stack (soft/hard stops, ATR trailing, ATR fixed, max-hold, exit
+advisor) in `src/backtester/engine.py` so the harness measures the strategy the bot actually runs,
+then re-run the sweep over BOTH entry and exit knobs. Only then can TUNE-01 be honestly closed.
+
+**Depends on**: Phase 18, Phase 20
+**Closes**: TUNE-01 (currently PARTIAL)
