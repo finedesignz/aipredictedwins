@@ -5,6 +5,7 @@ All routes use get_db() as a context manager to get a connection.
 query_filtered() handles the bot=A|B|both parameter pattern used across routes.
 """
 
+import datetime as dt
 import os
 from contextlib import contextmanager
 from typing import Generator
@@ -16,6 +17,10 @@ from psycopg_pool import ConnectionPool
 _pool: ConnectionPool | None = None
 
 KNOWN_BOTS: tuple[str, ...] = ("A", "B", "C", "D")
+
+# A heartbeat older than this means the BotManager is DEAD. The watchdog ticks every 60s
+# (bot_manager._WATCHDOG_INTERVAL), so 180s is three missed beats.
+HEARTBEAT_STALE_SECONDS: int = int(os.environ.get("HEARTBEAT_STALE_SECONDS", "180"))
 
 
 def is_specific_bot(bot: str) -> bool:
@@ -62,6 +67,45 @@ def query_filtered(sql: str, params: tuple, bot: str) -> list[dict]:
 def rows_to_list(rows) -> list[dict]:
     """Compatibility shim — psycopg3 dict_row already returns dicts."""
     return list(rows)
+
+
+# ── runtime_heartbeat (RUN-01) ───────────────────────────────────────────────
+#
+# ABSENCE IS THE SIGNAL (research N10). BotManager cannot report its own non-existence:
+# `self._watchdog.start()` (bot_manager.py:79) sits AFTER the start_all query that can
+# throw (:67-70), and main.py:65-66 swallows that failure into a _log.warning. A reader
+# that defaults healthy on a missing row reintroduces the exact silent failure Phase 19
+# exists to kill. NEVER default healthy.
+
+def get_heartbeat(conn, component: str = "bot_manager") -> dict | None:
+    """The heartbeat row for a component, or **None** when there is NO ROW.
+
+    Returns None (never a default-healthy dict) and never 500s on a pre-migration DB.
+    """
+    try:
+        return conn.execute(
+            "SELECT component, beat_at, bots_alive, bots_enabled "
+            "FROM runtime_heartbeat WHERE component = %s",
+            (component,),
+        ).fetchone()
+    except Exception:
+        return None
+
+
+def heartbeat_is_fresh(beat_at, now=None, stale_seconds=None) -> bool:
+    """Is the manager alive? `beat_at is None` -> **False**. Absence and staleness both
+    mean DEAD."""
+    if beat_at is None:
+        return False
+    if stale_seconds is None:
+        stale_seconds = HEARTBEAT_STALE_SECONDS
+    if now is None:
+        now = dt.datetime.now(dt.timezone.utc)
+    if beat_at.tzinfo is None:
+        beat_at = beat_at.replace(tzinfo=dt.timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=dt.timezone.utc)
+    return (now - beat_at).total_seconds() < stale_seconds
 
 
 # ---------------------------------------------------------------------------

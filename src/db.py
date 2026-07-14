@@ -73,6 +73,28 @@ def connection() -> Generator[psycopg.Connection, None, None]:
         yield conn
 
 
+# ── The RESOLVED predicate (Phase 19, RUN-02) ─────────────────────────────────
+
+def is_resolved(pnl) -> bool:
+    """THE canonical predicate: a trade is RESOLVED iff `pnl IS NOT NULL AND pnl <> 0`.
+
+    0.0 is NOT NULL, so Phase 18's `AND pnl IS NOT NULL` filter passes the 395 historical
+    `pnl = 0.0` external-exit sentinel rows straight through, and every reader then scores
+    `(pnl or 0) > 0 -> False` and books them as LOSSES — roughly 60% of the closed-row
+    population is a fabricated loss.
+
+    src/symbol_stats.py's `zero_pnl` bucket is the REFERENCE IMPLEMENTATION; the dashboard
+    is being brought into line with it, not the reverse.
+
+    COST, stated plainly: a genuinely exactly-break-even trade is dropped from the win
+    rate. With crypto fills and fees that is a measure-zero event, and the alternative is
+    booking 395 fabricated zeros as real losses in the gate that guards live trading.
+    Post-Phase-18 the WRITER emits NULL, never 0.0, so the `<> 0` arm is a HISTORICAL-ROW
+    filter with a shrinking blast radius.
+    """
+    return pnl is not None and pnl != 0
+
+
 # ── Alpaca trades ─────────────────────────────────────────────────────────────
 
 def log_alpaca_trade(bot_id: str, trade_data: dict) -> int:

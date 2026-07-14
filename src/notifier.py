@@ -39,11 +39,42 @@ def _get_ses_client():
     return boto3.client("ses", region_name=os.environ.get("AWS_DEFAULT_REGION", "us-west-2"))
 
 
+_last_error: str | None = None
+
+
+def alerts_configured() -> bool:
+    """Can this process send an alert AT ALL? Config PRESENCE only — no SES call, no send.
+
+    Mirrors _get_ses_client's resolution order (:27-39) EXACTLY: the secrets file first,
+    else boto3 picking up the two AWS env vars. A self-check that disagrees with the code
+    that actually sends is worse than no check.
+
+    A trading system whose alerter is unconfigured is not monitored — and today nothing
+    would tell you, because send_alert swallows every failure.
+    """
+    if SECRETS_PATH.exists():
+        return True
+    return bool(os.environ.get("AWS_ACCESS_KEY_ID")
+                and os.environ.get("AWS_SECRET_ACCESS_KEY"))
+
+
+def last_alert_error() -> str | None:
+    """The last exception send_alert swallowed, else None.
+
+    CONFIG PRESENCE != DELIVERY. A valid-LOOKING config still 403s on an unverified SES
+    identity or a bad region, and send_alert swallows it — so alerts_configured() alone
+    would report a healthy alerter that has never delivered anything.
+    """
+    return _last_error
+
+
 def send_alert(subject: str, body: str) -> bool:
     """Send an alert email. Returns True on success, False on failure.
 
-    Never raises — errors are logged but swallowed so alerts don't crash the bot.
+    Never raises — errors are logged but swallowed so alerts don't crash the bot. The
+    swallowed exception is RECORDED in _last_error and surfaced by last_alert_error().
     """
+    global _last_error
     try:
         ses = _get_ses_client()
         ses.send_email(
@@ -55,9 +86,11 @@ def send_alert(subject: str, body: str) -> bool:
             },
         )
         log.info("Alert email sent: %s", subject)
+        _last_error = None
         return True
     except Exception as exc:
         log.error("Failed to send alert email: %s", exc)
+        _last_error = str(exc)
         return False
 
 
@@ -125,6 +158,58 @@ def alert_reconciliation_breach(bot_id: str, delta: float, tolerance: float,
         f"beyond tolerance. Investigate trade-log accuracy for this bot."
     )
     return send_alert(f"Reconciliation breach: Bot {bot_id}", body)
+
+
+def alert_all_bots_down(bots_enabled: int, hours_since_trade: float | None) -> bool:
+    """THE LOUDEST ALERT IN THE SYSTEM (RUN-01).
+
+    All-bots-down was GUARANTEED SILENT before Phase 19: bot_manager.py:186-190 returned
+    out of the trade-silence check precisely when no bot was alive, deferring to a death
+    alert that could not fire. Four bots stopped and nothing said a word.
+    """
+    since = (f"{hours_since_trade:.0f} hours ago" if hours_since_trade is not None
+             else "unknown")
+    body = (
+        f"NO BOT THREADS ARE ALIVE.\n\n"
+        f"Enabled bots: {bots_enabled}\n"
+        f"Last trade: {since}\n\n"
+        f"The watchdog is attempting to revive them every 60 seconds. If this alert keeps "
+        f"arriving, the revive is failing or the bots are crash-looping — check the "
+        f"container logs and the bots' status/status_detail on the dashboard.\n\n"
+        f"This alert repeats hourly until at least one bot is alive."
+    )
+    return send_alert("ALL BOTS DOWN — no bot threads alive", body)
+
+
+def alert_bot_misconfigured(bot_id: str, label: str, reason: str) -> bool:
+    """An ENABLED bot that cannot start. It never lived, so it never 'died' (research N5).
+
+    ``reason`` is the WHOLE detail (the literal "missing alpaca keys") — never a key, a
+    key prefix, or any other credential material.
+    """
+    body = (
+        f"Bot {bot_id} ({label}) is ENABLED but cannot start.\n\n"
+        f"Reason: {reason}\n\n"
+        f"It has been marked status='error' and is NOT being spawned. An enabled bot must "
+        f"always be either RUNNING or LOUDLY BROKEN — 'invisible' is not a state we ship.\n\n"
+        f"Fix the bot's configuration on the dashboard, then re-enable it."
+    )
+    return send_alert(f"Bot {bot_id} misconfigured — not trading", body)
+
+
+def alert_manager_never_started(error: str) -> bool:
+    """Fired from dashboard/api/main.py's lifespan, NOT from BotManager (research N10).
+
+    The watchdog cannot report its own non-existence: bot_manager.py:79 starts it AFTER
+    the start_all query that can throw at :67-70.
+    """
+    body = (
+        f"The BotManager never started. NO BOTS ARE RUNNING.\n\n"
+        f"Error: {error}\n\n"
+        f"The dashboard is still serving in read-only mode, so the container looks healthy "
+        f"and no restart policy will fix this. Check DATABASE_URL and the container logs."
+    )
+    return send_alert("BotManager NEVER STARTED — no bots are running", body)
 
 
 def alert_cycle_summary(cycle: int, trades_placed: int, positions_closed: int,
