@@ -21,42 +21,60 @@ accumulates trade outcomes, without manual retuning.
 - **Paused:** Kalshi prediction-market path (do not run).
 - **Hard rule:** one Alpaca account per bot — never share.
 
-## Current Milestone: v1.1 Trustworthy P&L + Profitable Retune
-
-**Goal:** Make the bots' performance measurable, then profitable — fix trade-resolution / P&L
-logging so the dashboard matches real Alpaca equity, enforce the asset universe, and retune
-entry & sizing on real paper data to stop the drawdown and clear the 40% win-rate gate.
-
-**Evidence (2026-07-06 live audit of app.aipredictedwins.com):**
-- **Measurement is broken:** only ~30 of ~300 submitted trades per bot resolve into the P&L
-  log. Logged closed-trade P&L reads +$1,296 (A) / +$112 (B), but real Alpaca equity is
-  **$85,655 (−14.34%) / $96,178 (−3.82%)**. The trade log badly overstates performance.
-- **Sub-gate win rate:** 33% (20W/36L) across 60 resolved trades — below the 40% live gate.
-- **Universe leak + dead symbols:** BTC is **0-for-12** (−$479); off-universe TRUMP (−$295)
-  and FIL (−$66) are being traded despite the documented 8-asset universe.
-- Both A/B bots are currently **stopped**.
-
-**Target features:**
-- **Trade resolution fix** — every submitted order resolves to a closed trade with accurate
-  realized P&L (fees/slippage included); dashboard total P&L reconciles to Alpaca account equity.
-- **Universe enforcement** — hard allowlist at entry; block off-universe symbols; drop or
-  quarantine chronic losers (BTC).
-- **Profitable retune** — confluence + quarter-Kelly sizing retuned on real paper data to lift
-  win rate ≥40% and halt drawdown; validated against the existing backtest harness.
-- **Reliable runtime + honest monitoring** — bots stay running, alert on unexpected stop, and
-  the dashboard surfaces true (reconciled) P&L.
-
 ## Current State
 
-**Shipped: v1.0 Day-Trading Upgrade** (2026-06-15) — 10/10 phases verified, 279 tests green.
-The engine is now profile-driven (`SWING` + `DAYTRADE`), the live trading path is LLM-free
-(deterministic ATR exits), the self-learning loop is closed (advice vetoes/scales entries with
-a shadow→auto gate + intraday dimensions), and a fee gate + 5-min backtest harness are in place.
-Bot D is code-complete; its live Alpaca account + Coolify service await provisioning
-(`docs/deployment/bot-d-coolify-recipe.md`). Archive: `.planning/milestones/v1.0-*`.
+**Shipped: v1.1 Trustworthy P&L + Profitable Retune** (2026-07-14) — Phases 11–20, 44 plans,
+**13/15 requirements Validated, 2 PARTIAL.** Tests 279 → 541 (zero new skips).
+Archive: `.planning/milestones/v1.1-*`.
 
-**Next milestone goals (candidates):** provision Bot D live; retune daytrade thresholds on real
-paper data; full P&L backtest; Options v3. Run `/gsd-new-milestone` to scope.
+**What v1.1 fixed:**
+- Order-state resolution + realized P&L from actual fills, net of fees (PNL-01/02/04); Alpaca
+  reconciliation + stale-trade backfill (PNL-03/05).
+- Universe hard-gate at all 5 entry sites + config-driven quarantine + dashboard visibility
+  (UNIV-01/02/03) — closed the TRUMP/FIL leak.
+- **Found the root cause of the "+$1,296 logged vs −14% real equity" contradiction (TUNE-02):**
+  395 of 655 position-closed rows (60%) were external-exit sentinels written as `pnl=0.0`, and the
+  dashboard booked every one as a LOSS. Sentinel writer fixed; win-rate denominator fixed at 5 reader
+  sites; the paper-trade gate went 655 → 260 (delta exactly −395).
+- Runtime honesty: fixed `if not any_alive: return` — all-bots-down was the ONE state guaranteed never
+  to alert, which is why four dead bots went unnoticed. Bots A/B/C run, alerts deliver (SES-confirmed),
+  headline P&L is reconciled.
+- Prod risk-rule breaches remediated: Bot B kelly 0.50→0.25, max_position 0.10→0.05; **Bot E was set to
+  put 100% of bankroll into a single position (20x breach) → 0.05.**
+- Disarmed `scripts/backfill_trades.py`, which had carried an armed `--apply` since Phase 14 that would
+  have closed every HELD position with a fabricated loss (proven by execution).
+
+**What v1.1 did NOT do (honest):**
+- **TUNE-01 — PARTIAL.** Quarantine + risk-rule fixes shipped; the **entry-knob retune did not**. The
+  backtest engine models −15%/+30% exits while the live bot runs −8% + ATR trailing, so the win-rate
+  criterion had only two possible values across all 12 live cells and could not discriminate. Phase 17
+  located the real losses on the **EXIT** side — the dimension the harness doesn't model.
+- **VERIFY-02 — PARTIAL (scoped).** All-time reconciliation **cannot** close: the 395 fabricated-zero
+  rows contribute nothing to `trade_log_pnl` while Alpaca's equity already contains their real outcomes,
+  so the delta is a **fixed level offset** (Bot A $8,720.31, B $1,610.22, C $2,039.64) — unreachable
+  unless those rows are repaired. The honest path is the anchored post-T0 window (opened 2026-07-14
+  07:18 UTC, needs ≥20 resolved trades/bot).
+- **Paper gate stays BLOCKED.** Post-fix win rate is **34.6%**, below the 40% gate. It was not tuned back.
+
+## Next Milestone Goals
+
+1. **Phase 21 — Exit-Stack Backtest Fidelity + Real Retune (already opened on the roadmap).** Model the
+   live exit stack (soft/hard stops, ATR trailing, ATR fixed, max-hold, exit advisor) in
+   `src/backtester/engine.py`, then re-sweep BOTH entry and exit knobs. Only then can TUNE-01 close.
+2. **Repair the 395 rows — needs a NEW mechanism.** All 395 are `status='closed'` with
+   `order_id IS NULL`, while the shipped backfill selects only
+   `status IN ('open','submitted') AND order_id IS NOT NULL` → **recovery ceiling 0/395**. A
+   purpose-built **`(symbol, qty, timestamp)` matcher** against Alpaca history is required.
+   **Blocker:** the `scripts/backfill.py:153` `TradeLogger(bot_id)` positional-arg attribution bug must
+   be fixed before any repair is run, or the repair will mis-attribute trades across bots.
+3. **VERIFY-02 dated follow-up** — not before **2026-07-28**: `python scripts/e2e_verify.py --json`.
+4. Provision Bot D live infra; Options v3 (separate milestone).
+
+## Milestone History: v1.1 Trustworthy P&L + Profitable Retune
+
+**Goal:** Make performance measurable, then profitable. Shipped 2026-07-14 — 13/15 validated, TUNE-01
+and VERIFY-02 partial. Full detail: `.planning/milestones/v1.1-ROADMAP.md` and
+`.planning/milestones/v1.1-REQUIREMENTS.md`.
 
 ## Milestone History: v1.0 Day-Trading Upgrade
 
@@ -77,6 +95,12 @@ deterministic ATR logic, and closing the currently-open self-learning loop.
 
 ## Key Decisions
 
+- **Measurement before edge** (v1.1) — resolution + realized P&L shipped before any tuning; a retune on
+  an untrustworthy log is worse than no retune.
+- **Never fabricate a trade outcome** (v1.1) — the 395 zero-P&L sentinels were the milestone's root bug;
+  repairing them by guessing (or letting the armed backfill close HELD positions at a fabricated loss)
+  would re-create it. Repair only via a real Alpaca-history matcher.
+- **Don't tune the gate to pass** (v1.1) — 34.6% < 40% → live trading stays BLOCKED.
 - **5-min bars, ~2-min scan** — balances signal frequency (fast learning) vs noise/fee drag.
 - **No overnight holds** — max-hold auto-close (4–8h) makes hold-duration a learnable dimension.
 - **Shadow-first learning** — learning logs would-be vetoes/scaling until N closed trades (default
@@ -87,11 +111,17 @@ deterministic ATR logic, and closing the currently-open self-learning loop.
 
 ## Active Requirements
 
-See `.planning/REQUIREMENTS.md`.
+None — v1.1 is archived. A fresh `.planning/REQUIREMENTS.md` is created by the next milestone.
 
 ## Validated Requirements
 
-(none yet — first milestone)
+**v1.1 (13/15):** PNL-01, PNL-02, PNL-03, PNL-04, PNL-05, UNIV-01, UNIV-02, UNIV-03, TUNE-02, TUNE-03,
+RUN-01, RUN-02, VERIFY-01.
+
+**v1.1 PARTIAL (carried forward, NOT validated):**
+- **TUNE-01** — entry-knob retune blocked by backtest exit-model fidelity gap → Phase 21.
+- **VERIFY-02** — all-time reconciliation provably unreachable (fixed level offset from 395 unrepairable
+  rows); anchored post-T0 window evaluable from 2026-07-28.
 
 ## Out of Scope
 
@@ -117,4 +147,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-09 — Milestone v1.1 Trustworthy P&L + Profitable Retune started*
+*Last updated: 2026-07-14 — Milestone v1.1 shipped and archived (13/15 validated, 2 partial). Phase 21 open.*
