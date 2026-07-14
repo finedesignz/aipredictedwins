@@ -259,3 +259,93 @@ untested. That is Phase 19's question.
 
 **The rollout (Plan 18-07) is held for explicit human authorization — it writes the prod `bots`
 row. Nothing in Phase 18 plans 01-06 wrote to any prod resource.**
+
+---
+
+## Rollout — APPLIED 2026-07-13 (Plan 18-07, human-authorized)
+
+Written via `PUT /api/bots/{bot_id}` against `https://app.aipredictedwins.com`.
+Auth: `Authorization: Bearer $DASHBOARD_TOKEN` (the dashboard service's Coolify env var —
+NOT stored in this repo). Cloudflare rejects a default `python-urllib`/curl UA with error
+1010, so a browser `User-Agent` is required to reach the origin at all.
+
+No deploy, no restart, no migration, no DDL. The 395 sentinel rows are untouched.
+The bots remain PAPER-gated (50 trades / 40% / $100k) — unchanged.
+
+### What was written
+
+| bot | strategy | field | before | after | why |
+|-----|----------|-------|--------|-------|-----|
+| B | confluence | `kelly_fraction` | **0.50** | **0.25** | Hardcoded quarter-Kelly ceiling (CLAUDE.md). Not a tuning result. |
+| B | confluence | `max_position_pct` | **0.10** | **0.05** | Hardcoded "max 5% bankroll per position". |
+| E | copytrade | `max_position_pct` | **1.00** | **0.05** | Same rule — E was at **100% of bankroll per position**, a 20x breach. Found during the pre-write baseline read; unrelated to the sweep. Bot E is `enabled=false`, so nothing was sized off it, but the row was one enable away from a catastrophic position. |
+
+`min_confluence` was NOT changed on any bot (criterion 2 never discriminated — see above).
+`kelly_fraction` was NOT changed on any bot already `<= 0.25` (A, C, E).
+Bots C (`tradingagents`) and E (`copytrade`) are NOT confluence bots — no quarantine applies.
+
+### Verified after the write (`GET /api/bots`)
+
+| bot | strategy | min_confluence | kelly_fraction | max_position_pct | quarantined_symbols |
+|-----|----------|----------------|----------------|------------------|---------------------|
+| A | confluence | 4 | 0.25 | 0.05 | `null` |
+| B | confluence | 4 | **0.25** | **0.05** | `null` |
+| C | tradingagents | 3 | 0.25 | 0.05 | `null` |
+| E | copytrade | 3 | 0.25 | **0.05** | `null` |
+
+**CEILING HOLDS** — no bot above `kelly_fraction` 0.25. **MAXPOS HOLDS** — no bot above 0.05.
+Nothing else changed. `git diff --stat src/` for the rollout itself is EMPTY: it shipped as DATA.
+
+### ⚠️ The QUARANTINE DID NOT APPLY — blocked on a stale prod container
+
+`PUT /api/bots/A` with `{"quarantined_symbols": "..."}` returned **422 `{"detail":"No fields
+to update"}`**. That is decisive: the **deployed** `BotUpdate` model does not have a
+`quarantined_symbols` field, so pydantic dropped the only key in the payload, leaving an empty
+SET clause. The same key was therefore silently dropped from Bot B's PUT too (B's PUT returned
+200 only because its `kelly_fraction` / `max_position_pct` keys are valid on the old model).
+`GET /api/bots` confirms `quarantined_symbols` is still `null` on every bot.
+
+The column EXISTS (migration 018 ran — the key is present-and-null in the GET response), but the
+running container predates **986fd69 `feat(15-02): plumb quarantined_symbols through API + seed`**.
+Coolify reports `git_branch=main, git_commit_sha=HEAD, status=running:healthy` — the image is
+simply stale relative to `main`.
+
+**To apply the quarantine, the dashboard service must be redeployed** (which picks up 986fd69 and
+this plan's `le=0.25` bounds at the same time). Plan 18-07 explicitly forbids a deploy/restart, so
+this was NOT done. After a redeploy, the quarantine is one PUT per confluence bot:
+
+```bash
+# A and B — AFTER the dashboard is redeployed (will 422 against the current stale image)
+for BOT in A B; do
+  curl -X PUT "https://app.aipredictedwins.com/api/bots/$BOT" \
+    -H "Authorization: Bearer $DASHBOARD_TOKEN" \
+    -H 'Content-Type: application/json' \
+    -H 'User-Agent: Mozilla/5.0' \
+    -d '{"quarantined_symbols": "BTC/USD,ETH/USD,TRUMP/USD,FIL/USD,ARB/USD"}'
+done
+```
+
+### REVERT — copy-paste, per bot
+
+Restores the Baseline exactly. **Reverting Bot B re-arms a half-Kelly, 10%-per-position bot and
+reverting Bot E re-arms a 100%-per-position bot — both violate the hardcoded CLAUDE.md risk rules.
+Do not run these without a deliberate reason.** Once the redeploy lands, the `le=0.25` bound will
+itself reject the Bot B kelly revert with a 422 (by design — Kelly may only go DOWN).
+
+```bash
+# REVERT Bot B -> baseline (kelly 0.50, max_position_pct 0.10)  [RISK-RULE VIOLATING]
+curl -X PUT "https://app.aipredictedwins.com/api/bots/B" \
+  -H "Authorization: Bearer $DASHBOARD_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -H 'User-Agent: Mozilla/5.0' \
+  -d '{"kelly_fraction": 0.50, "max_position_pct": 0.10}'
+
+# REVERT Bot E -> baseline (max_position_pct 1.00)  [RISK-RULE VIOLATING]
+curl -X PUT "https://app.aipredictedwins.com/api/bots/E" \
+  -H "Authorization: Bearer $DASHBOARD_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -H 'User-Agent: Mozilla/5.0' \
+  -d '{"max_position_pct": 1.00}'
+
+# Bots A and C were never written. Nothing to revert.
+```
