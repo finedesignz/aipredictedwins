@@ -43,6 +43,16 @@ _log = logging.getLogger(__name__)
 DASHBOARD_TOKEN = os.environ.get("DASHBOARD_TOKEN", "")
 
 
+def _alert_manager_never_started(reason: str) -> None:
+    """Email that NO BOTS ARE RUNNING. Never raises — an alert failure must not take the
+    API down, and the dashboard still serves read-only."""
+    try:
+        from src.notifier import alert_manager_never_started  # noqa: PLC0415
+        alert_manager_never_started(reason)
+    except Exception as exc:  # pragma: no cover - defensive
+        _log.warning("Failed to send manager-never-started alert: %s", exc)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Start BotManager on startup, stop on shutdown.
@@ -52,18 +62,30 @@ async def lifespan(app: FastAPI):
     """
     manager = None
     db_url = os.environ.get("DATABASE_URL", "")
+    # src/ is at /app/src in container, or project root in dev. This insert (plus
+    # PYTHONPATH=/app, dashboard/Dockerfile:64) is what makes `src.*` importable here —
+    # which is why every `src.*` import below is FUNCTION-LOCAL.
+    for p in ["/app", os.path.dirname(os.path.dirname(os.path.abspath(__file__)))]:
+        if p not in sys.path:
+            sys.path.insert(0, p)
+
     if db_url:
         try:
-            # src/ is at /app/src in container, or project root in dev
-            for p in ["/app", os.path.dirname(os.path.dirname(os.path.abspath(__file__)))]:
-                if p not in sys.path:
-                    sys.path.insert(0, p)
             from src.bot_manager import BotManager  # noqa: PLC0415
             manager = BotManager(db_url)
             manager.start_all()
             _log.info("BotManager started")
         except Exception as exc:
             _log.warning("BotManager unavailable: %s", exc)
+            _alert_manager_never_started(str(exc))
+    else:
+        # Research N10: BotManager cannot report its own non-existence — its watchdog
+        # (bot_manager.py:79) starts AFTER the start_all query that can throw (:67-70).
+        # This branch used to be COMPLETELY SILENT: no DATABASE_URL meant no bots ran at
+        # all, and nothing said a word.
+        _log.warning("BotManager not started: DATABASE_URL not set")
+        _alert_manager_never_started("DATABASE_URL not set")
+
     app.state.bot_manager = manager
     yield
     if manager is not None:
