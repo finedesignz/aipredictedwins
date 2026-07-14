@@ -169,7 +169,14 @@ is Postgres via `src/db.py`. One Alpaca account per bot — never share.
   1. A bot thread death is detected and alerted via the existing notifier path (`BotManager` watchdog), verified by killing a thread in a test run and observing the alert.
   2. The dashboard headline P&L and win-rate read from the reconciled (Phase 13) numbers, not the raw trade-log sum.
   3. A reconciliation-flag indicator is visible on the dashboard when a bot is out of tolerance.
-**Plans**: TBD
+**Plans**: 7 plans (5 waves)
+- [ ] 19-01-PLAN.md — Wave 0: RED suite. `tests/test_bot_manager.py` DOES NOT EXIST — all 29 VALIDATION cases + 8 fences. Nine cases (1, 5, 6, 13, 15, 17, 22, 23, 26) MUST fail on current main.
+- [ ] 19-02-PLAN.md — Wave 2 foundation: migration 019 `runtime_heartbeat` + the `db_schema.sql` mirror (N3), the notifier wrappers, the `alerts_configured` self-check, the heartbeat readers
+- [ ] 19-03-PLAN.md — Wave 3: **THE KILLER BUG** — delete `if not any_alive: return` (`bot_manager.py:189-190`) + both key predicates; keyless bot → `status='error'` + alert; ALL BOTS DOWN alert; heartbeat UPSERT; `main.py` never-started alert (N10)
+- [ ] 19-04-PLAN.md — Wave 3: `RESOLVED := pnl IS NOT NULL AND pnl <> 0` at all four reader sites + the fifth (N7); delete `settings.py:65`'s `100_000.0 * len(bot_ids)` hardcode
+- [ ] 19-05-PLAN.md — Wave 4: `reconcile()` per-bot guard (landmine N1) + the hourly schedule inside the watchdog tick that already exists
+- [ ] 19-06-PLAN.md — Wave 4: headline = the reconciled number; `pnl_source` / `stale` / `unresolved` / `manager_alive` / `alerts_configured` surfaced through models, routes, TS types, and components
+- [ ] 19-07-PLAN.md — Wave 5: evidence — RED→GREEN proof, the 8 fences, the Coolify read-only report (N4, a red herring), the 395-row HUMAN-AUTHORIZATION flag + a human checkpoint
 **UI hint**: yes
 
 ### Phase 20: Verification & E2E Reconciliation
@@ -194,7 +201,7 @@ is Postgres via `src/db.py`. One Alpaca account per bot — never share.
 | 16. Effective-Universe Dashboard Visibility | 0/? | Not started | - |
 | 17. Per-Symbol Performance Analysis | 0/? | Not started | - |
 | 18. Profitable Retune (Confluence + Kelly) | 0/? | Not started | - |
-| 19. Reliable Runtime & Honest Monitoring | 0/? | Not started | - |
+| 19. Reliable Runtime & Honest Monitoring | 0/7 | Planned | - |
 | 20. Verification & E2E Reconciliation | 0/? | Not started | - |
 
 ### Requirement → Phase Traceability
@@ -212,8 +219,8 @@ is Postgres via `src/db.py`. One Alpaca account per bot — never share.
 | TUNE-02 | Phase 17 | Validated |
 | TUNE-01 | Phase 18 | Pending |
 | TUNE-03 | Phase 18 | Pending |
-| RUN-01 | Phase 19 | Pending |
-| RUN-02 | Phase 19 | Pending |
+| RUN-01 | Phase 19 | Planned |
+| RUN-02 | Phase 19 | Planned |
 | VERIFY-01 | Phase 20 | Pending |
 | VERIFY-02 | Phase 20 | Pending |
 
