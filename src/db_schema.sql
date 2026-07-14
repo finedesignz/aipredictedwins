@@ -222,6 +222,19 @@ CREATE TABLE IF NOT EXISTS reconciliation (
     tolerance           DOUBLE PRECISION NOT NULL
 );
 
+-- ─────────────────────────────────────────────
+-- 11. runtime_heartbeat — the BotManager watchdog's liveness signal (RUN-01)
+--     Mirrors migration 019_runtime_heartbeat.sql. ABSENCE OF A ROW MEANS DEAD:
+--     the watchdog cannot report its own non-existence, so a reader must never
+--     default healthy on a missing row.
+-- ─────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS runtime_heartbeat (
+    component    TEXT PRIMARY KEY,
+    beat_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    bots_alive   INT NOT NULL DEFAULT 0,
+    bots_enabled INT NOT NULL DEFAULT 0
+);
+
 -- ═════════════════════════════════════════════
 -- INDEXES
 -- ═════════════════════════════════════════════
