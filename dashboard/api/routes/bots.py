@@ -32,17 +32,44 @@ def _mgr(request: Request):
 
 
 def _enrich(row: dict, mgr) -> BotFull:
-    """Merge DB row with live manager status into a BotFull model."""
+    """Merge DB row with live manager status into a BotFull model.
+
+    **A LIVE THREAD OUTRANKS THE COLUMN.** `bots.status` is PROCESS-SCOPED state kept in a
+    GLOBALLY SHARED column: every process that ever managed a bot writes it, keyed on
+    bot_id alone. On a Coolify rolling deploy the containers overlap — the new one spawns
+    its threads and writes 'running', then the OUTGOING one shuts down and its
+    `BotManager.stop_all` / thread epilogues (bot_manager.py:424, bot_thread.py:407) write
+    'stopped' for the SAME bot_ids, seconds later. Last writer wins and the last writer is
+    a corpse in another container. Nothing in the live process ever rewrites the column
+    (spawn happens once, at boot), so the lie is PERMANENT: prod served
+    `status='stopped', thread_alive=true` for A/B/C while they scanned and traded.
+
+    No in-process guard can fix that — commit ba4cdcd's `_status_writer` only drops writes
+    from retired threads of ITS OWN process, and the dying container is not even wrong: its
+    bots really did stop. So status is DERIVED here from thread liveness, the one authority
+    that exists inside the process actually answering the request.
+
+    The death path is untouched: 'error' is written immediately before the thread RETURNS
+    (bot_thread.py:404-405), so a thread that is alive is never legitimately in 'error', and
+    a thread that is dead still reports the column's status + detail — the only place the
+    reason for the death survives. Bots the manager does not track (disabled, never spawned,
+    keyless) keep the column's verdict too. This reads liveness only; it does not couple to
+    — or disturb — the ALL-BOTS-DOWN alert.
+    """
     mgr_status: dict = {}
     if mgr is not None:
         try:
             mgr_status = mgr.status().get(row["bot_id"], {})
         except Exception:
             pass
-    return BotFull(
-        **{k: v for k, v in row.items() if k in BotFull.model_fields},
-        thread_alive=mgr_status.get("thread_alive", False),
-    )
+    thread_alive = bool(mgr_status.get("thread_alive", False))
+
+    fields = {k: v for k, v in row.items() if k in BotFull.model_fields}
+    if thread_alive:
+        fields["status"] = "running"
+        fields["status_detail"] = ""
+
+    return BotFull(**fields, thread_alive=thread_alive)
 
 
 # ---------------------------------------------------------------------------
