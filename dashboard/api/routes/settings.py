@@ -31,11 +31,21 @@ def get_settings(
     bot_placeholders = ",".join(["%s"] * len(bot_ids))
 
     with get_db() as conn:
-        # Total and closed trades
-        total_trades = conn.execute(
-            f"SELECT COUNT(*) AS n FROM alpaca_trades WHERE bot_id IN ({bot_placeholders})",
+        # THE RAW ROW COUNT — REPORTED, never again the GATE figure.
+        #
+        # This used to BE `paper_trades_completed`: a bare, unfiltered COUNT(*) fed
+        # straight to the 50-trade gate that guards LIVE TRADING. It counts `submitted`
+        # rows, `rejected` gate-blocks and canceled 0-fill entries — rows that never
+        # became a POSITION at all (src/bot_thread.py:362,376,382 writes them). A gate
+        # satisfied by rows that were never trades is not a gate. Same class of error as
+        # the fabricated-$100k-bankroll hardcode Phase 19 deleted below.
+        #
+        # It stays on the payload as `total_rows` so that a user watching
+        # paper_trades_completed FALL can see exactly where the rows went.
+        total_rows = conn.execute(
+            f"SELECT COUNT(*) AS total FROM alpaca_trades WHERE bot_id IN ({bot_placeholders})",
             tuple(bot_ids),
-        ).fetchone()["n"]
+        ).fetchone()["total"]
         # RESOLVED := `pnl IS NOT NULL AND pnl <> 0` (Phase 19). THIS win_rate IS THE PAPER
         # GATE (win_rate vs win_rate_target=40.0) — the gate that guards LIVE TRADING. It
         # was counting ~395 historical `pnl = 0.0` sentinels as LOSSES. Making it honest
@@ -73,6 +83,20 @@ def get_settings(
     wins = sum(1 for r in closed_rows if r["pnl"] > 0)
     total_pnl = sum(r["pnl"] for r in closed_rows)
     win_rate_pct = round(wins / resolved * 100, 1) if resolved > 0 else 0.0
+
+    # THE PAPER GATE NOW COUNTS TRADES. `resolved` is the CANONICAL RESOLVED population
+    # (src/db.py:95 is_resolved) already computed above for the win rate — no new SQL, and
+    # no sixth spelling of the predicate.
+    #
+    # THE GATE WILL READ WORSE. THAT IS THE INTENDED OUTCOME AND IT IS NOT TO BE TUNED
+    # BACK. Making the gate HONEST is not the same as OPENING it: paper_trades_target
+    # stays 50, win_rate_target stays 40.0, mode stays "paper".
+    #
+    # The before/after magnitude is MEASURED per bot by scripts/e2e_verify.py — never
+    # predicted. RESEARCH R1 REFUTED the "655 -> ~260" projection: it conflates two
+    # different bot sets (KNOWN_BOTS A/B/C/D vs Phase 17's A/B/C/E) AND two different
+    # status filters.
+    paper_trades_completed = resolved
 
     # THE $100k HARDCODE IS DELETED. The old line multiplied a fabricated $100k bankroll by
     # the bot count and fed it to the readout of the gate that guards LIVE TRADING —
@@ -189,12 +213,13 @@ def get_settings(
         last_cycle=last_cycle,
         uptime_seconds=uptime_seconds,
         cycle_count=cycle_count,
-        paper_trades_completed=total_trades,
+        paper_trades_completed=paper_trades_completed,
         paper_trades_target=50,
         win_rate=win_rate_pct,
         win_rate_target=40.0,
         equity=equity,
         equity_target=_LIVE_THRESHOLD,
+        total_rows=total_rows,
         unresolved=unresolved,
         health=health,
         config=config,

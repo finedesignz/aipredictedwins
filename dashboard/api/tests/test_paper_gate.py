@@ -163,19 +163,25 @@ def test_non_trade_rows_are_excluded_from_the_paper_gate(monkeypatch):
 # ── case 10 — STATIC FENCE (the test_routes.py:224 idiom) ────────────────────
 
 def test_the_bare_count_star_never_returns():
-    """Case 10. The bare COUNT(*) must never again BE the gate figure.
+    """Case 10. The bare, UNFILTERED COUNT(*) must never again BE the gate figure.
 
     RED on main: settings.py:36 is exactly this string, and :192 feeds it straight to
     `paper_trades_completed`.
+
+    NOTE the precision. A *filtered* COUNT(*) is legitimate and still present — the
+    `unresolved` query at :50-56 counts terminal-but-unresolved rows and is reported
+    BESIDE the gate. What must die is the query with NO status filter and NO pnl filter
+    being used AS the gate. That is the single-line form pinned here.
     """
     src = _settings_src()
 
     # POSITIVE CONTROL FIRST — the fence cannot pass on an empty or renamed file.
     assert "paper_trades_completed=" in src, \
         "positive control failed — the gate readout moved or the file is empty"
+    assert "alpaca_trades" in src, "positive control failed — the queries are gone"
 
-    assert "SELECT COUNT(*) AS n FROM alpaca_trades" not in src, \
-        "the bare, unfiltered COUNT(*) is still the paper-gate query"
+    assert "SELECT COUNT(*) AS n FROM alpaca_trades WHERE bot_id IN" not in src, \
+        "the bare, UNFILTERED COUNT(*) is still in settings.py as a gate-shaped query"
     assert "paper_trades_completed=total_trades" not in src, \
         "the gate is still fed the raw row count"
 

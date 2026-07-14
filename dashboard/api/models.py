@@ -186,6 +186,11 @@ class SettingsData(BaseModel):
     win_rate_target: float = 40.0
     equity: float = 0.0
     equity_target: float = 100000.0
+    # Phase 20 (VERIFY-01) — the RAW row count. `paper_trades_completed` now counts only
+    # RESOLVED trades, so it READS WORSE (intended, not to be tuned back). `total_rows`
+    # and `unresolved` sit beside it so the drop is EXPLAINABLE on the surface that shows
+    # it: a number removed from a gate must remain visible next to it.
+    total_rows: int = 0
     unresolved: int = 0          # Phase 19 (RUN-02) — beside the gate's win rate
     health: HealthStatus = Field(default_factory=HealthStatus)
     config: dict = Field(default_factory=dict)
