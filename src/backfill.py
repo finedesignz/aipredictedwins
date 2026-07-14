@@ -22,6 +22,7 @@ from src.order_resolution import classify_order
 from src.pnl import realized_pnl
 from src.fee_gate import TAKER_FEE
 from src.trade_logger import TradeLogger
+from src.universe import normalize
 
 log = logging.getLogger(__name__)
 
@@ -68,8 +69,16 @@ def resolve_stale_row(row: dict, entry_order: dict, live_symbols, close_order):
 
     # Became a position (filled / partial).
     if status == "open":
-        # NOTE (Phase 18 W1): live_symbols here is slash-STRIPPED by backfill.py:147 while row["symbol"] is slashed; the monitor normalizes both sides (alpaca_orchestrator._resolve_external_exit). Aligning this is a Phase-20 item.
-        if row["symbol"] in live_symbols:
+        # `live_symbols is None` means the get_positions() call FAILED — NOT "nothing is
+        # held". The only safe answer is to leave the row alone; resolving it against
+        # nothing would close a live position with a fabricated P&L.
+        if live_symbols is None:
+            return "unchanged", None
+        # BOTH sides are normalized: Alpaca's get_positions() returns SLASHLESS symbols
+        # (BTCUSD) while alpaca_trades.symbol is SLASHED (BTC/USD). Same helper, same
+        # both-sides compare as the live monitor at src/alpaca_orchestrator.py:142-143.
+        norm_live = {normalize(s) for s in live_symbols}
+        if normalize(row.get("symbol")) in norm_live:
             return "unchanged", None
         if close_order is None:
             return "unresolvable", None
@@ -145,14 +154,30 @@ def backfill(apply: bool = False) -> list[tuple[str, dict]]:
         counts = {"resolved": 0, "unchanged": 0, "unresolvable": 0, "residue": 0}
 
         candidates = db.get_stale_alpaca_candidates(bot_id, guard)
-        live_symbols = {p["symbol"] for p in (client.get_positions() or [])}
+
+        # The None sentinel is PRESERVED, never coerced to an empty list. `None` means the
+        # ALPACA CALL FAILED — it does NOT mean "nothing is held". Coerced, an Alpaca
+        # outage would make the ENTIRE BOOK look vanished and every held position
+        # resolvable. Mirrors the live monitor's guard at src/alpaca_orchestrator.py:133-134.
+        positions = client.get_positions()
+        if positions is None:
+            log.warning(
+                "Backfill SKIPPED for bot %s: get_positions() returned None — the Alpaca "
+                "call FAILED. Every row left unchanged.", bot_id,
+            )
+            counts["error"] = "positions_unavailable"
+            counts["residue"] = db.count_unresolvable_alpaca_rows(bot_id)
+            results.append((bot_id, counts))
+            continue
+
+        live_symbols = {normalize(p["symbol"]) for p in positions}
 
         for row in candidates:
             entry_order = client.get_order(row["order_id"])
             status, _ = classify_order(entry_order)
 
             close_order = None
-            if status == "open" and row["symbol"] not in live_symbols:
+            if status == "open" and normalize(row["symbol"]) not in live_symbols:
                 closes = client.get_closed_orders(
                     row["symbol"], after=entry_order.get("filled_at") or None)
                 close_order = _match_close(closes, entry_order, row)
