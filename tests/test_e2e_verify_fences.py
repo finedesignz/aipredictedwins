@@ -40,7 +40,13 @@ _MUTATING = re.compile(
     re.I,
 )
 # A knob that can manufacture a PASS.
-_WIDENING_FLAG = re.compile(r"--(apply|write|fix|tolerance)", re.I)
+#
+# This matches the DECLARATION, not the mention: `add_argument("--tolerance")` is a lever;
+# a docstring saying "this tool has NO --tolerance flag" is documentation. Matching bare
+# mentions would forbid the script from DOCUMENTING what it refuses to do — which would
+# push that promise out of the file. The mechanism is `add_argument`; that is what we hunt.
+_WIDENING_FLAG = re.compile(
+    r"""add_argument\(\s*["']--(apply|write|fix|tolerance)""", re.I | re.X)
 
 
 def find_mutations(source: str) -> list[str]:
@@ -49,6 +55,7 @@ def find_mutations(source: str) -> list[str]:
 
 
 def find_widening_flags(source: str) -> list[str]:
+    """Declared CLI levers. See _WIDENING_FLAG on why this matches the declaration."""
     return [m.group(0) for m in _WIDENING_FLAG.finditer(source)]
 
 

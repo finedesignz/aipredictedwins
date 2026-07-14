@@ -189,7 +189,18 @@ def test_37_no_new_prod_trade_log_writer_in_phase_20():
 # AUTHORIZATION (Plan 20-07) — this phase fixes the AMMUNITION, it does not fire the gun.
 _BACKFILL_APPLY_ENTRYPOINTS = {"scripts/backfill_trades.py"}
 
-_ARMS_BACKFILL = re.compile(r"--apply|apply\s*=\s*True")
+# ARMING is a MECHANISM, not a mention. A module arms the backfill iff it IMPORTS the
+# backfill AND can hand it `apply=True` — whether directly, or via a declared `--apply`
+# flag. A file that merely says the word "backfill" in prose (e.g. a docstring promising
+# it will never fire one) is not a trigger, and forbidding the word would push those
+# promises out of the files that make them.
+_IMPORTS_BACKFILL = re.compile(r"(from\s+src\.backfill\s+import|import\s+src\.backfill|"
+                               r"from\s+src\s+import\s+backfill)")
+_APPLY_MECHANISM = re.compile(r"""apply\s*=\s*True|add_argument\(\s*["']--apply""", re.X)
+
+
+def _arms_backfill(text: str) -> bool:
+    return bool(_IMPORTS_BACKFILL.search(text) and _APPLY_MECHANISM.search(text))
 
 
 def test_38_the_backfill_stays_unarmed():
@@ -198,13 +209,13 @@ def test_38_the_backfill_stays_unarmed():
 
     # POSITIVE CONTROL: the detector really fires on the ONE known trigger.
     known = _SCRIPTS / "backfill_trades.py"
-    assert known.exists() and _ARMS_BACKFILL.search(known.read_text(encoding="utf-8")), \
+    assert known.exists() and _arms_backfill(known.read_text(encoding="utf-8")), \
         "detector self-test failed — it cannot see the known --apply entrypoint"
+    # ...and it does NOT fire on a module that merely names the backfill in prose.
+    assert not _arms_backfill("# this script never runs the backfill with --apply")
 
     armed = {
-        _rel(p) for p in files
-        if "backfill" in p.read_text(encoding="utf-8")
-        and _ARMS_BACKFILL.search(p.read_text(encoding="utf-8"))
+        _rel(p) for p in files if _arms_backfill(p.read_text(encoding="utf-8"))
     }
     assert armed <= _BACKFILL_APPLY_ENTRYPOINTS, (
         f"Phase 20 added a NEW way to arm the backfill: "
