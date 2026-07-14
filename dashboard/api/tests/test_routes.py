@@ -8,21 +8,26 @@ Skip if TEST_DATABASE_URL is not set.
 """
 
 import os
+import pathlib
 import sys
 import pytest
 
 # Add dashboard/api to path so we can import the app
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-pytestmark = pytest.mark.skipif(
-    not os.environ.get("TEST_DATABASE_URL"),
-    reason="TEST_DATABASE_URL not set — skipping route integration tests",
-)
+_ROUTES = pathlib.Path(__file__).resolve().parents[1] / "routes"
 
 
 @pytest.fixture(scope="module")
 def client():
-    """Create a TestClient with seeded Postgres data."""
+    """Create a TestClient with seeded Postgres data.
+
+    The DB gate lives HERE, not in a module-level `pytestmark`, so the Phase-19 STATIC
+    fences below (cases 17 and 22) run everywhere with no database. Every DB-backed test
+    still SKIPS VISIBLY without TEST_DATABASE_URL.
+    """
+    if not os.environ.get("TEST_DATABASE_URL"):
+        pytest.skip("TEST_DATABASE_URL not set — skipping route integration tests")
     os.environ["DATABASE_URL"] = os.environ["TEST_DATABASE_URL"]
     os.environ.pop("DASHBOARD_TOKEN", None)  # disable auth for tests
 
@@ -178,3 +183,58 @@ def test_health_returns_ok(client):
     r = client.get("/api/health")
     assert r.status_code == 200
     assert r.json()["status"] == "ok"
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Phase 19 (RUN-02) — the PAPER GATE readout. Cases 17 and 22.
+#
+# settings.py's win_rate IS the gate that guards LIVE TRADING, and it is evaluated
+# against a HARDCODED bankroll: `equity = 100_000.0 * len(bot_ids) + total_pnl`
+# (settings.py:65). A hardcoded bankroll in a gate readout is exactly how a gate gets
+# passed by a bug.
+#
+# Making the gate HONEST may make it READ WORSE. That is INTENDED. The gate is NOT
+# unlocked here — mode stays "paper", win_rate_target stays 40.0.
+#
+# These two are STATIC and UNGATED — they run with no database.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _settings_src():
+    return (_ROUTES / "settings.py").read_text(encoding="utf-8")
+
+
+def test_paper_gate_win_rate_excludes_sentinels():
+    """Case 17 (static half). The gate that guards live trading must not count ~395
+    pnl=0.0 sentinels as losses."""
+    src = _settings_src()
+    assert "status IN ('closed', 'stopped', 'target_hit')" in src, \
+        "positive control failed — the paper-gate closed-trades query moved"
+    assert "pnl <> 0" in src, \
+        "the PAPER GATE win rate still books pnl=0.0 sentinels as LOSSES"
+    # The gate itself is NOT unlocked (fence F3).
+    assert 'mode="paper"' in src
+    assert "win_rate_target=40.0" in src
+
+
+def test_settings_equity_is_not_hardcoded():
+    """Case 22 (static half, UNGATED). settings.py:65's `100_000.0 * len(bot_ids)`."""
+    src = _settings_src()
+    assert "equity_target=_LIVE_THRESHOLD" in src, \
+        "positive control failed — the equity readout moved"
+    assert "100_000.0 * len(" not in src, \
+        "the paper gate is still evaluated against a HARDCODED $100k bankroll"
+    assert "starting_equity" in src, \
+        "equity must derive from bots.starting_equity (already fetched in bot_rows)"
+
+
+def test_settings_equity_derives_from_starting_equity(client):
+    """Case 22 (behavioral half, DB-gated)."""
+    from db import get_db
+
+    with get_db() as conn:
+        conn.execute("UPDATE bots SET starting_equity = 50000 WHERE bot_id = 'A'")
+
+    d = client.get("/api/settings?bot=A").json()["data"]
+    assert d["equity"] < 100_000.0, "equity still anchored to the hardcoded $100k"
+    assert d["mode"] == "paper"
+    assert d["win_rate_target"] == 40.0

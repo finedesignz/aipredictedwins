@@ -325,3 +325,64 @@ def test_multi_bot_independent(driver_env, monkeypatch):
     # Two independent rows recorded; only the breaching bot alerted.
     assert {b for b, _ in recorded} == {"A", "B"}
     assert len(alerts) == 1
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 19 (RUN-02) — case 23: reconcile() needs a PER-BOT guard (research N1)
+#
+# reconcile() (:139-143) has NO per-bot try. _client_for_bot RAISES ValueError on a
+# keyless bot (:86-90), and _enabled_bot_ids (:51-59) selects `enabled = TRUE` with NO
+# key predicate. So ONE misconfigured bot already reconciles ZERO bots today — including
+# the healthy ones. 19-03 makes keyless-enabled bots VISIBLE, and 19-05 schedules this
+# hourly, so the landmine must be defused BEFORE the schedule steps on it.
+#
+# Keep _client_for_bot RAISING — it is the one-account-per-bot enforcement point.
+# The CALLER is what changes.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_reconcile_is_guarded_per_bot(monkeypatch):
+    from src import reconciliation
+
+    persisted: list[str] = []
+
+    def fake_enabled_bots():
+        return ["A", "X"]
+
+    def fake_client_for(bot_id):
+        if bot_id == "X":
+            raise ValueError(f"No Alpaca keys for bot {bot_id}")
+        return object()
+
+    def fake_live(bot_id, client, tolerance=None):
+        persisted.append(bot_id)
+        return {"trade_log_pnl": 0.0, "alpaca_realized_pnl": 0.0, "delta": 0.0,
+                "within_tolerance": True, "tolerance": 25.0}
+
+    monkeypatch.setattr(reconciliation, "_enabled_bot_ids", fake_enabled_bots)
+    monkeypatch.setattr(reconciliation, "_client_for_bot", fake_client_for)
+    monkeypatch.setattr(reconciliation, "reconcile_bot_live", fake_live)
+
+    results = reconciliation.reconcile()      # must NOT raise
+
+    assert [b for b, _ in results] == ["A"], "the healthy bot must still reconcile"
+    assert persisted == ["A"]
+    assert "X" not in [b for b, _ in results], "the broken bot must be logged and SKIPPED"
+
+
+def test_reconcile_survives_a_raising_reconcile_bot_live(monkeypatch):
+    """An Alpaca timeout for one bot is caught the same way — it costs exactly one bot."""
+    from src import reconciliation
+
+    monkeypatch.setattr(reconciliation, "_enabled_bot_ids", lambda: ["A", "B"])
+    monkeypatch.setattr(reconciliation, "_client_for_bot", lambda b: object())
+
+    def fake_live(bot_id, client, tolerance=None):
+        if bot_id == "A":
+            raise TimeoutError("alpaca timed out")
+        return {"trade_log_pnl": 0.0, "alpaca_realized_pnl": 0.0, "delta": 0.0,
+                "within_tolerance": True, "tolerance": 25.0}
+
+    monkeypatch.setattr(reconciliation, "reconcile_bot_live", fake_live)
+
+    results = reconciliation.reconcile()
+    assert [b for b, _ in results] == ["B"]

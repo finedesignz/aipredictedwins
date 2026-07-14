@@ -101,7 +101,13 @@ class _FakeResult:
 
 
 class _FakeConn:
-    """Honours the SQL: filters NULL pnl only if the query says `pnl IS NOT NULL`."""
+    """Honours the SQL: applies each pnl clause ONLY if the query actually asks for it.
+
+    Phase 19 adds `pnl <> 0` to the vocabulary. Post-Phase-19 `get_alpaca_accuracy`
+    selects the terminal rows UNFILTERED (so the unresolved ones can be COUNTED) and
+    partitions in Python — but the clause handling stays here so a regression to a
+    SQL-side filter is still honoured rather than silently ignored.
+    """
 
     def __init__(self, rows):
         self.rows = rows
@@ -112,6 +118,9 @@ class _FakeConn:
         rows = [r for r in self.rows if r["status"] in _TERMINAL]
         if "pnl IS NOT NULL" in sql:
             rows = [r for r in rows if r["pnl"] is not None]
+        if "pnl <> 0" in sql:
+            # SQL semantics: `NULL <> 0` is NULL, so a NULL row fails this clause too.
+            rows = [r for r in rows if r["pnl"] is not None and r["pnl"] != 0]
         return _FakeResult(rows)
 
 
@@ -134,10 +143,12 @@ def accuracy(monkeypatch):
 
 def test_null_pnl_excluded_from_denominator(accuracy):
     stats = accuracy(_fixture_rows())
-    assert stats["resolved"] == 6          # NOT 10
+    # PHASE 19 CHANGED THIS: RESOLVED is now `pnl IS NOT NULL AND pnl <> 0`, so the
+    # genuine 0.0 left the denominator too (it was `resolved == 6 / losses == 4`).
+    assert stats["resolved"] == 5          # NOT 10, and no longer 6
     assert stats["wins"] == 2
-    assert stats["losses"] == 4            # 3 real losses + the ONE genuine 0.0
-    assert stats["win_rate"] == pytest.approx(2 / 6)
+    assert stats["losses"] == 3            # 3 real losses — the 0.0 is UNRESOLVED, not a loss
+    assert stats["win_rate"] == pytest.approx(2 / 5)
 
 
 def test_old_arithmetic_gives_a_different_answer(accuracy):
@@ -169,3 +180,44 @@ def test_accuracy_dict_shape_unchanged(accuracy):
     for key in ("total_trades", "resolved", "wins", "losses", "win_rate",
                 "total_pnl", "avg_pnl", "crypto_pnl", "stock_pnl"):
         assert key in stats
+
+
+# ===========================================================================
+# Phase 19 (RUN-02) — the RESOLVED predicate. VALIDATION cases 13, 14.
+#
+# RESOLVED := `pnl IS NOT NULL AND pnl <> 0`.
+#
+# 0.0 is NOT NULL, so Phase 18's `AND pnl IS NOT NULL` passes the 395 historical
+# sentinel rows straight through, and `(r["pnl"] or 0) > 0 -> False` then books every
+# one of them as a LOSS — roughly 60% of the closed-row population is a fabricated loss.
+# db.py:228's own comment ADMITS it: "A genuine 0.00 close is still counted."
+#
+# src/symbol_stats.py's `zero_pnl` bucket is the REFERENCE IMPLEMENTATION. The dashboard
+# is being brought into line with it, not the reverse.
+#
+# PURE — driven by the same _FakeConn fixture. These do NOT skip.
+# ===========================================================================
+
+def _resolved_fixture():
+    """1 win (+10), 1 real loss (-5), 1 sentinel (0.0), 1 NULL."""
+    return [_t(10.0), _t(-5.0), _t(0.0), _t(None)]
+
+
+def test_zero_pnl_is_not_a_loss(accuracy):
+    stats = accuracy(_resolved_fixture())
+    assert stats["wins"] == 1
+    assert stats["losses"] == 1            # NOT 2 — the 0.0 is not a loss
+    assert stats["resolved"] == 2          # NOT 3 — the sentinel left the DENOMINATOR too
+    assert stats["win_rate"] == pytest.approx(0.5)
+    assert stats["unresolved"] == 2        # the sentinel AND the NULL, reported BESIDE them
+
+
+def test_accuracy_dict_gains_unresolved_additively(accuracy):
+    """Research N6: consumers index by key (trade_logger.py:52-53 ->
+    alpaca_orchestrator.py:650,:1327; scripts/symbol_report.py:271). The nine existing
+    keys keep their names; `unresolved` is purely additive."""
+    stats = accuracy(_resolved_fixture())
+    for key in ("total_trades", "resolved", "wins", "losses", "win_rate",
+                "total_pnl", "avg_pnl", "crypto_pnl", "stock_pnl", "unresolved"):
+        assert key in stats, key
+    assert stats["total_pnl"] == pytest.approx(5.0)   # resolved rows only: +10 - 5
