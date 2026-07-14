@@ -533,3 +533,154 @@ def test_migration_019_exists_in_both_files():
     assert "CREATE TABLE IF NOT EXISTS runtime_heartbeat" in mig.read_text(encoding="utf-8")
     assert "runtime_heartbeat" in schema, \
         "runtime_heartbeat is migration-only — every fresh DB bootstrap lacks it"
+
+
+# ── Cases 30-34 — bots.status must not LIE about a live thread ────────────────
+#
+# Observed in the Phase-19 deploy verification: bots A/B/C had `thread_alive: true`,
+# were logging technical scans and completing cycles, and `bots.status` read 'stopped'.
+#
+# ROOT CAUSE. `bots.status` is written ONLY by the thread itself
+# (bot_thread.py:398/404/407 and copytrade_thread.py:429/434/436 -> _set_status ->
+# BotManager._on_status_change), and `_on_status_change` writes UNCONDITIONALLY keyed on
+# bot_id — it has no idea WHICH thread is calling. `_spawn` retires the previous thread
+# with `old.stop(); old.join(timeout=5)` and then starts the new one. A retired thread
+# that is mid-cycle (an Alpaca scan easily outlives a 5s join) unwinds LATER and runs its
+# epilogue `self._set_status("stopped", "")` — landing AFTER the new, live thread already
+# wrote 'running'. Last writer wins, and the last writer is a corpse. The DB then reports
+# 'stopped' for a bot that is alive and cycling.
+#
+# The fix makes the MANAGER — which knows it just started the thread — assert 'running' at
+# spawn, and ignores status writes from any thread that is no longer the registered thread
+# for that bot_id. `_check_bots_down` is untouched: it still takes `alive_before` and reads
+# THREAD LIVENESS, never this column.
+
+class SpyThread:
+    """Stand-in for BotThread/CopyTraderThread — accepts BOTH constructor shapes
+    (`BotThread(cfg, on_status_change=...)` and
+    `CopyTraderThread(cfg, pool=..., on_status_change=...)`), records the status callback,
+    and NEVER touches Alpaca, the DB, or a real trading loop."""
+
+    def __init__(self, config, pool=None, on_status_change=None):
+        self.config = config
+        self.on_status_change = on_status_change
+        self._alive = False
+        self.started = 0
+
+    def is_alive(self):
+        return self._alive
+
+    def start(self):
+        self.started += 1
+        self._alive = True
+
+    def stop(self):
+        self._alive = False
+
+    def join(self, timeout=None):
+        return None
+
+    def emit(self, status, detail=""):
+        """Simulate the thread calling _set_status (bot_thread.py:240)."""
+        self.on_status_change(self.config.bot_id, status, detail)
+
+
+def _status_writes(store, bot_id):
+    """Every (status, detail) written to `bots.status` for one bot, in order."""
+    out = []
+    for sql, params in store["writes"]:
+        if sql.startswith("UPDATE bots SET status") and params and params[-1] == bot_id:
+            out.append((params[0], params[1]))
+    return out
+
+
+def _spawn_row(mgr, row):
+    mgr._spawn(bm.BotConfig.from_row(row))
+    return mgr._threads[row["bot_id"]]
+
+
+# ── Case 30 — a spawned, ALIVE bot must read 'running' in the DB ──────────────
+
+def test_spawned_bot_is_running_in_db(make_manager, monkeypatch):
+    """THE BUG. After _spawn the thread is alive — the DB must say so.
+
+    RED on main: _spawn (bot_manager.py:466-489) starts the thread and writes NOTHING.
+    The column is left at whatever the last writer said — for A/B/C, the 'stopped' that
+    seed_bots.py:158 inserted, or a retired thread's epilogue.
+    """
+    mgr, store = make_manager([_row("A")], stub_spawn=False)
+    monkeypatch.setattr(bm, "BotThread", SpyThread)
+
+    thread = _spawn_row(mgr, _row("A"))
+
+    assert thread.is_alive(), "precondition — _spawn must start the thread"
+    writes = _status_writes(store, "A")
+    assert writes, "a spawned bot wrote NO status — the DB still claims 'stopped'"
+    assert writes[-1][0] == "running", f"alive bot reported as {writes[-1][0]!r}"
+
+
+# ── Case 31 — a RETIRED thread may not clobber the live one's 'running' ───────
+
+def test_retired_thread_cannot_clobber_running_status(make_manager, monkeypatch):
+    """The production mechanism. `old.join(timeout=5)` gives up on a mid-cycle thread;
+    that thread later runs `_set_status("stopped")` (bot_thread.py:407) and overwrites the
+    LIVE thread's 'running'."""
+    mgr, store = make_manager([_row("A")], stub_spawn=False)
+    monkeypatch.setattr(bm, "BotThread", SpyThread)
+
+    old = _spawn_row(mgr, _row("A"))       # cycle 1 thread — will be retired
+    new = _spawn_row(mgr, _row("A"))       # respawn (restart / revive / config change)
+    assert new is not old and new.is_alive()
+
+    old.emit("stopped", "")                # the corpse's epilogue, after the 5s join gave up
+
+    writes = _status_writes(store, "A")
+    assert writes[-1][0] == "running", \
+        f"a retired thread wrote {writes[-1][0]!r} over the live thread's 'running'"
+
+
+# ── Case 32 — the DEATH path must still work (do not break Phase 19) ──────────
+
+def test_live_thread_can_still_report_error_and_stopped(make_manager, monkeypatch):
+    """The CURRENT thread's own status writes must still land — a bot that dies has to be
+    able to say so."""
+    mgr, store = make_manager([_row("A")], stub_spawn=False)
+    monkeypatch.setattr(bm, "BotThread", SpyThread)
+
+    thread = _spawn_row(mgr, _row("A"))
+    thread.emit("error", "boom")
+    assert _status_writes(store, "A")[-1] == ("error", "boom")
+
+    thread.emit("stopped", "")
+    assert _status_writes(store, "A")[-1] == ("stopped", "")
+
+
+# ── Case 33 — CopyTraderThread (Bot E) is covered too ─────────────────────────
+
+def test_spawned_copytrade_bot_is_running_in_db(make_manager, monkeypatch):
+    """_spawn dispatches on cfg.strategy (bot_manager.py:479-486). Bot E's class must get
+    the same treatment — it has a byte-identical _set_status (copytrade_thread.py:140)."""
+    mgr, store = make_manager([_row("E", strategy="copytrade")], stub_spawn=False)
+    monkeypatch.setattr(bm, "CopyTraderThread", SpyThread)
+
+    thread = _spawn_row(mgr, _row("E", strategy="copytrade"))
+
+    assert isinstance(thread, SpyThread) and thread.is_alive()
+    writes = _status_writes(store, "E")
+    assert writes and writes[-1][0] == "running", "copytrade bot alive but not 'running'"
+
+
+# ── Case 34 — a DELIBERATE stop must still land as 'stopped' ──────────────────
+
+def test_stop_bot_writes_stopped(make_manager, monkeypatch):
+    """stop_bot POPS the thread from the registry, so the thread's own epilogue is (now,
+    correctly) ignored as a retired writer. The manager must therefore record the stop
+    itself — or a stopped bot would read 'running' forever, the same lie inverted."""
+    mgr, store = make_manager([_row("A")], stub_spawn=False)
+    monkeypatch.setattr(bm, "BotThread", SpyThread)
+
+    _spawn_row(mgr, _row("A"))
+    mgr.stop_bot("A")
+
+    writes = _status_writes(store, "A")
+    assert writes[-1][0] == "stopped", f"stopped bot reported as {writes[-1][0]!r}"

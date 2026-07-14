@@ -418,6 +418,10 @@ class BotManager:
             thread.stop()
         for _, thread in snapshot:
             thread.join(timeout=15)
+        # Same as stop_bot: these threads are de-registered, so record the stop here or the
+        # column would claim 'running' for a shut-down process.
+        for bot_id, _ in snapshot:
+            self._on_status_change(bot_id, "stopped", "")
 
     def add(self, row: dict) -> None:
         """Spawn a new bot thread from a freshly-inserted DB row."""
@@ -441,6 +445,9 @@ class BotManager:
         if thread:
             thread.stop()
             thread.join(timeout=15)
+            # The thread is de-registered, so its own epilogue is now (correctly) dropped
+            # as a retired writer — the manager records the deliberate stop instead.
+            self._on_status_change(bot_id, "stopped", "")
 
     def enable_bot(self, bot_id: str, row: dict) -> None:
         """Spawn thread for a previously-disabled bot."""
@@ -476,17 +483,53 @@ class BotManager:
         if old and old.is_alive():
             old.stop()
             old.join(timeout=5)
+
+        # Each thread gets a callback BOUND TO ITSELF (see _status_writer). A retired
+        # thread must not be able to write `bots.status` — join(timeout=5) above gives up
+        # on a mid-cycle thread, which then unwinds later and runs its epilogue
+        # `_set_status("stopped")` (bot_thread.py:407, copytrade_thread.py:436), landing
+        # AFTER the live thread's 'running'. That corpse's write is why A/B/C read
+        # 'stopped' while alive and cycling.
+        holder: dict = {}
+        on_status_change = self._status_writer(holder)
         if cfg.strategy == "copytrade":
             thread = CopyTraderThread(
                 cfg,
                 pool=self._pool,
-                on_status_change=self._on_status_change,
+                on_status_change=on_status_change,
             )
         else:
-            thread = BotThread(cfg, on_status_change=self._on_status_change)
+            thread = BotThread(cfg, on_status_change=on_status_change)
+        holder["thread"] = thread
         self._threads[cfg.bot_id] = thread
         thread.start()
+        # The MANAGER asserts 'running' — it is the only party that knows the thread was
+        # just started. The thread's own first write (run():398) is not sufficient: it
+        # races the outgoing thread's epilogue, and nothing else ever repairs the column.
+        self._on_status_change(cfg.bot_id, "running", "")
         log.info("BotManager: spawned bot %s (%s, strategy=%s)", cfg.bot_id, cfg.label, cfg.strategy)
+
+    def _status_writer(self, holder: dict):
+        """A status callback that only the CURRENTLY REGISTERED thread may use.
+
+        `_on_status_change` writes keyed on bot_id alone and cannot tell which thread is
+        calling, so a retired thread's late 'stopped' silently overwrites the live thread's
+        'running'. This drops writes from any thread that is no longer `_threads[bot_id]`.
+        `_threads` is read without the lock ON PURPOSE — a dict get is atomic, and taking
+        `self._lock` here would block the new thread's first status write behind the
+        `_spawn` / `_revive_dead_bots` critical section that spawned it.
+        """
+        def _write(bot_id: str, status: str, detail: str) -> None:
+            thread = holder.get("thread")
+            if thread is not None and self._threads.get(bot_id) is not thread:
+                log.info(
+                    "BotManager: ignoring stale status %r from a retired thread for bot %s",
+                    status, bot_id,
+                )
+                return
+            self._on_status_change(bot_id, status, detail)
+
+        return _write
 
     def _on_status_change(self, bot_id: str, status: str, detail: str) -> None:
         """Write status back to DB when thread changes state."""
