@@ -184,10 +184,20 @@ is Postgres via `src/db.py`. One Alpaca account per bot — never share.
 **Depends on**: Phase 11, Phase 12, Phase 13, Phase 15, Phase 18, Phase 19
 **Requirements**: VERIFY-01, VERIFY-02
 **Success Criteria** (what must be TRUE):
-  1. Unit/integration tests cover order-state resolution, realized-P&L math (with fees), universe rejection, and the reconciliation check — all green in `pytest`.
-  2. An end-to-end check on live/paper data shows resolution rate ≈100% and per-bot P&L reconciliation within tolerance.
-  3. The full suite (existing + new) passes with zero failures.
-**Plans**: TBD
+  1. Unit/integration tests cover order-state resolution, realized-P&L math (with fees), universe rejection, and the reconciliation check — all green. The four clauses are already covered by phases 11-19; Phase 20 closes the four *seams* (G1 the E2E chain, G2 the paper gate, G3 the backfill's symbol normalization, G4 the reconciliation window).
+  2. An end-to-end check on live/paper data shows resolution rate >= 95% and P&L reconciliation within tolerance **on the post-`T0` anchored window** — the period in which the fixed code was actually running. The **all-time** window is a fixed level offset and is provably unsatisfiable without an authorized write to the historical sentinel rows; it is reported as `legacy: true`, keeps breaching at the unchanged $25 tolerance, and is **never** made green by widening it. VERIFY-02 closes as **PARTIAL (scoped)**.
+  3. The full suite (existing + new) passes with zero failures and **zero new skips** (`python -m pytest tests/ dashboard/api/tests/ -q` — baseline 488 passed / 29 skipped).
+  4. `src/backfill.py`'s slash bug and `None`-coercion landmine are FIXED and TESTED, and the backfill is **left UNARMED**: a dry-run recovery-ceiling count and the exact `--apply` command are delivered; the 395 historical rows are **NOT touched**, behind a blocking human authorization.
+**Plans**: 7 plans in 4 waves
+
+Plans:
+- [ ] 20-01-PLAN.md — RED: G3 (backfill slash bug + `None` door) & G2 (paper gate); CORRECTS the mis-test at `tests/test_backfill.py:199`
+- [ ] 20-02-PLAN.md — RED: G4 (anchored window), the anchor/schema-mirror contract, G1 (E2E chain), the `e2e_verify.py` fences + fence self-test
+- [ ] 20-03-PLAN.md — fix `src/backfill.py` (normalize both compare sites; preserve the `None` sentinel); leave it UNARMED
+- [ ] 20-04-PLAN.md — `paper_trades_completed` = the canonical RESOLVED count; the gate reads worse, intended
+- [ ] 20-05-PLAN.md — migration `020_reconciliation_anchor.sql` + the `src/db_schema.sql` mirror + `ON CONFLICT DO NOTHING` + `reconcile_window`
+- [ ] 20-06-PLAN.md — `scripts/e2e_verify.py`, SELECT-only under `AIPW_DB_READONLY=1`; non-zero exit on FAIL / INSUFFICIENT_SAMPLE / NO_ANCHOR
+- [ ] 20-07-PLAN.md — `20-EVIDENCE.md` + VERIFY-02 (scoped) + **BLOCKING** human checkpoint for the 395-row backfill
 
 ### Progress
 
