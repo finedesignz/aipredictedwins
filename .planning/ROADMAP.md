@@ -36,8 +36,8 @@ then re-run the sweep over BOTH entry and exit knobs. Only then can TUNE-01 be h
 **Depends on**: Phase 18, Phase 20
 **Closes**: TUNE-01 (currently PARTIAL)
 
-**Plans:** 3 plans in 3 waves
-- [ ] 21-01-PLAN.md — Extract shared pure evaluate_exit ladder (D-02); re-wire live monitor; parity tests
+**Plans:** 1/3 plans executed
+- [x] 21-01-PLAN.md — Extract shared pure evaluate_exit ladder (D-02); re-wire live monitor; parity tests
 - [ ] 21-02-PLAN.md — Backtester models 4-rung ATR ladder + per-bar ATR + pessimistic intra-bar; exit knobs on PhaseConfig/CLI
 - [ ] 21-03-PLAN.md — Extend sweep over entry x exit grid; mint 21-HOLDOUT.lock; run + close TUNE-01 honestly
 

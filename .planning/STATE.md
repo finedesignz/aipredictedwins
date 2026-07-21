@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: — Trustworthy P&L + Profitable Retune
-status: completed
-last_updated: "2026-07-14T07:13:29.233Z"
-last_activity: 2026-07-14 -- Phase 20 waves 1-3 executed; 20-07 held for the orchestrator
+status: executing
+last_updated: "2026-07-21T06:21:47.322Z"
+last_activity: 2026-07-21 -- Phase 21 execution started
 progress:
-  total_phases: 11
-  completed_phases: 7
-  total_plans: 44
-  completed_plans: 39
-  percent: 64
+  total_phases: 1
+  completed_phases: 0
+  total_plans: 3
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -18,14 +18,14 @@ progress:
 ## Project Reference
 
 **Core value:** Compounding, self-improving automated trading edge — the bot gets measurably better as it accumulates trade outcomes, without manual retuning.
-**Current focus:** Milestone complete
+**Current focus:** Phase 21 — Exit-Stack Backtest Fidelity + Real Retune
 
 ## Current Position
 
-Phase: 20 — Verification & E2E Reconciliation (VERIFY-01 + VERIFY-02)
-Plan: 20-07 — NOT STARTED (blocking credentials gate + the 395-row authorization checkpoint)
-Status: Plans 20-01..20-06 and 20-08 COMPLETE. Suite 541 passed / 29 skipped (baseline 488/29), zero regressions, zero new skips.
-Last activity: 2026-07-14 -- Phase 20 waves 1-3 executed; 20-07 held for the orchestrator
+Phase: 21 (Exit-Stack Backtest Fidelity + Real Retune) — EXECUTING
+Plan: 1 of 3
+Status: Executing Phase 21
+Last activity: 2026-07-21 -- Phase 21 execution started
 
 ## Accumulated Context
 
