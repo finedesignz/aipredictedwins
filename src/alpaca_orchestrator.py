@@ -34,6 +34,7 @@ from src.technical_signals import scan_assets, analyze, _atr, bear_fraction
 from src.rules_gate import RulesGate
 from src.risk_gate import RiskGate  # keep for backward compat / type hints
 from src.exit_advisor import TrailingStop, HARD_STOP_PCT, SOFT_STOP_PCT, SOFT_TAKE_PROFIT_PCT
+from src.exit_ladder import evaluate_exit
 from src.fee_gate import clears_fee_hurdle, TAKER_FEE, SLIPPAGE_BUFFER
 from src.pnl import realized_pnl
 from src.trade_logger import TradeLogger
@@ -315,30 +316,12 @@ class PositionMonitor(threading.Thread):
 
             # ----- Deterministic exit ladder (EXIT-02/EXIT-03), first-match wins -----
             # Precedence: hard_stop_pct -> max_hold -> ATR trailing stop -> ATR stop.
-            # No LLM: exits are fully deterministic.
-            threshold = None
-
-            # 1. Hard stop — absolute, side-aware pnl_pct already computed above.
-            if pnl_pct <= self.profile.hard_stop_pct:
-                threshold = "hard_stop"
-            # 2. Max hold — only when configured (swing = None never time-closes).
-            elif self.profile.max_hold_hours is not None and hours_held > self.profile.max_hold_hours:
-                threshold = "max_hold"
-            # 3. ATR trailing stop (side-aware, only when ATR is valid).
-            elif atr > 0 and self._trailing.update_atr(
-                trade_id, side, entry_price, current_price, atr, self.profile.atr_mult_trail
-            ):
-                threshold = "trailing_stop"
-            # 4. ATR fixed stop (side-aware) — only when ATR is valid.
-            elif atr > 0:
-                if side in ("sell", "short"):
-                    atr_stop_level = entry_price + self.profile.atr_mult_stop * atr
-                    if current_price >= atr_stop_level:
-                        threshold = "atr_stop"
-                else:
-                    atr_stop_level = entry_price - self.profile.atr_mult_stop * atr
-                    if current_price <= atr_stop_level:
-                        threshold = "atr_stop"
+            # No LLM: exits are fully deterministic. Single source of truth (D-02):
+            # the live monitor and the backtester both call src.exit_ladder.evaluate_exit.
+            threshold = evaluate_exit(
+                self.profile, side, entry_price, current_price,
+                hours_held, atr, self._trailing, trade_id,
+            )
 
             # Dormant tightened-stop rung (harmless; nothing sets _tightened this phase).
             if not threshold and trade_id in self._tightened and current_price < entry_price:
