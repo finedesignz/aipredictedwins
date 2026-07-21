@@ -99,4 +99,4 @@ def test_atr_non_positive_skips_trail_and_fixed():
     p = _profile(hard_stop_pct=-0.99, max_hold_hours=None)
     # atr = 0 -> rungs 3 and 4 skipped, nothing fires
     assert evaluate_exit(p, "buy", 100.0, 50.0, 1.0, 0.0, TrailingStop(), 1) is None
-    assert evaluate_exit(p, "sell", 100.0, 200.0, 1.0, 0.0, TrailingStop(), 2) is None
+    assert evaluate_exit(p, "sell", 100.0, 101.0, 1.0, 0.0, TrailingStop(), 2) is None
