@@ -34,11 +34,12 @@ from src.technical_signals import scan_assets, analyze, _atr, bear_fraction
 from src.rules_gate import RulesGate
 from src.risk_gate import RiskGate  # keep for backward compat / type hints
 from src.exit_advisor import TrailingStop, HARD_STOP_PCT, SOFT_STOP_PCT, SOFT_TAKE_PROFIT_PCT
+from src.exit_ladder import evaluate_exit
 from src.fee_gate import clears_fee_hurdle, TAKER_FEE, SLIPPAGE_BUFFER
 from src.pnl import realized_pnl
 from src.trade_logger import TradeLogger
 
-from src.notifier import alert_bot_crash, alert_drawdown_stop, alert_monitor_error, alert_position_closed, send_alert
+from src.notifier import alert_bot_crash, alert_drawdown_stop, alert_monitor_error, alert_monitor_recovered, alert_position_closed, send_alert
 from src.pipeline_state import PipelineState
 
 try:
@@ -88,6 +89,14 @@ _ALPACA_UNTRADEABLE = frozenset(
 BEAR_MARKET_PAUSE_THRESHOLD = float(_os.environ.get("BEAR_MARKET_PAUSE_THRESHOLD", "0.60"))
 CYCLE_SLEEP_SECONDS = int(_os.environ.get("CYCLE_SLEEP_SECONDS", str(PROFILE.scan_interval_s)))
 POSITION_CHECK_INTERVAL = int(_os.environ.get("POSITION_CHECK_INTERVAL", "60"))
+# A single failed monitor cycle is normal (transient Alpaca timeouts are already retried
+# inside AlpacaClient._retry) and must NOT email. Only sustained failure — this many
+# CONSECUTIVE failed cycles — is worth alerting on.
+# max(1, ...): the gate fires on `_consecutive_failures == THRESHOLD`, and the counter
+# starts at 1, so a threshold <= 0 would be unsatisfiable and silently disable alerting
+# forever. Floor at 1 so a misconfigured value degrades to "alert on first failure", never
+# to "never alert".
+MONITOR_ALERT_FAILURE_THRESHOLD = max(1, int(_os.environ.get("MONITOR_ALERT_FAILURE_THRESHOLD", "3")))
 SKIP_RISK_GATE = _os.environ.get("SKIP_RISK_GATE", "").lower() in ("1", "true", "yes")
 BOT_LABEL = _os.environ.get("BOT_LABEL", "Agent A")
 SHORT_ENABLED = _os.environ.get("SHORT_ENABLED", "true").lower() in ("1", "true", "yes")
@@ -206,6 +215,8 @@ class PositionMonitor(threading.Thread):
         self.total_pnl = 0.0
         self._tightened: set[int] = set()  # trade IDs with tightened stops
         self._trailing = TrailingStop()    # trailing stop tracker
+        self._consecutive_failures = 0
+        self._alerted = False  # True once a sustained-failure alert has fired this outage
 
     def stop(self):
         self._stop_event.set()
@@ -215,9 +226,20 @@ class PositionMonitor(threading.Thread):
         while not self._stop_event.is_set():
             try:
                 self._check_all_positions()
+                if self._alerted:
+                    alert_monitor_recovered(self.logger.bot_id, "all", self._consecutive_failures)
+                    self._alerted = False
+                self._consecutive_failures = 0
             except Exception as exc:
-                log.error("Position monitor error: %s", exc)
-                alert_monitor_error("all", exc)
+                self._consecutive_failures += 1
+                log.error("Position monitor error (consecutive=%d): %s",
+                          self._consecutive_failures, exc)
+                # Fire on the threshold TRANSITION (==), not every cycle past it (>=).
+                # A sustained outage crosses the threshold once and must not re-alert on
+                # every subsequent cycle; _alerted already guards recovery firing once.
+                if self._consecutive_failures == MONITOR_ALERT_FAILURE_THRESHOLD:
+                    alert_monitor_error(self.logger.bot_id, "all", exc, self._consecutive_failures)
+                    self._alerted = True
             self._stop_event.wait(POSITION_CHECK_INTERVAL)
         log.info("Position monitor stopped (checks=%d, closes=%d, pnl=$%.2f)",
                  self.checks, self.closes, self.total_pnl)
@@ -315,30 +337,12 @@ class PositionMonitor(threading.Thread):
 
             # ----- Deterministic exit ladder (EXIT-02/EXIT-03), first-match wins -----
             # Precedence: hard_stop_pct -> max_hold -> ATR trailing stop -> ATR stop.
-            # No LLM: exits are fully deterministic.
-            threshold = None
-
-            # 1. Hard stop — absolute, side-aware pnl_pct already computed above.
-            if pnl_pct <= self.profile.hard_stop_pct:
-                threshold = "hard_stop"
-            # 2. Max hold — only when configured (swing = None never time-closes).
-            elif self.profile.max_hold_hours is not None and hours_held > self.profile.max_hold_hours:
-                threshold = "max_hold"
-            # 3. ATR trailing stop (side-aware, only when ATR is valid).
-            elif atr > 0 and self._trailing.update_atr(
-                trade_id, side, entry_price, current_price, atr, self.profile.atr_mult_trail
-            ):
-                threshold = "trailing_stop"
-            # 4. ATR fixed stop (side-aware) — only when ATR is valid.
-            elif atr > 0:
-                if side in ("sell", "short"):
-                    atr_stop_level = entry_price + self.profile.atr_mult_stop * atr
-                    if current_price >= atr_stop_level:
-                        threshold = "atr_stop"
-                else:
-                    atr_stop_level = entry_price - self.profile.atr_mult_stop * atr
-                    if current_price <= atr_stop_level:
-                        threshold = "atr_stop"
+            # No LLM: exits are fully deterministic. Single source of truth (D-02):
+            # the live monitor and the backtester both call src.exit_ladder.evaluate_exit.
+            threshold = evaluate_exit(
+                self.profile, side, entry_price, current_price,
+                hours_held, atr, self._trailing, trade_id,
+            )
 
             # Dormant tightened-stop rung (harmless; nothing sets _tightened this phase).
             if not threshold and trade_id in self._tightened and current_price < entry_price:
@@ -397,7 +401,7 @@ class PositionMonitor(threading.Thread):
                     alert_position_closed(symbol, side, entry_price, exit_fill, realized, close_reason)
                 except Exception as exc:
                     log.error("[MONITOR] Failed to close %s: %s", symbol, exc)
-                    alert_monitor_error(symbol, exc)
+                    alert_monitor_error(self.logger.bot_id, symbol, exc)
 
     def get_stats(self) -> dict:
         return {
