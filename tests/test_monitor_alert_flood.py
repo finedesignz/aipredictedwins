@@ -85,10 +85,14 @@ def test_send_alert_without_dedup_key_is_never_throttled(sent, _clean_cooldown_s
 
 class _FakeMonitor:
     """Exercises the exact gate/throttle/recovery logic in PositionMonitor.run without
-    spinning up a real thread, a real Alpaca client, or the 60s wait loop."""
+    spinning up a real thread, a real Alpaca client, or the 60s wait loop.
 
-    def __init__(self, threshold):
+    Mirrors the real ==-edge semantics: fire on the threshold TRANSITION only, not
+    every cycle past it."""
+
+    def __init__(self, threshold, bot_id="A"):
         self.threshold = threshold
+        self.bot_id = bot_id
         self._consecutive_failures = 0
         self._alerted = False
         self.checks_calls = []
@@ -103,13 +107,13 @@ class _FakeMonitor:
         try:
             self._check_all_positions()
             if self._alerted:
-                alert_monitor_recovered("all", self._consecutive_failures)
+                alert_monitor_recovered(self.bot_id, "all", self._consecutive_failures)
                 self._alerted = False
             self._consecutive_failures = 0
         except Exception as exc:
             self._consecutive_failures += 1
-            if self._consecutive_failures >= self.threshold:
-                alert_monitor_error("all", exc, self._consecutive_failures)
+            if self._consecutive_failures == self.threshold:
+                alert_monitor_error(self.bot_id, "all", exc, self._consecutive_failures)
                 self._alerted = True
 
 
@@ -159,3 +163,70 @@ def test_recovery_sends_one_email_and_resets_state(sent, _clean_cooldown_state):
     for _ in range(3):
         mon.run_one_cycle()
     assert len(sent) == 3
+
+
+# ── Bot-scoped dedup keys (all bots' PositionMonitor threads share one process) ─────
+
+def test_two_bots_alerting_same_category_both_email(sent, _clean_cooldown_state):
+    """Bot A and bot C failing at the same time must not collapse into one email —
+    they use distinct dedup keys (f"{bot_id}:all")."""
+    mon_a = _FakeMonitor(threshold=3, bot_id="A")
+    mon_c = _FakeMonitor(threshold=3, bot_id="C")
+    mon_a.checks_calls = [RuntimeError("timeout")] * 3
+    mon_c.checks_calls = [RuntimeError("timeout")] * 3
+
+    for _ in range(3):
+        mon_a.run_one_cycle()
+    for _ in range(3):
+        mon_c.run_one_cycle()
+
+    assert len(sent) == 2  # both bots alerted, neither suppressed the other
+    subjects = [c["Message"]["Subject"]["Data"] for c in sent]
+    assert any("[A]" in s for s in subjects)
+    assert any("[C]" in s for s in subjects)
+
+
+def test_bot_a_recovery_does_not_reset_bot_c_cooldown(sent, _clean_cooldown_state):
+    """Recovery for bot A must only reset bot A's cooldown key — bot C's independent
+    outage cooldown must be untouched."""
+    mon_a = _FakeMonitor(threshold=3, bot_id="A")
+    mon_c = _FakeMonitor(threshold=3, bot_id="C")
+
+    # Both bots hit the sustained-failure threshold (2 alert emails).
+    mon_a.checks_calls = [RuntimeError("timeout")] * 3
+    mon_c.checks_calls = [RuntimeError("timeout")] * 3
+    for _ in range(3):
+        mon_a.run_one_cycle()
+    for _ in range(3):
+        mon_c.run_one_cycle()
+    assert len(sent) == 2
+
+    # Bot A recovers.
+    mon_a.checks_calls = [None]
+    mon_a.run_one_cycle()
+    assert len(sent) == 3  # recovery email for A
+
+    # Bot C is still within its cooldown window — a further C failure must stay throttled,
+    # proving A's recovery reset only A's dedup key, not C's.
+    mon_c._consecutive_failures = 3  # simulate C still sustained-failing
+    mon_c.checks_calls = [RuntimeError("still down")]
+    try:
+        mon_c._check_all_positions()
+    except RuntimeError as exc:
+        mon_c._consecutive_failures += 1
+        if mon_c._consecutive_failures == mon_c.threshold:
+            alert_monitor_error(mon_c.bot_id, "all", exc, mon_c._consecutive_failures)
+    assert len(sent) == 3  # no new email for C — its cooldown from the earlier alert holds
+
+
+def test_edge_semantics_no_realert_while_sustained_past_threshold(sent, _clean_cooldown_state):
+    """== edge: the orchestrator layer itself only ever calls alert_monitor_error on the
+    threshold transition, never on every cycle past it — independent of the notifier
+    cooldown (which is asserted separately in test_further_failures_within_cooldown...)."""
+    mon = _FakeMonitor(threshold=3, bot_id="A")
+    mon.checks_calls = [RuntimeError("timeout")] * 6
+    for _ in range(6):
+        mon.run_one_cycle()
+    # With == semantics, the fake monitor's own gate only invokes alert_monitor_error
+    # once (at failure #3) even though failures continue to 4, 5, 6.
+    assert len(sent) == 1

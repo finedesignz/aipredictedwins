@@ -223,15 +223,18 @@ class PositionMonitor(threading.Thread):
             try:
                 self._check_all_positions()
                 if self._alerted:
-                    alert_monitor_recovered("all", self._consecutive_failures)
+                    alert_monitor_recovered(self.logger.bot_id, "all", self._consecutive_failures)
                     self._alerted = False
                 self._consecutive_failures = 0
             except Exception as exc:
                 self._consecutive_failures += 1
                 log.error("Position monitor error (consecutive=%d): %s",
                           self._consecutive_failures, exc)
-                if self._consecutive_failures >= MONITOR_ALERT_FAILURE_THRESHOLD:
-                    alert_monitor_error("all", exc, self._consecutive_failures)
+                # Fire on the threshold TRANSITION (==), not every cycle past it (>=).
+                # A sustained outage crosses the threshold once and must not re-alert on
+                # every subsequent cycle; _alerted already guards recovery firing once.
+                if self._consecutive_failures == MONITOR_ALERT_FAILURE_THRESHOLD:
+                    alert_monitor_error(self.logger.bot_id, "all", exc, self._consecutive_failures)
                     self._alerted = True
             self._stop_event.wait(POSITION_CHECK_INTERVAL)
         log.info("Position monitor stopped (checks=%d, closes=%d, pnl=$%.2f)",
@@ -394,7 +397,7 @@ class PositionMonitor(threading.Thread):
                     alert_position_closed(symbol, side, entry_price, exit_fill, realized, close_reason)
                 except Exception as exc:
                     log.error("[MONITOR] Failed to close %s: %s", symbol, exc)
-                    alert_monitor_error(symbol, exc)
+                    alert_monitor_error(self.logger.bot_id, symbol, exc)
 
     def get_stats(self) -> dict:
         return {

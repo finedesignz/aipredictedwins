@@ -227,35 +227,39 @@ def alert_drawdown_stop(daily_pnl: float, limit: float, bankroll: float) -> bool
     return send_alert("DRAWDOWN STOP", body, category="DRAWDOWN")
 
 
-def alert_monitor_error(symbol: str, error: Exception, consecutive_failures: int = 1) -> bool:
+def alert_monitor_error(bot_id: str, symbol: str, error: Exception, consecutive_failures: int = 1) -> bool:
     """Alert that the position monitor hit a SUSTAINED error (caller gates on
     consecutive_failures; see PositionMonitor.run in alpaca_orchestrator.py).
 
-    Throttled via dedup_key=symbol so a prolonged outage sends at most one email per
-    ALERT_COOLDOWN_SECONDS instead of one every check cycle.
+    Throttled via dedup_key=f"{bot_id}:{symbol}" — scoped per bot so one bot's outage
+    never suppresses or resets another bot's alert (all PositionMonitor threads share
+    this process; see src/bot_thread.py). bot_id is also stamped into the subject/body
+    so a human can tell which bot the alert is about, independent of the process-wide
+    BOT_LABEL env var (which reflects whichever bot happened to import this module first).
     """
     body = (
-        f"Position monitor error for {symbol}.\n\n"
+        f"Position monitor error for bot {bot_id}, symbol {symbol}.\n\n"
         f"Error: {error}\n"
         f"Consecutive failed cycles: {consecutive_failures}\n\n"
         f"The position may not be monitored correctly."
     )
-    return send_alert(f"Monitor error: {symbol}", body, category="MONITOR_ERROR",
-                      dedup_key=symbol)
+    return send_alert(f"Monitor error [{bot_id}]: {symbol}", body, category="MONITOR_ERROR",
+                      dedup_key=f"{bot_id}:{symbol}")
 
 
-def alert_monitor_recovered(symbol: str, consecutive_failures: int) -> bool:
+def alert_monitor_recovered(bot_id: str, symbol: str, consecutive_failures: int) -> bool:
     """Alert that the position monitor recovered after a sustained outage.
 
     Sent exactly once per outage (caller only invokes this after a previously-alerted
-    failure streak ends in a successful cycle).
+    failure streak ends in a successful cycle). dedup_key/cooldown reset are scoped per
+    bot_id so bot A's recovery never resets bot C's cooldown.
     """
     body = (
-        f"Position monitor recovered for {symbol}.\n\n"
+        f"Position monitor recovered for bot {bot_id}, symbol {symbol}.\n\n"
         f"It had failed {consecutive_failures} consecutive cycles before this recovery."
     )
-    ok = send_alert(f"Monitor recovered: {symbol}", body, category="MONITOR_ERROR")
-    reset_alert_cooldown("MONITOR_ERROR", symbol)
+    ok = send_alert(f"Monitor recovered [{bot_id}]: {symbol}", body, category="MONITOR_ERROR")
+    reset_alert_cooldown("MONITOR_ERROR", f"{bot_id}:{symbol}")
     return ok
 
 
