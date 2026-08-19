@@ -39,7 +39,7 @@ from src.fee_gate import clears_fee_hurdle, TAKER_FEE, SLIPPAGE_BUFFER
 from src.pnl import realized_pnl
 from src.trade_logger import TradeLogger
 
-from src.notifier import alert_bot_crash, alert_drawdown_stop, alert_monitor_error, alert_position_closed, send_alert
+from src.notifier import alert_bot_crash, alert_drawdown_stop, alert_monitor_error, alert_monitor_recovered, alert_position_closed, send_alert
 from src.pipeline_state import PipelineState
 
 try:
@@ -89,6 +89,10 @@ _ALPACA_UNTRADEABLE = frozenset(
 BEAR_MARKET_PAUSE_THRESHOLD = float(_os.environ.get("BEAR_MARKET_PAUSE_THRESHOLD", "0.60"))
 CYCLE_SLEEP_SECONDS = int(_os.environ.get("CYCLE_SLEEP_SECONDS", str(PROFILE.scan_interval_s)))
 POSITION_CHECK_INTERVAL = int(_os.environ.get("POSITION_CHECK_INTERVAL", "60"))
+# A single failed monitor cycle is normal (transient Alpaca timeouts are already retried
+# inside AlpacaClient._retry) and must NOT email. Only sustained failure — this many
+# CONSECUTIVE failed cycles — is worth alerting on.
+MONITOR_ALERT_FAILURE_THRESHOLD = int(_os.environ.get("MONITOR_ALERT_FAILURE_THRESHOLD", "3"))
 SKIP_RISK_GATE = _os.environ.get("SKIP_RISK_GATE", "").lower() in ("1", "true", "yes")
 BOT_LABEL = _os.environ.get("BOT_LABEL", "Agent A")
 SHORT_ENABLED = _os.environ.get("SHORT_ENABLED", "true").lower() in ("1", "true", "yes")
@@ -207,6 +211,8 @@ class PositionMonitor(threading.Thread):
         self.total_pnl = 0.0
         self._tightened: set[int] = set()  # trade IDs with tightened stops
         self._trailing = TrailingStop()    # trailing stop tracker
+        self._consecutive_failures = 0
+        self._alerted = False  # True once a sustained-failure alert has fired this outage
 
     def stop(self):
         self._stop_event.set()
@@ -216,9 +222,17 @@ class PositionMonitor(threading.Thread):
         while not self._stop_event.is_set():
             try:
                 self._check_all_positions()
+                if self._alerted:
+                    alert_monitor_recovered("all", self._consecutive_failures)
+                    self._alerted = False
+                self._consecutive_failures = 0
             except Exception as exc:
-                log.error("Position monitor error: %s", exc)
-                alert_monitor_error("all", exc)
+                self._consecutive_failures += 1
+                log.error("Position monitor error (consecutive=%d): %s",
+                          self._consecutive_failures, exc)
+                if self._consecutive_failures >= MONITOR_ALERT_FAILURE_THRESHOLD:
+                    alert_monitor_error("all", exc, self._consecutive_failures)
+                    self._alerted = True
             self._stop_event.wait(POSITION_CHECK_INTERVAL)
         log.info("Position monitor stopped (checks=%d, closes=%d, pnl=$%.2f)",
                  self.checks, self.closes, self.total_pnl)

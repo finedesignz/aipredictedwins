@@ -8,6 +8,8 @@ position monitor failures, and daily summaries.
 import json
 import logging
 import os
+import threading
+import time
 import traceback
 from pathlib import Path
 
@@ -40,6 +42,19 @@ def _get_ses_client():
 
 
 _last_error: str | None = None
+
+# Injectable clock (tests monkeypatch this instead of sleeping). time.monotonic never
+# jumps backward on wall-clock changes, unlike time.time().
+_monotonic = time.monotonic
+
+# Default cooldown window for the (category, dedup_key) throttle below. Env-overridable,
+# following the same pattern as every other numeric knob in this codebase.
+ALERT_COOLDOWN_SECONDS = float(os.environ.get("ALERT_COOLDOWN_SECONDS", "900"))
+
+# Guards _last_alert_sent — multiple bot threads (A/B/C/D position monitors) share this
+# process and can call send_alert concurrently.
+_cooldown_lock = threading.Lock()
+_last_alert_sent: dict[tuple[str, str], float] = {}
 
 
 # Every category that can be muted. `send_alert`'s default category is GENERAL, so an
@@ -117,7 +132,34 @@ def last_alert_error() -> str | None:
     return _last_error
 
 
-def send_alert(subject: str, body: str, category: str = "GENERAL") -> bool:
+def _cooldown_ok(category: str, dedup_key: str) -> bool:
+    """True if (category, dedup_key) hasn't alerted within ALERT_COOLDOWN_SECONDS.
+
+    Thread-safe (module-level lock) — records the send timestamp under the same lock so
+    two threads racing on the same key can't both slip through.
+    """
+    key = (category.upper(), dedup_key)
+    now = _monotonic()
+    with _cooldown_lock:
+        last = _last_alert_sent.get(key)
+        if last is not None and (now - last) < ALERT_COOLDOWN_SECONDS:
+            return False
+        _last_alert_sent[key] = now
+        return True
+
+
+def reset_alert_cooldown(category: str, dedup_key: str) -> None:
+    """Clear a (category, dedup_key) cooldown entry so the next alert always sends.
+
+    Used on recovery so a later, distinct outage can alert again immediately rather than
+    waiting out a cooldown window that started during the prior outage.
+    """
+    with _cooldown_lock:
+        _last_alert_sent.pop((category.upper(), dedup_key), None)
+
+
+def send_alert(subject: str, body: str, category: str = "GENERAL",
+               dedup_key: str | None = None) -> bool:
     """Send an alert email. Returns True on success, False on failure or suppression.
 
     Never raises — errors are logged but swallowed so alerts don't crash the bot. The
@@ -128,10 +170,18 @@ def send_alert(subject: str, body: str, category: str = "GENERAL") -> bool:
     SUPPRESSION IS NEVER SILENT: an alert that fires, sends nothing, and leaves no trace
     is the same class of lie this milestone exists to kill. The signal always survives in
     the container logs even when the email is off.
+
+    If `dedup_key` is given, repeat alerts for the same (category, dedup_key) within
+    ALERT_COOLDOWN_SECONDS are throttled — logged at WARNING with their full body
+    (prefixed `[alert throttled: <category>]`), not emailed. Distinct dedup_keys within
+    the same category are never collapsed into each other.
     """
     global _last_error
     if not alerts_enabled(category):
         log.warning("[alert suppressed: %s] %s\n\n%s", category.upper(), subject, body)
+        return False
+    if dedup_key is not None and not _cooldown_ok(category, dedup_key):
+        log.warning("[alert throttled: %s] %s\n\n%s", category.upper(), subject, body)
         return False
     try:
         ses = _get_ses_client()
@@ -177,14 +227,36 @@ def alert_drawdown_stop(daily_pnl: float, limit: float, bankroll: float) -> bool
     return send_alert("DRAWDOWN STOP", body, category="DRAWDOWN")
 
 
-def alert_monitor_error(symbol: str, error: Exception) -> bool:
-    """Alert that the position monitor hit an error."""
+def alert_monitor_error(symbol: str, error: Exception, consecutive_failures: int = 1) -> bool:
+    """Alert that the position monitor hit a SUSTAINED error (caller gates on
+    consecutive_failures; see PositionMonitor.run in alpaca_orchestrator.py).
+
+    Throttled via dedup_key=symbol so a prolonged outage sends at most one email per
+    ALERT_COOLDOWN_SECONDS instead of one every check cycle.
+    """
     body = (
         f"Position monitor error for {symbol}.\n\n"
-        f"Error: {error}\n\n"
+        f"Error: {error}\n"
+        f"Consecutive failed cycles: {consecutive_failures}\n\n"
         f"The position may not be monitored correctly."
     )
-    return send_alert(f"Monitor error: {symbol}", body, category="MONITOR_ERROR")
+    return send_alert(f"Monitor error: {symbol}", body, category="MONITOR_ERROR",
+                      dedup_key=symbol)
+
+
+def alert_monitor_recovered(symbol: str, consecutive_failures: int) -> bool:
+    """Alert that the position monitor recovered after a sustained outage.
+
+    Sent exactly once per outage (caller only invokes this after a previously-alerted
+    failure streak ends in a successful cycle).
+    """
+    body = (
+        f"Position monitor recovered for {symbol}.\n\n"
+        f"It had failed {consecutive_failures} consecutive cycles before this recovery."
+    )
+    ok = send_alert(f"Monitor recovered: {symbol}", body, category="MONITOR_ERROR")
+    reset_alert_cooldown("MONITOR_ERROR", symbol)
+    return ok
 
 
 def alert_position_closed(symbol: str, side: str, entry: float, exit_price: float,
