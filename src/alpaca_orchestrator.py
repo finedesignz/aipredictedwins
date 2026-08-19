@@ -92,7 +92,11 @@ POSITION_CHECK_INTERVAL = int(_os.environ.get("POSITION_CHECK_INTERVAL", "60"))
 # A single failed monitor cycle is normal (transient Alpaca timeouts are already retried
 # inside AlpacaClient._retry) and must NOT email. Only sustained failure — this many
 # CONSECUTIVE failed cycles — is worth alerting on.
-MONITOR_ALERT_FAILURE_THRESHOLD = int(_os.environ.get("MONITOR_ALERT_FAILURE_THRESHOLD", "3"))
+# max(1, ...): the gate fires on `_consecutive_failures == THRESHOLD`, and the counter
+# starts at 1, so a threshold <= 0 would be unsatisfiable and silently disable alerting
+# forever. Floor at 1 so a misconfigured value degrades to "alert on first failure", never
+# to "never alert".
+MONITOR_ALERT_FAILURE_THRESHOLD = max(1, int(_os.environ.get("MONITOR_ALERT_FAILURE_THRESHOLD", "3")))
 SKIP_RISK_GATE = _os.environ.get("SKIP_RISK_GATE", "").lower() in ("1", "true", "yes")
 BOT_LABEL = _os.environ.get("BOT_LABEL", "Agent A")
 SHORT_ENABLED = _os.environ.get("SHORT_ENABLED", "true").lower() in ("1", "true", "yes")
